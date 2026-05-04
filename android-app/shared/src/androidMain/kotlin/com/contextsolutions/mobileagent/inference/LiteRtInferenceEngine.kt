@@ -7,9 +7,12 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.SamplerConfig
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 /**
  * Production [InferenceEngine] backed by LiteRT-LM. The single seam between the
@@ -36,7 +39,19 @@ import kotlinx.coroutines.flow.flow
  */
 class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
 
-    override suspend fun loadModel(modelPath: String, config: InferenceConfig): ModelHandle {
+    /**
+     * Every blocking native call below MUST run off the main thread:
+     * [Engine.initialize] alone takes 4–8s cold on Pixel 7, well past Android's
+     * 5s ANR threshold. The previous version blocked the UI thread and was killed
+     * by the OS as "not responding" before the model finished loading.
+     *
+     * loadModel + unload are wrapped in withContext(IO); generate's Flow uses
+     * flowOn(IO) so both upstream emission AND downstream collect happen off main.
+     */
+    override suspend fun loadModel(
+        modelPath: String,
+        config: InferenceConfig,
+    ): ModelHandle = withContext(Dispatchers.IO) {
         // WARNING level keeps Logcat clean in production; bump to INFO when
         // debugging perf or accelerator selection on the M0 spike.
         Engine.setNativeMinLogSeverity(LogSeverity.WARNING)
@@ -55,7 +70,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         val engine = Engine(engineConfig)
         engine.initialize()
 
-        return LiteRtModelHandle(
+        LiteRtModelHandle(
             modelId = modelPath,
             loadedAtEpochMs = System.currentTimeMillis(),
             engine = engine,
@@ -64,6 +79,10 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
     }
 
     override fun unload(handle: ModelHandle) {
+        // Synchronous because the InferenceEngine contract is fire-and-forget for
+        // unload, but the actual native call still blocks. Callers should invoke
+        // from a background coroutine; see SpikeRunner which already does so via
+        // its withContext(IO) wrapper.
         val typed = handle as? LiteRtModelHandle ?: return
         typed.engine.close()
     }
@@ -100,7 +119,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
                 }
         }
         emit(GenerationEvent.Done(totalTokens = tokenIndex, finishReason = FinishReason.END_OF_TURN))
-    }
+    }.flowOn(Dispatchers.IO)
 
     private fun resolveBackend(accelerator: Accelerator): Backend = when (accelerator) {
         // null lets LiteRT-LM pick a sensible thread count (typically num cores).

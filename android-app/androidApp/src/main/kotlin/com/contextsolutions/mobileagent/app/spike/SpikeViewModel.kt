@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +24,12 @@ class SpikeViewModel @Inject constructor(
     val state: StateFlow<SpikeUiState> = _state.asStateFlow()
 
     fun runBenchmark(modelPath: String, accelerator: String) {
-        viewModelScope.launch {
+        // Dispatchers.IO so the synchronous parts of SpikeRunner (memory snapshots,
+        // engine.unload(), writing the JSON result) don't touch the main thread.
+        // LiteRtInferenceEngine internally pins its native calls to IO too, but
+        // launching here on IO removes any chance of an ANR from the harness itself.
+        // _state is a MutableStateFlow → safe to update from any thread.
+        viewModelScope.launch(Dispatchers.IO) {
             _state.value = SpikeUiState.InProgress("Loading model…")
             val run = runner.run(
                 modelPath = modelPath,

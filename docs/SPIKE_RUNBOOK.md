@@ -98,9 +98,9 @@ are memory-mapped which materially reduces resident footprint vs naive load).
 Download from HuggingFace (one-time):
 
 ```bash
-# Option A: huggingface-cli
+# Option A: huggingface-cli (now called hf)
 pip install -U huggingface_hub
-huggingface-cli download litert-community/gemma-4-E4B-it-litert-lm \
+hf download litert-community/gemma-4-E4B-it-litert-lm \
     gemma-4-E4B-it.litertlm --local-dir ~/models
 
 # Option B: direct download via web browser
