@@ -4,7 +4,7 @@
 # (older compilers can't read newer metadata). KSP 2.3+ dropped the dual-version
 # scheme and now uses plain SemVer aligned to the KSP API.
 kotlin = "2.3.21"
-agp = "8.7.3"
+agp = "9.1.1"
 ksp = "2.3.7"
 coroutines = "1.10.1"
 serialization = "1.7.3"
@@ -27,7 +27,7 @@ compose-compiler = "1.5.15"
 compose-navigation = "2.8.5"
 
 # DI
-hilt = "2.58"
+hilt = "2.59.2"
 hilt-navigation-compose = "1.2.0"
 
 # Networking
