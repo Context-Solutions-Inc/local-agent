@@ -1,8 +1,12 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    // AGP 9.0+ requires KMP libraries to use the new androidLibrary block exposed by
+    // `com.android.kotlin.multiplatform.library` instead of `com.android.library`,
+    // which AGP 9 explicitly forbids alongside kotlin.multiplatform. The new plugin
+    // is applied IN ADDITION to kotlin.multiplatform — it doesn't replace it.
     alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.sqldelight)
 }
@@ -20,7 +24,13 @@ kotlin {
         }
     }
 
-    androidTarget {
+    // Android target is configured via the new android block (provided by
+    // com.android.kotlin.multiplatform.library) instead of the old combo of
+    // kotlin.androidTarget + a top-level android { } block.
+    android {
+        namespace = "com.contextsolutions.mobileagent.shared"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
@@ -69,18 +79,6 @@ kotlin {
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
         }
-    }
-}
-
-android {
-    namespace = "com.contextsolutions.mobileagent.shared"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-    defaultConfig {
-        minSdk = libs.versions.android.minSdk.get().toInt()
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 

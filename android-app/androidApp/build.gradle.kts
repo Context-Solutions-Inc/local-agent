@@ -3,7 +3,9 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // AGP 9.0+ provides Kotlin support built-in; explicit kotlin.android is no
+    // longer needed (and is rejected when android.builtInKotlin=true, which is
+    // the default in AGP 9). compose/serialization/ksp still apply explicitly.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
