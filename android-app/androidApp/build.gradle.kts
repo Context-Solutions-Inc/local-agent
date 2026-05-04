@@ -27,6 +27,11 @@ val devBraveKey: String = if (secretsFile.exists()) {
         .getProperty("BRAVE_DEV_KEY", "")
 } else ""
 
+// Toggles the InferenceEngine binding between StubInferenceEngine and the real
+// LiteRT-LM-backed implementation (see InferenceModule). Override from the
+// command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
+val useStubEngine: String = (project.findProperty("useStubEngine") as String? ?: "false")
+
 android {
     namespace = "com.contextsolutions.mobileagent.app"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -51,6 +56,7 @@ android {
             isMinifyEnabled = false
             buildConfigField("String", "BRAVE_DEV_KEY", "\"$devBraveKey\"")
             buildConfigField("boolean", "INTERNAL_BUILD", "true")
+            buildConfigField("boolean", "USE_STUB_ENGINE", useStubEngine)
         }
         release {
             isMinifyEnabled = true
@@ -59,6 +65,8 @@ android {
             // Production builds never bundle a key — BYOK only.
             buildConfigField("String", "BRAVE_DEV_KEY", "\"\"")
             buildConfigField("boolean", "INTERNAL_BUILD", "false")
+            // Production never uses the stub.
+            buildConfigField("boolean", "USE_STUB_ENGINE", "false")
         }
     }
 

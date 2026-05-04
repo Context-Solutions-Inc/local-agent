@@ -24,10 +24,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontFamily
 import com.contextsolutions.mobileagent.app.ui.theme.MobileAgentTheme
 import dagger.hilt.android.AndroidEntryPoint
+import java.io.File
 
 /**
  * UI surface for running the M0 inference spike on a Pixel 7.
@@ -56,6 +58,12 @@ class SpikeActivity : ComponentActivity() {
 private fun SpikeScreen(viewModel: SpikeViewModel) {
     val state by viewModel.state.collectAsState()
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val modelFile = remember(context) {
+        File(context.getExternalFilesDir("models"), MODEL_FILENAME)
+    }
+    val modelPresent = remember(modelFile, state) { modelFile.exists() }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("M0 Inference Spike") }) },
     ) { padding ->
@@ -67,25 +75,29 @@ private fun SpikeScreen(viewModel: SpikeViewModel) {
                 .verticalScroll(scrollState),
         ) {
             Text(
-                text = "Pixel 7 + Android 16 — Gemma 4 E4B Q4 (or stub)",
+                text = "Pixel 7 + Android 16 — Gemma 4 E2B (litert-community)",
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Set MODEL_PATH below to the .litertmodel artifact path on the device, " +
-                    "or run with the stub engine for harness validation.",
+                text = "Model expected at:\n${modelFile.absolutePath}\n" +
+                    if (modelPresent) "✓ Found (${modelFile.length() / 1024 / 1024} MB)"
+                    else "✗ Not found — push it with:\n" +
+                        "adb push gemma-4-E2B-it.litertlm \\\n" +
+                        "  /sdcard/Android/data/${context.packageName}/files/models/",
                 style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.height(16.dp))
 
             Button(
                 onClick = {
                     viewModel.runBenchmark(
-                        modelPath = MODEL_PATH_PLACEHOLDER,
-                        accelerator = ACCELERATOR_PLACEHOLDER,
+                        modelPath = modelFile.absolutePath,
+                        accelerator = DEFAULT_ACCELERATOR,
                     )
                 },
-                enabled = state !is SpikeUiState.InProgress,
+                enabled = state !is SpikeUiState.InProgress && modelPresent,
             ) {
                 Text("Run benchmark")
             }
@@ -140,7 +152,11 @@ private fun ResultsView(run: SpikeRun) {
     )
 }
 
-// Placeholder values. M1 wires real model selection + accelerator chooser into the UI.
-// For M0 the harness developer edits these before installing the spike build.
-private const val MODEL_PATH_PLACEHOLDER = "stub://gemma-4-e4b-q4"
-private const val ACCELERATOR_PLACEHOLDER = "STUB"
+// Model file expected under context.getExternalFilesDir("models") so it shows up at
+// /sdcard/Android/data/<applicationId>/files/models/<MODEL_FILENAME> for adb push.
+// From: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
+private const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
+
+// AUTO maps to GPU (Mali-G710) per LiteRtInferenceEngine.resolveBackend. Run the
+// spike with each accelerator (NPU, GPU, CPU) explicitly to fill in the M0 memo.
+private const val DEFAULT_ACCELERATOR = "AUTO"

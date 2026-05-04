@@ -55,43 +55,66 @@ If any of these is missing or implausible, fix the harness before moving on.
 
 ---
 
-## Stage 2 — Wire in real LiteRT-LM
+## Stage 2 — Wire in real LiteRT-LM ✅ DONE
 
-1. Add the LiteRT-LM AAR to `android-app/shared/build.gradle.kts` (androidMain dependencies)
-   and to `gradle/libs.versions.toml`. Pin a specific version.
-2. Create a real `LiteRtInferenceEngine` in
+1. ✅ LiteRT-LM dep pinned (`com.google.ai.edge.litertlm:litertlm-android:0.10.2`)
+   in `gradle/libs.versions.toml` and applied to `:shared`'s `androidMain`.
+2. ✅ `LiteRtInferenceEngine` lives at
    `android-app/shared/src/androidMain/kotlin/com/contextsolutions/mobileagent/inference/`
-   that implements the `InferenceEngine` interface. Reference patterns:
-   - `loadModel`: open the model file, allocate KV cache, choose the requested accelerator
-   - `generate`: invoke LiteRT generation and emit `GenerationEvent.TokenChunk` per decoded token
-   - `unload`: release the LiteRT session
-3. Update `InferenceModule` (in `androidApp/.../di/`) to bind `InferenceEngine` to
-   `LiteRtInferenceEngine` instead of `StubInferenceEngine`.
+   and implements the `InferenceEngine` contract:
+   - `loadModel`: opens the model with `Engine(EngineConfig)` and the requested
+     accelerator (`Backend.CPU` / `GPU` / `NPU`), respects `kvCacheTokens` via
+     `EngineConfig.maxNumTokens`, uses the app's cache dir for GPU kernel reuse.
+   - `generate`: per-call `engine.createConversation(...).sendMessageAsync(prompt)`
+     bridged to the agent loop's `Flow<GenerationEvent>` as `TokenChunk`s.
+   - `unload`: closes the Engine.
+3. ✅ `InferenceModule` (in `androidApp/.../di/`) chooses between
+   `LiteRtInferenceEngine` and `StubInferenceEngine` via
+   `BuildConfig.USE_STUB_ENGINE`. Default is the real engine; flip with
+   `./gradlew :androidApp:assembleDebug -PuseStubEngine=true` for fast UI
+   iteration without waiting on cold model load.
 
-Keep the stub binding behind a build flavor or a `BuildConfig.USE_STUB_ENGINE`
-flag — useful for the rest of M1 development when you don't want to wait on
-real model load.
+Phase 1 deferrals (tracked in `LiteRtInferenceEngine` kdoc):
+- Function-call parsing (`ConversationConfig.tools` + `automaticToolCalling`) is
+  not yet wired — M3 hooks the pre-flight + tool-calling code into this layer.
+- `GenerationRequest.stopSequences` ignored — no stop-sequence surface in 0.10.2.
+- `seed` is randomized per call; M1 plumbs an optional caller-supplied seed
+  through `GenerationRequest` for reproducibility in eval.
 
 ---
 
-## Stage 3 — Get the model on device
+## Stage 3 — Get the model on device ✅ READY
 
-Push the Gemma 4 E4B Q4 artifact to the app's external files dir (NOT the apk
-assets — apks have a 200 MB cap):
+Model: [`litert-community/gemma-4-E2B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+(2.58 GB `.litertlm` bundle; the smaller E2B variant chosen over the PRD's
+default E4B).
+
+Download from HuggingFace (one-time):
 
 ```bash
-adb push gemma-4-e4b-q4.litertmodel \
+# Option A: huggingface-cli
+pip install -U huggingface_hub
+huggingface-cli download litert-community/gemma-4-E2B-it-litert-lm \
+    gemma-4-E2B-it.litertlm --local-dir ~/models
+
+# Option B: direct download via web browser
+# https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/blob/main/gemma-4-E2B-it.litertlm
+```
+
+Push to the app's external files dir on the connected Pixel 7:
+
+```bash
+adb shell mkdir -p /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
+adb push ~/models/gemma-4-E2B-it.litertlm \
     /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
 ```
 
-In `SpikeActivity.kt` set `MODEL_PATH_PLACEHOLDER` to the on-device path:
+The spike UI looks for the file at exactly that path (it derives it from
+`context.getExternalFilesDir("models")` and looks for `gemma-4-E2B-it.litertlm`).
+The "Run benchmark" button is disabled until the file is present, and the UI
+displays its size when found.
 
-```kotlin
-private const val MODEL_PATH_PLACEHOLDER =
-    "/sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/gemma-4-e4b-q4.litertmodel"
-```
-
-(M1 replaces this with the WorkManager-driven download flow per PRD §3.5.)
+(M1 replaces all of this with the WorkManager-driven download flow per PRD §3.5.)
 
 ---
 
