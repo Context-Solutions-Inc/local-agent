@@ -92,3 +92,6 @@ build/
 logs/
 spike-results/
 eval-results/
+# Spike-run JSON pulled off-device via adb (per docs/SPIKE_RUNBOOK.md)
+**/spike-*.json
+**/stub-run.json

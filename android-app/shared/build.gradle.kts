@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.library)
@@ -19,10 +21,8 @@ kotlin {
     }
 
     androidTarget {
-        compilations.all {
-            kotlinOptions {
-                jvmTarget = "17"
-            }
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
         }
     }
 
@@ -61,6 +61,10 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqldelight.android.driver)
             implementation(libs.androidx.security.crypto)
+            // On-device LLM runtime. Real LiteRtInferenceEngine implementation lands in
+            // M1 (per docs/SPIKE_RUNBOOK.md Stage 2); for M0 the StubInferenceEngine in
+            // androidApp/spike/ is what's bound via Hilt.
+            implementation(libs.litertlm.android)
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
