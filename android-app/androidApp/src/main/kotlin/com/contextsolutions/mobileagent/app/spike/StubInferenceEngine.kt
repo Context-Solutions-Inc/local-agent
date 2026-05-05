@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.app.spike
 
+import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.FinishReason
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
@@ -31,7 +32,14 @@ class StubInferenceEngine(
 
     override suspend fun loadModel(modelPath: String, config: InferenceConfig): ModelHandle {
         delay(simulatedColdLoadMs)
-        return StubModelHandle(modelId = modelPath, loadedAtEpochMs = System.currentTimeMillis())
+        return StubModelHandle(
+            modelId = modelPath,
+            loadedAtEpochMs = System.currentTimeMillis(),
+            // Stub doesn't actually run on any accelerator — report what was
+            // requested (resolving AUTO to GPU to mirror LiteRtInferenceEngine).
+            activeAccelerator = if (config.accelerator == Accelerator.AUTO) Accelerator.GPU
+            else config.accelerator,
+        )
     }
 
     override fun unload(handle: ModelHandle) {
@@ -59,6 +67,7 @@ class StubInferenceEngine(
     private data class StubModelHandle(
         override val modelId: String,
         override val loadedAtEpochMs: Long,
+        override val activeAccelerator: Accelerator,
     ) : ModelHandle
 
     companion object {

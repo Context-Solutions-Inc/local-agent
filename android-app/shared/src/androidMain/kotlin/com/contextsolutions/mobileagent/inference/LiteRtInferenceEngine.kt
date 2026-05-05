@@ -56,10 +56,69 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         // debugging perf or accelerator selection on the M0 spike.
         Engine.setNativeMinLogSeverity(LogSeverity.WARNING)
 
-        val backend = resolveBackend(config.accelerator)
+        val requested = resolveAccelerator(config.accelerator)
+        val (engine, actual) = tryInitialize(modelPath, config, requested)
+
+        LiteRtModelHandle(
+            modelId = modelPath,
+            loadedAtEpochMs = System.currentTimeMillis(),
+            engine = engine,
+            config = config,
+            activeAccelerator = actual,
+        )
+    }
+
+    /**
+     * Initialise an [Engine] on [requested]. If the requested accelerator is GPU
+     * and was selected via [Accelerator.AUTO] (i.e. caller didn't explicitly pin
+     * GPU), and initialise() throws, retry on CPU.
+     *
+     * GPU init can fail at runtime even when our deps are correct — Play Services
+     * TFLite isn't on every device (CN market, AOSP forks, GrapheneOS) and is the
+     * source of `Cannot find OpenCL library on this device` (M0 memo §5 Risk 1).
+     * CPU isn't fast enough for the relaxed Phase 1 perf targets but degraded
+     * generation is strictly better than a hard load failure with no chat.
+     *
+     * Explicit [Accelerator.GPU] / [Accelerator.NPU] do NOT fall back — the spike
+     * harness uses those to characterise specific accelerators and a silent
+     * fallback would falsify its measurements.
+     */
+    private fun tryInitialize(
+        modelPath: String,
+        config: InferenceConfig,
+        requested: Accelerator,
+    ): Pair<Engine, Accelerator> {
+        val first = newEngine(modelPath, config, requested)
+        try {
+            first.initialize()
+            return first to requested
+        } catch (t: Throwable) {
+            // Always close the half-initialised engine before retrying — leaving
+            // it open holds native handles that the CPU retry will collide with.
+            runCatching { first.close() }
+            if (config.accelerator != Accelerator.AUTO || requested == Accelerator.CPU) {
+                throw t
+            }
+            android.util.Log.w(
+                TAG,
+                "GPU init failed (${t.message}); falling back to CPU. Generation will be slower.",
+            )
+            val fallback = newEngine(modelPath, config, Accelerator.CPU)
+            try {
+                fallback.initialize()
+            } catch (t2: Throwable) {
+                runCatching { fallback.close() }
+                t2.addSuppressed(t)
+                throw t2
+            }
+            return fallback to Accelerator.CPU
+        }
+    }
+
+    private fun newEngine(modelPath: String, config: InferenceConfig, accelerator: Accelerator): Engine {
         val engineConfig = EngineConfig(
             modelPath = modelPath,
-            backend = backend,
+            backend = backendFor(accelerator),
             // PRD §4.2 sizes the KV cache for 8K-token contexts; LiteRT-LM exposes
             // this as a model-level cap on prefill + decode tokens.
             maxNumTokens = config.kvCacheTokens,
@@ -67,15 +126,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
             // avoid the multi-second recompile on every cold start.
             cacheDir = context.cacheDir.absolutePath,
         )
-        val engine = Engine(engineConfig)
-        engine.initialize()
-
-        LiteRtModelHandle(
-            modelId = modelPath,
-            loadedAtEpochMs = System.currentTimeMillis(),
-            engine = engine,
-            config = config,
-        )
+        return Engine(engineConfig)
     }
 
     override fun unload(handle: ModelHandle) {
@@ -121,26 +172,40 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         emit(GenerationEvent.Done(totalTokens = tokenIndex, finishReason = FinishReason.END_OF_TURN))
     }.flowOn(Dispatchers.IO)
 
-    private fun resolveBackend(accelerator: Accelerator): Backend = when (accelerator) {
+    /**
+     * Maps [Accelerator.AUTO] to the concrete first-choice for the device.
+     * Pixel 7 default is GPU (Mali-G710); NPU support for Tensor G2 EdgeTPU via
+     * LiteRT-LM is unconfirmed (PHASE1_PLAN §6 risk). The CPU fallback in
+     * [tryInitialize] handles the case where GPU init throws at runtime.
+     */
+    private fun resolveAccelerator(accelerator: Accelerator): Accelerator = when (accelerator) {
+        Accelerator.AUTO -> Accelerator.GPU
+        else -> accelerator
+    }
+
+    private fun backendFor(accelerator: Accelerator): Backend = when (accelerator) {
         // null lets LiteRT-LM pick a sensible thread count (typically num cores).
         Accelerator.CPU -> Backend.CPU(/* numOfThreads = */ null)
         Accelerator.GPU -> Backend.GPU()
         Accelerator.NPU -> Backend.NPU(
             nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
         )
-        // AUTO: GPU is the right Pixel 7 default (Mali-G710). NPU support for
-        // Tensor G2 EdgeTPU via LiteRT-LM is unconfirmed (PHASE1_PLAN §6 risk);
-        // run the M0 spike with explicit Accelerator.NPU to validate before
-        // changing this default.
-        Accelerator.AUTO -> Backend.GPU()
+        // AUTO is resolved to a concrete accelerator before we pick a backend;
+        // hitting this branch is a programming error.
+        Accelerator.AUTO -> error("AUTO must be resolved before calling backendFor")
     }
 
     private data class LiteRtModelHandle(
         override val modelId: String,
         override val loadedAtEpochMs: Long,
+        override val activeAccelerator: Accelerator,
         val engine: Engine,
         val config: InferenceConfig,
     ) : ModelHandle
+
+    private companion object {
+        const val TAG = "LiteRtInferenceEngine"
+    }
 }
 
 /**

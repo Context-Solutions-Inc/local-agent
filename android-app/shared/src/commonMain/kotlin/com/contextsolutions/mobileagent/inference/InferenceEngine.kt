@@ -41,6 +41,15 @@ interface InferenceEngine {
 interface ModelHandle {
     val modelId: String
     val loadedAtEpochMs: Long
+
+    /**
+     * The accelerator the engine actually loaded onto. May differ from
+     * [InferenceConfig.accelerator] when AUTO falls back (e.g. Pixel 7 without
+     * Play Services TFLite → GPU init throws → engine retries on CPU). The UI
+     * uses this to show a degraded-mode indicator; telemetry uses it to
+     * distinguish GPU vs CPU runs (M0 memo §5 Risk 1).
+     */
+    val activeAccelerator: Accelerator
 }
 
 data class InferenceConfig(
