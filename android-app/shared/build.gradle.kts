@@ -71,10 +71,15 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqldelight.android.driver)
             implementation(libs.androidx.security.crypto)
-            // On-device LLM runtime. Real LiteRtInferenceEngine implementation lands in
-            // M1 (per docs/SPIKE_RUNBOOK.md Stage 2); for M0 the StubInferenceEngine in
-            // androidApp/spike/ is what's bound via Hilt.
+            // On-device LLM runtime.
             implementation(libs.litertlm.android)
+            // LiteRT-LM 0.10.2's Backend.GPU() requires Play Services TFLite to
+            // expose OpenCL — without these the GPU backend fails with
+            // "Cannot find OpenCL library on this device" on Pixel devices.
+            // Matches the google-ai-edge/gallery reference setup.
+            implementation(libs.play.services.tflite.java)
+            implementation(libs.play.services.tflite.gpu)
+            implementation(libs.play.services.tflite.support)
         }
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)

@@ -43,6 +43,12 @@ sqldelight-dialect = "sqlite-3-25"   # SQLite 3.25+ for UPSERT (ON CONFLICT ... 
 # Bump deliberately and re-run the M0 spike before changing.
 litertlm = "0.10.2"
 
+# Play Services-delivered TFLite runtime + GPU delegate. LiteRT-LM 0.10.2's
+# Backend.GPU() resolves OpenCL through this; without it the GPU backend fails
+# with "Cannot find OpenCL library on this device" on Pixel devices. Versions
+# match the google-ai-edge/gallery reference implementation.
+playServicesTflite = "16.4.0"
+
 # Test
 junit = "4.13.2"
 androidx-test-junit = "1.2.1"
@@ -74,6 +80,11 @@ sqldelight-sqlite-dialect = { module = "app.cash.sqldelight:sqlite-3-25-dialect"
 
 # LiteRT-LM
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
+
+# Play Services TFLite (runtime + GPU delegate + support helpers).
+play-services-tflite-java = { module = "com.google.android.gms:play-services-tflite-java", version.ref = "playServicesTflite" }
+play-services-tflite-gpu = { module = "com.google.android.gms:play-services-tflite-gpu", version.ref = "playServicesTflite" }
+play-services-tflite-support = { module = "com.google.android.gms:play-services-tflite-support", version.ref = "playServicesTflite" }
 
 # AndroidX
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
