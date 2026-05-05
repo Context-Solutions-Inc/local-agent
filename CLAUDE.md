@@ -81,9 +81,43 @@ adb shell run-as com.contextsolutions.mobileagent.debug ls files/spike-results/
 adb shell run-as com.contextsolutions.mobileagent.debug cat files/spike-results/spike-<runId>.json > ~/spike-results/<file>.json
 ```
 
-The spike model lives at
-`/sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/gemma-4-E2B-it.litertlm`
-(per `docs/SPIKE_RUNBOOK.md` Stage 3).
+### Wireless adb (Pixel 7's USB connection has been unstable)
+
+Pair once, then re-`connect` after each phone reboot (the connection port changes;
+the pairing persists). Phone: Settings → System → Developer options → Wireless
+debugging → enable, then "Pair device with pairing code".
+
+```bash
+adb pair <phone-ip>:<pairing-port>     # one-time, takes the 6-digit code
+adb connect <phone-ip>:<connect-port>  # after reboot or WiFi drop
+```
+
+### Skip the download during dev iteration
+
+Sideload the model so a fresh `installDebug` doesn't burn 5–10 minutes
+re-downloading. The production read path is `filesDir/models/...`:
+
+```bash
+adb push gemma-4-E2B-it.litertlm /data/local/tmp/
+adb shell run-as com.contextsolutions.mobileagent.debug \
+  sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'
+```
+
+### Model file locations
+
+- **Production (M1+):** `filesDir/models/gemma-4-E2B-it.litertlm` — internal
+  storage, written by `ModelDownloadWorker`, read by `ModelInventory.localFile`.
+- **M0 spike:** `/sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/gemma-4-E2B-it.litertlm`
+  — external app dir for `adb push` convenience. The two paths coexist; production
+  doesn't read the spike one and vice versa.
+
+### Secrets
+
+`secrets.properties` lives at `android-app/secrets.properties` (next to
+`settings.gradle.kts`), NOT at the repo root. Gradle's `rootProject` is
+`android-app/` because that's where `settings.gradle.kts` is, and `rootProject.file(...)`
+resolves accordingly. `mobile-agent/secrets.properties` is silently ignored — easy
+mistake to make. See `android-app/secrets.properties.example` for the fields.
 
 ## Working norms
 
