@@ -145,17 +145,21 @@ Pull each run JSON. Three files per condition.
 
 ---
 
-## Stage 5 — Try each accelerator path
+## Stage 5 — Try each accelerator path ✅ DONE — GPU works once Play Services TFLite is on the classpath
 
-Re-run the benchmark with `InferenceConfig.accelerator` set to each of `NPU`, `GPU`,
-`CPU` (assuming the LiteRT-LM AAR exposes these). For each, capture:
+Sweep complete on Pixel 7 + LiteRT-LM 0.10.2 (`M0_DECISION_MEMO.md` Decision 2):
 
-- Whether the runtime accepts the accelerator request (logs)
-- First-token p50, sustained tok/s
-- Peak RSS, peak native heap
-- Thermal trajectory
+| Accelerator | Result | Evidence |
+|---|---|---|
+| NPU | ❌ fails to register | `auto_registration.cc:78] NPU accelerator could not be loaded and registered: kLiteRtStatusErrorInvalidArgument` |
+| GPU | ✅ works | Sustained 13.5 tok/s mean; 11.6 tok/s on the 1,255-token prompt. Run `ca42ff6a-6911-4ad3-84d1-29f264ad8ed2`. |
+| CPU | (not benchmarked) | Available as fallback; not exercised since GPU works. |
 
-The accelerator decision in `M0_DECISION_MEMO.md` is driven by these results.
+The GPU result depends on `play-services-tflite-gpu:16.4.0` being on the
+classpath (commit `22b351e`). Without that dep, `Backend.GPU()` fails with
+`Cannot find OpenCL library on this device` and falls through to a per-prompt
+error rather than CPU fallback. Mitigation tracked in `M0_DECISION_MEMO.md`
+§5 Risk 1.
 
 ---
 

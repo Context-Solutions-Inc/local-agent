@@ -38,36 +38,47 @@ Pixel 7 is materially more constrained than the PRD's reference Pixel 9 Pro, so 
 - **Storage:** UFS 3.1 — model download/load speed will be acceptable
 - **Display:** 1080×2400, 90Hz
 
-### 2.2 Memory budget (worst-case, all subsystems loaded)
+### 2.2 Memory budget (revised after M0 spike)
+
+The original plan budgeted for E4B; M0 demonstrated E4B doesn't fit on Pixel 7
+(LMKD-induced thrash). Switched to E2B per `docs/M0_DECISION_MEMO.md` Decision 1.
+Updated table:
 
 | Component | Footprint | Notes |
 |---|---|---|
-| Gemma 4 E4B Q4 weights | ~2.8 GB | Per PRD section 3.5 |
-| KV cache (8K context) | ~400 MB | Sized per PRD section 4.2 |
+| Gemma 4 E2B weights | ~2.58 GB | `litert-community/gemma-4-E2B-it-litert-lm`, on-disk |
+| KV cache (8K context) | included above | LiteRT-LM 0.10.2 mmaps + decode in one allocation |
 | Pre-flight classifier | ~50 MB | INT8, MobileBERT/DistilBERT class |
 | Memory extraction classifier | ~50 MB | Same architecture, separate head |
 | Sentence embedder (MiniLM) | ~25 MB | INT8, per PRD section 3.2.4 |
 | App + Compose + DB | ~150 MB | |
-| **Total resident peak** | **~3.5 GB** | Under PRD's 4 GB ceiling, but tight |
+| **M0-measured peak PSS during sustained generation** | **3.52 GB** | Spike run `ca42ff6a`, sustained_5min prompt |
 
-PRD section 4.2 caps app memory at 4 GB. On an 8 GB device with OS + other apps consuming 3–4 GB, this is at the edge of what the OS will tolerate before triggering low-memory kills. **Aggressive idle unloading of Gemma 4 (PRD's 5-minute default) is not optional on Pixel 7 — it is the load-bearing mechanism that keeps the app running across multi-app workflows.**
+PRD section 4.2 caps app memory at 4 GB. On an 8 GB device with OS + other apps consuming 3–4 GB, this is at the edge of what the OS will tolerate before triggering low-memory kills. The M0 spike confirmed E2B leaves ~480 MB of headroom under the 4 GB ceiling — workable but not generous. **Aggressive idle unloading of Gemma (PRD's 5-minute default) is not optional on Pixel 7 — it is the load-bearing mechanism that keeps the app running across multi-app workflows.** `onTrimMemory()`-driven proactive unload (M1 polish) provides belt-and-suspenders coverage when other apps surge.
 
-### 2.3 Revised performance targets for Pixel 7
+### 2.3 Performance targets — measured in M0 spike
 
-PRD section 4.1 targets (Pixel 9 Pro): first token <2s, sustained ≥15 tok/s, end-to-end search query <12s p90.
+PRD section 4.1 targets (Pixel 9 Pro): first token <2 s, sustained ≥15 tok/s, end-to-end search query <12 s p90.
 
-**Phase 1 Pixel 7 targets (proposed, validated in M0 spike):**
+| Metric | PRD (Pixel 9 Pro) | Phase 1 (Pixel 7) target | **M0 measured (Pixel 7 + E2B + GPU)** |
+|---|---|---|---|
+| First token p50, no tool call | <2.0 s | <4.0 s | **0.55 s** ✅✅ |
+| First token p95, no tool call | <2.5 s | <4.0 s | **0.93 s** ✅✅ |
+| Sustained generation (mean) | ≥15 tok/s | ≥8 tok/s | **13.5 tok/s** ✅ |
+| Sustained generation (longest prompt) | — | — | 11.6 tok/s |
+| End-to-end with one search | <12 s p90 | <16 s p90 | (M2 — needs Brave wired) |
+| Pre-flight classifier inference | <50 ms p95 | <80 ms p95 | (M3) |
+| Memory retrieval (embedding + cosine) | <100 ms p95 | <150 ms p95 | (M5) |
+| Cold-start model load | 2–4 s | 4–8 s | **4.3 s** ✅ |
+| Peak PSS, sustained generation | <4 GB | <4 GB | **3.52 GB** ✅ |
+| Thermal max under 1.8 min sustained | <SEVERE (3) | <SEVERE (3) | **MODERATE (2)** ✅ |
 
-| Metric | PRD (Pixel 9 Pro) | Phase 1 (Pixel 7) |
-|---|---|---|
-| First token, no tool call | <2.0 s | <4.0 s |
-| Sustained generation | ≥15 tok/s | ≥8 tok/s |
-| End-to-end with one search | <12 s p90 | <16 s p90 |
-| Pre-flight classifier inference | <50 ms p95 | <80 ms p95 |
-| Memory retrieval (embedding + cosine) | <100 ms p95 | <150 ms p95 |
-| Cold-start model load | 2–4 s | 4–8 s |
+We're beating the relaxed Pixel 7 targets across the board on inference perf
+alone, and approaching the original Pixel 9 Pro targets. Search/classifier/
+memory targets remain to be measured as those subsystems land.
 
-These numbers are placeholders until the M0 spike measures the real envelope.
+Source: spike run `ca42ff6a-6911-4ad3-84d1-29f264ad8ed2`, 2026-05-05. See
+`docs/M0_DECISION_MEMO.md` for full per-prompt detail.
 
 ---
 
@@ -153,12 +164,29 @@ Workstreams parallelize. Dependencies are noted; everything else can run concurr
 
 Sequencing is roughly six months end-to-end with a small team (sizing in §9). Calendar weeks are relative to project kickoff.
 
-### M0 — Foundation & spike (weeks 1–3)
+### M0 — Foundation & spike (weeks 1–3) ✅ COMPLETE 2026-05-05
 
-- **WS-1 spike:** Stand up LiteRT-LM on a Pixel 7, load Gemma 4 E4B Q4, run a fixed prompt set. Measure first-token latency, sustained tok/s, peak resident memory, thermal headroom under 5-minute sustained generation. Validate NPU/GPU delegate availability for Tensor G2.
-- **WS-2:** KMP project skeleton, build pipelines (Gradle, version catalog), expect/actual stubs for clock/locale/storage/http, empty `iosMain`.
-- **WS-5/6 kickoff:** Schemas locked, frontier-model generation prompts drafted, labeler tooling decision made (Streamlit / Argilla / Label Studio / lightweight in-house).
-- **Deliverable:** Decision memo on Pixel 7 perf envelope; revised perf targets ratified or model swap to E2B triggered.
+- ✅ **WS-1 spike:** LiteRT-LM 0.10.2 stood up on Pixel 7 + Android 16 (SDK 36).
+  E4B ruled out by LMKD-induced thrash; switched to E2B
+  (`litert-community/gemma-4-E2B-it-litert-lm`). GPU works via Play Services
+  TFLite OpenCL delegate; NPU not exposed to apps. Numbers in
+  `M0_DECISION_MEMO.md` §2; perf targets ratified in §2.3 above.
+- ✅ **WS-2:** KMP scaffolding, Gradle 9.3.1 + AGP 9.1.1 + Kotlin 2.3.21,
+  expect/actual contracts in place, SQLDelight schemas defined, iosMain stubs
+  exist for Phase 2.
+- ✅ **WS-5/6 kickoff:** JSON schemas + Pydantic validators committed,
+  frontier-model generation prompts in `classifier-training/prompts/`,
+  Argilla selected as labeler tool with `ct-argilla-init` ready.
+- ✅ **Deliverable:** Decision memo populated (4 of 5 decisions ratified;
+  Decision 3 — foreground service contract — deferred to M1 since the
+  spike's Activity surface doesn't exercise it). M1 unblocked.
+
+Outstanding M0 items deferred to M1:
+- Decision 3 (foreground service contract) — needs chat surface to test.
+- Power state / ambient temperature for the on-record run (engineer to confirm).
+- 16 KB native page alignment check on `liblitertlm_jni.so` (the spike ran
+  successfully, suggesting alignment is fine; explicit verification still
+  recommended).
 
 ### M1 — Chat MVP (weeks 3–8)
 
