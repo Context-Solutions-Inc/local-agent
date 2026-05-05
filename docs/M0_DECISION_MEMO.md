@@ -104,12 +104,23 @@ Copy from the run JSON's `summary()` output and per-prompt rows.
 
 ## 3. Open decisions
 
-### Decision 1 — Model choice
+### Decision 1 — Model choice ✅ DECIDED 2026-05-04
 
-- [ ] **Stay on Gemma 4 E4B Q4.** Numbers meet the relaxed Phase 1 envelope.
-- [ ] **Switch to Gemma 4 E2B Q4.** E4B exceeds memory or thermal budget on Pixel 7.
+- [ ] **Stay on Gemma 4 E4B.** Numbers meet the relaxed Phase 1 envelope.
+- [x] **Switch to Gemma 4 E2B (`litert-community/gemma-4-E2B-it-litert-lm`).**
+      E4B exceeds memory budget on Pixel 7.
 
-Rationale: _(fill in)_
+Evidence:
+- E4B artifact: `litert-community/gemma-4-E4B-it-litert-lm`, 3.65 GB on disk.
+- HuggingFace model card reports ~3.28 GB CPU RSS on Galaxy S26 Ultra.
+- On Pixel 7 (8 GB RAM, ~4 GB per-app ceiling per PHASE1_PLAN §2.2), `engine.initialize()`
+  triggered the Linux Low Memory Killer ~4.4 s into cold load. lmkd killed
+  ~30 other processes (launcher, gms, search, keyboard, Chrome sandbox renderer,
+  Disney World app) trying to free memory; system thrash hit 463%; our
+  process was killed before initialize() could complete.
+- Switched to E2B (2.58 GB). Per the runbook, this is the validated baseline.
+- See Stage 6 of `SPIKE_RUNBOOK.md` for the Phase-1.x mitigations to revisit
+  E4B (smaller KV cache, CPU-only backend) if perf becomes a problem.
 
 ### Decision 2 — Accelerator path
 

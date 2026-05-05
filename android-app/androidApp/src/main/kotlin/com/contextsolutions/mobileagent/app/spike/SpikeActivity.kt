@@ -75,7 +75,7 @@ private fun SpikeScreen(viewModel: SpikeViewModel) {
                 .verticalScroll(scrollState),
         ) {
             Text(
-                text = "Pixel 7 + Android 16 — Gemma 4 E4B (litert-community)",
+                text = "Pixel 7 + Android 16 — Gemma 4 E2B (litert-community)",
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(8.dp))
@@ -83,7 +83,7 @@ private fun SpikeScreen(viewModel: SpikeViewModel) {
                 text = "Model expected at:\n${modelFile.absolutePath}\n" +
                     if (modelPresent) "✓ Found (${modelFile.length() / 1024 / 1024} MB)"
                     else "✗ Not found — push it with:\n" +
-                        "adb push gemma-4-E4B-it.litertlm \\\n" +
+                        "adb push gemma-4-E2B-it.litertlm \\\n" +
                         "  /sdcard/Android/data/${context.packageName}/files/models/",
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
@@ -154,8 +154,12 @@ private fun ResultsView(run: SpikeRun) {
 
 // Model file expected under context.getExternalFilesDir("models") so it shows up at
 // /sdcard/Android/data/<applicationId>/files/models/<MODEL_FILENAME> for adb push.
-// From: https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm  (3.65 GB)
-private const val MODEL_FILENAME = "gemma-4-E4B-it.litertlm"
+// E2B was chosen over E4B per M0_DECISION_MEMO.md Decision 1: the 3.65 GB E4B
+// model triggered the Linux Low Memory Killer on Pixel 7 (8 GB RAM, ~4 GB
+// per-app ceiling) — system-wide thrashing at 463%, dozens of apps killed,
+// our process gone before initialize() could complete.
+// From: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm  (2.58 GB)
+private const val MODEL_FILENAME = "gemma-4-E2B-it.litertlm"
 
 // AUTO maps to GPU (Mali-G710) per LiteRtInferenceEngine.resolveBackend. Run the
 // spike with each accelerator (NPU, GPU, CPU) explicitly to fill in the M0 memo.

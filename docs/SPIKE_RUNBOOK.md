@@ -1,8 +1,9 @@
 # M0 Inference Spike — Runbook
 
 **Audience:** the engineer running the WS-1 benchmark on a Pixel 7
-**Goal:** capture clean, reproducible measurements of Gemma 4 E4B Q4 inference on
-Pixel 7 + Android 16. Output feeds `docs/M0_DECISION_MEMO.md`.
+**Goal:** capture clean, reproducible measurements of Gemma 4 (E2B) inference on
+Pixel 7 + Android 16. E4B was tested first and ruled out by LMKD-induced thrash;
+see `M0_DECISION_MEMO.md` Decision 1. Output feeds the rest of that memo.
 
 ---
 
@@ -13,7 +14,7 @@ Pixel 7 + Android 16. Output feeds `docs/M0_DECISION_MEMO.md`.
 - JDK 17, Android SDK with platform 36, build-tools matching AGP 8.7.x
 - Brave dev key not required for this spike (no network involved)
 - Access to LiteRT-LM Android AAR (Maven coordinates or local AAR file)
-- Gemma 4 E4B Q4 model artifact (`.litertmodel` or equivalent) — ~2.8 GB
+- Gemma 4 E2B model artifact (`.litertlm`) — ~2.58 GB; see Stage 3 for download
 
 ---
 
@@ -85,38 +86,37 @@ Phase 1 deferrals (tracked in `LiteRtInferenceEngine` kdoc):
 
 ## Stage 3 — Get the model on device ✅ READY
 
-Model: [`litert-community/gemma-4-E4B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
-(3.65 GB `.litertlm` bundle — the PRD's default E4B variant; embedding params
-are memory-mapped which materially reduces resident footprint vs naive load).
+Model: [`litert-community/gemma-4-E2B-it-litert-lm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+(2.58 GB `.litertlm` bundle).
 
-> ⚠️ E4B's reported CPU memory footprint on a Galaxy S26 Ultra is ~3.28 GB,
-> right at the edge of the Pixel 7's effective ~4 GB per-app ceiling
-> (PHASE1_PLAN §2.2). If the spike OOMs or thrashes, fall back to the E2B
-> variant (`litert-community/gemma-4-E2B-it-litert-lm`, 2.58 GB) per
-> Decision 1 of `M0_DECISION_MEMO.md`.
+> 📋 **M0 finding (Decision 1):** the larger E4B variant (3.65 GB) is **not
+> viable on Pixel 7**. We tried it and the Linux Low Memory Killer killed our
+> process during `engine.initialize()` along with ~30 other apps as
+> system-wide thrashing hit 463%. Logged in `M0_DECISION_MEMO.md` Decision 1.
+> E2B is the validated baseline for the spike from this point forward.
 
 Download from HuggingFace (one-time):
 
 ```bash
 # Option A: huggingface-cli (now called hf)
 pip install -U huggingface_hub
-hf download litert-community/gemma-4-E4B-it-litert-lm \
-    gemma-4-E4B-it.litertlm --local-dir ~/models
+hf download litert-community/gemma-4-E2B-it-litert-lm \
+    gemma-4-E2B-it.litertlm --local-dir ~/models
 
 # Option B: direct download via web browser
-# https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/blob/main/gemma-4-E4B-it.litertlm
+# https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/blob/main/gemma-4-E2B-it.litertlm
 ```
 
 Push to the app's external files dir on the connected Pixel 7:
 
 ```bash
 adb shell mkdir -p /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
-adb push ~/models/gemma-4-E4B-it.litertlm \
+adb push ~/models/gemma-4-E2B-it.litertlm \
     /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
 ```
 
 The spike UI looks for the file at exactly that path (it derives it from
-`context.getExternalFilesDir("models")` and looks for `gemma-4-E4B-it.litertlm`).
+`context.getExternalFilesDir("models")` and looks for `gemma-4-E2B-it.litertlm`).
 The "Run benchmark" button is disabled until the file is present, and the UI
 displays its size when found.
 
@@ -159,10 +159,25 @@ The accelerator decision in `M0_DECISION_MEMO.md` is driven by these results.
 
 ---
 
-## Stage 6 — Optional: switch to Gemma 4 E2B Q4
+## Stage 6 — (Optional) Re-attempt E4B with mitigations
 
-If E4B numbers fail the Phase 1 envelope, repeat stages 3–5 with the E2B Q4
-artifact. Compare side-by-side and fill in Decision 1 of the memo.
+E4B was killed by LMKD on first attempt (Decision 1 in the memo). Before fully
+abandoning it, the following are worth trying as Phase 1.x experiments — none
+are part of the Phase 1 critical path:
+
+- Reduce `InferenceConfig.kvCacheTokens` from 8192 → 2048 (matches the model's
+  benchmark default; cuts KV-cache RAM by ~75%).
+- Force `Accelerator.CPU`. GPU backends sometimes duplicate weight buffers in
+  GPU memory; CPU-only avoids this and may bring peak RSS just under the
+  per-app ceiling.
+- Push the model to internal storage (`/data/data/.../files/models/`) instead
+  of `/sdcard/...` — slightly different mmap behavior on some devices.
+- Disable the spike's other auxiliary services (foreground service, etc.)
+  while testing.
+
+If any combination lets E4B run cleanly to the end of `sustained_5min`, log the
+combo in the memo and mark Decision 1 as "E4B with [config]". Otherwise the
+finding stands: Pixel 7 ships E2B in Phase 1.
 
 ---
 
