@@ -97,6 +97,7 @@ class InferenceSessionManager @Inject constructor(
         modelPath: String,
         request: GenerationRequest,
         config: InferenceConfig = InferenceConfig(),
+        toolDispatcher: com.contextsolutions.mobileagent.inference.ToolDispatcher? = null,
     ): Flow<GenerationEvent> = flow {
         val acquired = mutex.withLock {
             val h = ensureLoadedLocked(modelPath, config)
@@ -111,7 +112,7 @@ class InferenceSessionManager @Inject constructor(
             h
         }
         try {
-            engine.generate(acquired, request).collect { event -> emit(event) }
+            engine.generate(acquired, request, toolDispatcher).collect { event -> emit(event) }
         } finally {
             // NonCancellable so cancellation of the collector still runs cleanup.
             withContext(NonCancellable) {

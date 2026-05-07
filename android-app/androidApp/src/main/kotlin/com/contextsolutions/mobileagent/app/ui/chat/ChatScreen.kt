@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.app.ui.chat
 
+import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,11 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -26,48 +31,55 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.inference.Accelerator
+import com.contextsolutions.mobileagent.search.SearchSource
 
 /**
- * One-shot prompt → streaming response surface for M1 WS-1 validation.
- *
- * Not the real chat UI (WS-11 builds that on top of WS-3's agent loop). This
- * screen exists to manually exercise:
- *   - Cold load on first prompt (4–8 s on Pixel 7)
- *   - Token streaming
- *   - Foreground-service lifecycle around generation (Decision 3 exit gate)
- *   - Idle unload at the configured timeout
- *   - Force unload (debug action) and subsequent reload
- *   - CPU-fallback degraded-mode banner
+ * M2 chat surface — full conversation with streaming, web-search status, and
+ * citation chips. Settings (key entry, search toggle, cache clear) is one tap
+ * away in the top bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     onOpenSpike: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
     var input by remember { mutableStateOf("") }
-    val responseScroll = rememberScrollState()
+    val listState = rememberLazyListState()
+
+    // Keep the latest message visible as new tokens arrive.
+    LaunchedEffect(ui.messages.size, ui.partialText.length, ui.isGenerating) {
+        val total = ui.messages.size + (if (ui.partialText.isNotEmpty() || ui.isGenerating) 1 else 0)
+        if (total > 0) listState.animateScrollToItem(total - 1)
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("M1 test chat") },
+                title = { Text("Chat") },
                 actions = {
+                    TextButton(onClick = onOpenSettings) { Text("Settings") }
+                    TextButton(onClick = { viewModel.newConversation() }) { Text("New") }
                     TextButton(onClick = onOpenSpike) { Text("Spike") }
-                    TextButton(onClick = { viewModel.forceUnload() }) { Text("Unload") }
                 },
             )
         },
@@ -76,49 +88,68 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
         ) {
             SessionBanner(session)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
-            Box(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp),
-                    )
-                    .padding(12.dp)
-                    .verticalScroll(responseScroll),
+                    .weight(1f),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                when {
-                    ui.error != null -> Text(
-                        text = "Error: ${ui.error}",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    ui.response.isEmpty() && !ui.isGenerating -> Text(
-                        text = "Type a prompt below and press Send. The first prompt " +
-                            "will trigger a cold model load (4–8 s on Pixel 7).",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    else -> Text(
-                        text = ui.response,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                if (ui.messages.isEmpty() && ui.partialText.isEmpty() && !ui.isGenerating && ui.error == null) {
+                    item {
+                        Text(
+                            "Type a question. Web search runs automatically when the model needs current info.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 24.dp),
+                        )
+                    }
+                }
+                items(ui.messages) { message ->
+                    when (message) {
+                        is UiMessage.User -> UserBubble(message.text)
+                        is UiMessage.Assistant -> AssistantBubble(
+                            text = message.text,
+                            citations = message.citations,
+                            fromCache = message.fromCache,
+                        )
+                    }
+                }
+                if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) {
+                    item {
+                        StreamingAssistantBubble(
+                            partial = ui.partialText,
+                            searchStatus = ui.searchStatus,
+                            isGenerating = ui.isGenerating,
+                        )
+                    }
+                }
+                if (ui.error != null) {
+                    item {
+                        Text(
+                            text = "Error: ${ui.error}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
 
             Spacer(Modifier.height(8.dp))
-            GenerationStatus(ui)
-            Spacer(Modifier.height(12.dp))
+            if (ui.isGenerating) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(4.dp))
+            }
 
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Prompt") },
+                placeholder = { Text("Ask anything…") },
                 enabled = !ui.isGenerating,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             )
@@ -136,10 +167,149 @@ fun ChatScreen(
                 if (ui.isGenerating) {
                     OutlinedButton(onClick = { viewModel.cancel() }) { Text("Cancel") }
                 }
-                Spacer(Modifier.width(0.dp))
+                OutlinedButton(onClick = { viewModel.forceUnload() }) { Text("Unload") }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun UserBubble(text: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun AssistantBubble(text: String, citations: List<SearchSource>, fromCache: Boolean) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+        if (fromCache) {
+            Text(
+                "From cache",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+            )
+        }
+        if (citations.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            CitationChips(citations)
+        }
+    }
+}
+
+@Composable
+private fun StreamingAssistantBubble(
+    partial: String,
+    searchStatus: SearchStatus,
+    isGenerating: Boolean,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (searchStatus is SearchStatus.Searching) {
+            SearchingChip(searchStatus.query)
+            Spacer(Modifier.height(4.dp))
+        } else if (searchStatus is SearchStatus.Failed) {
+            Text(
+                "Search ${searchStatus.kind.lowercase()}: ${searchStatus.message}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        if (partial.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(partial, style = MaterialTheme.typography.bodyMedium)
+            }
+        } else if (isGenerating && searchStatus !is SearchStatus.Searching) {
+            Text(
+                "Thinking…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchingChip(query: String) {
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = { Text("Searching: $query") },
+        colors = AssistChipDefaults.assistChipColors(
+            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    )
+}
+
+@Composable
+private fun CitationChips(citations: List<SearchSource>) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        citations.forEachIndexed { index, source ->
+            val host = remember(source.url) { source.url.toHostOrNull() ?: source.url }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val intent = Intent(Intent.ACTION_VIEW, source.url.toUri())
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "[${index + 1}]",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                Text(
+                    text = "${source.title} — $host",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                )
             }
         }
     }
+}
+
+private fun String.toHostOrNull(): String? = try {
+    toUri().host
+} catch (_: Throwable) {
+    null
 }
 
 @Composable
@@ -150,11 +320,10 @@ private fun SessionBanner(state: SessionState) {
         is SessionState.Loading ->
             "Loading model…" to false
         is SessionState.Loaded -> {
-            val accel = state.activeAccelerator.name
             if (state.activeAccelerator == Accelerator.CPU) {
                 "Loaded on CPU (degraded mode — generation will be slow)." to true
             } else {
-                "Loaded on $accel." to false
+                "Loaded on ${state.activeAccelerator.name}." to false
             }
         }
         is SessionState.Failed ->
@@ -162,26 +331,7 @@ private fun SessionBanner(state: SessionState) {
     }
     Text(
         text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
     )
-}
-
-@Composable
-private fun GenerationStatus(ui: ChatUiState) {
-    when {
-        ui.isGenerating -> {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (ui.tokens == 0) "Waiting for first token…"
-                else "${ui.tokens} tokens",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        ui.finishReason != null -> Text(
-            text = "Finished: ${ui.finishReason} — ${ui.tokens} tokens",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
 }

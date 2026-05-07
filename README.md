@@ -40,13 +40,13 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 
 ## Status
 
-**M0 (Foundation & spike) — complete.** **M1 (Chat MVP) — WS-1 complete; WS-2/3/11 not started.**
+**M0 + M1 + M2 complete.** End-to-end chat with web search runs on Pixel 7 today.
 
 | Milestone | State |
 |---|---|
 | M0 Foundation & spike | ✅ Complete 2026-05-05. Gemma 4 E2B on GPU validated on Pixel 7: first token p50 = 0.55 s, sustained 13.5 tok/s mean, peak PSS 3.52 GB. See `docs/M0_DECISION_MEMO.md`. |
-| M1 WS-1 Inference foundation | ✅ Phases A/B/C landed 2026-05-05. `LiteRtInferenceEngine` w/ CPU fallback + active-accelerator surfacing; `InferenceSessionManager` w/ 5-min idle unload + FGS lifecycle + `onTrimMemory` force-unload; resumable WorkManager-driven model download w/ SHA-256 verification; minimal Compose surface for end-to-end validation. Drills 1/6/9 of the WS-1 exit-gate checklist confirmed on-device. |
-| M1 WS-2/3/11 | Not started |
+| M1 WS-1 Inference foundation | ✅ Complete 2026-05-05. `LiteRtInferenceEngine` w/ CPU fallback + active-accelerator surfacing; `InferenceSessionManager` w/ 5-min idle unload + FGS lifecycle + `onTrimMemory` force-unload; resumable WorkManager-driven model download w/ SHA-256 verification; all 12 exit-gate drills passed. |
+| M2 Web search & agent loop (incl. M1 WS-2/3/11) | ✅ Complete 2026-05-07. End-to-end chat with web search via Gemma's tool calls. Brave Search client + LRU cache; ReAct loop on a single LiteRT-LM `Conversation` with structured tool registration (`ConversationConfig.tools` + `Content.ToolResponse`); Compose chat UI with bubbles, streaming, citation chips with browser deep-links, search-status chip; settings screen with BYOK key entry, search toggle, cache clear. 107 unit tests. |
 | WS-5/6 datasets | Schemas + generation prompts drafted; not yet built |
 
 ## Building

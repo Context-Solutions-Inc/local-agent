@@ -154,11 +154,23 @@ dependencies {
     // OkHttpClient surface here without going through Ktor's HttpClient.
     implementation(libs.okhttp)
 
+    // SQLDelight Android driver — the schema lives in :shared but the driver is
+    // platform-specific and constructed here in DatabaseModule alongside the rest
+    // of the Android wiring.
+    implementation(libs.sqldelight.android.driver)
+
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
+    // JDBC in-memory SQLite for unit-testing :shared's SQLDelight schema
+    // without an Android Context.
+    testImplementation(libs.sqldelight.sqlite.driver)
+    // kotlinx-datetime for tests that build deterministic LocalDateTime fixtures
+    // (PromptAssembler temporal block coverage). :shared brings it transitively
+    // for production code; tests need it on their compile classpath explicitly.
+    testImplementation(libs.kotlinx.datetime)
 
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)

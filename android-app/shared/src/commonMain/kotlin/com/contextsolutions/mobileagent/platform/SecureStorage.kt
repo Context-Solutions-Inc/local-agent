@@ -21,4 +21,6 @@ interface SecureStorage {
 object SecureStorageKeys {
     const val BRAVE_API_KEY = "brave_api_key"
     const val TELEMETRY_OPT_IN = "telemetry_opt_in"
+    /** "true"/"false". Default behavior when unset is enabled (search on). */
+    const val SEARCH_ENABLED = "search_enabled"
 }

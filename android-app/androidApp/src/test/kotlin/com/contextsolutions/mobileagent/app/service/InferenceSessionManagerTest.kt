@@ -225,7 +225,11 @@ private class FakeInferenceEngine(
         unloadCount.incrementAndGet()
     }
 
-    override fun generate(handle: ModelHandle, request: GenerationRequest): Flow<GenerationEvent> =
+    override fun generate(
+        handle: ModelHandle,
+        request: GenerationRequest,
+        toolDispatcher: com.contextsolutions.mobileagent.inference.ToolDispatcher?,
+    ): Flow<GenerationEvent> =
         generateOverride?.invoke(handle, request) ?: flow {
             emit(GenerationEvent.TokenChunk("hello", 0))
             emit(GenerationEvent.Done(1, FinishReason.END_OF_TURN))

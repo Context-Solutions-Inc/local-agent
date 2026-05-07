@@ -234,13 +234,58 @@ Run on a real Pixel 7 with `MODEL_SHA256` and `MODEL_SIZE_BYTES` filled in.
 
 Failures on any of 1–9 block M2. 10–12 are nice-to-have for confidence.
 
-### M2 — Web search & full agent loop (weeks 6–10, overlaps M1 tail)
+### M2 — Web search & full agent loop (weeks 6–10) ✅ COMPLETE 2026-05-07
 
-- **WS-4:** Brave Search client over Ktor, post-processing per PRD §3.3 (top-3 organic, ≤200 char snippets, ≤2KB total). Search cache with category-based TTL per PRD §3.4. BYOK flow + `BuildConfig.BRAVE_DEV_KEY` for internal builds (loaded from gitignored `secrets.properties`).
-- **WS-3:** Function-call parser robust to streaming partial JSON. ReAct loop with max-3-tool-call cap and forced-answer injection. Citation rendering data piped to UI.
-- **WS-11:** Search-status indicator ("Searching the web..."), source citation chips with deep-link to browser, cache-hit indicator, settings for cache clear and search-disable toggle.
-- **WS-12:** EncryptedSharedPreferences wired for Brave key. Logging interceptor in OkHttp scrubs query strings out of error logs.
-- **Deliverable:** End-to-end chat + web search via Gemma's own tool calls, no pre-flight short-circuit yet.
+End-to-end chat with web search via Gemma's tool calls is working on Pixel 7. M2
+also absorbed M1's WS-2/3/11 (the M1 milestone shipped only WS-1; the rest was
+rolled into the M2 PR sequence).
+
+- ✅ **WS-2 schemas:** `search_cache` extended with `last_accessed_at_epoch_ms`
+  + LRU eviction query for the 500-entry cap (PRD §3.4); `messages.tool_call_json` /
+  `tool_result_json` columns already present from M0.
+- ✅ **WS-4:** Brave Search client over Ktor (`KtorBraveSearchClient`),
+  post-processing per PRD §3.3 (top-3 organic, ≤200 char snippets, ≤2KB total
+  with progressive shrink). `SearchCacheDao` with category-based TTL +
+  expired-row sweep on store + LRU evict; cache-hit indicator threaded through
+  `SearchOutcome.fromCache`. `BraveKeyProvider` resolves user-key (BYOK) ahead
+  of `BuildConfig.BRAVE_DEV_KEY` for internal builds.
+- ✅ **WS-3:** ReAct loop is now the documented LiteRT-LM 0.10.2 pattern — one
+  `Conversation` per user turn, multiple `sendMessageAsync` calls on it.
+  `AgentLoop` provides a `ToolDispatcher` callback; the engine drives the
+  multi-step cycle internally on a single conversation. Per-turn cap (3 calls)
+  enforced in the dispatcher with a "limit reached" tool response. Citations
+  accumulate across the turn into the final `ChatMessage.Assistant`.
+- ✅ **WS-11:** `ChatScreen` rewritten — alternating user/assistant bubbles,
+  live streaming, "Searching: \<query\>" chip, citation chips with
+  `Intent.ACTION_VIEW` browser deep-links, cache-hit indicator, auto-scroll.
+  `SettingsScreen` with Brave key entry (masked save/clear/reveal),
+  search-disable toggle, cache-clear with live entry count. Three-state
+  navigation in `MainScreen` (download → chat → settings) via `BackHandler`.
+- ✅ **WS-12:** `EncryptedSharedPreferences` wired through `BraveKeyProvider`.
+  OkHttp logging interceptor scrubs `Authorization` / `X-Subscription-Token`
+  headers and full query strings (`HttpEngineFactory.android.kt`).
+- ✅ **Tool-calling architecture (the surprise):** Gemma 4 LiteRT-LM 0.10.2
+  expects the **structured** tool-calling channel — `ConversationConfig.tools`
+  via `OpenApiTool`, structured `Message.toolCalls` on assistant turns, and
+  `Content.ToolResponse` (with a Map/List payload, not a raw JSON string) on
+  tool turns. Plain-text tool descriptions or marker-based parsing don't
+  unlock the model's tool-use mode. See CLAUDE.md hard invariants 8–11.
+- ✅ **107 tests** (commonMain agent + search + storage; UI not unit-tested,
+  validated on device).
+
+**Known limitation (not blocking M2):** Brave Search snippets are page
+descriptions (typically "Get the latest…"), not extracted answers. The
+agent answers correctly when the snippet *contains* the answer (sports
+scores, stock prices, recent release dates) but for queries like
+"weather in Toronto" the snippet describes weather pages without numbers
+in them. Richer snippet handling is M2.1+ scope.
+
+Phase A (WS-2 schemas + WS-12 secure-key plumbing) shipped first, then Phase B
+(Brave client + cache + post-processor), then Phase C (agent types + prompt
+assembler + ReAct loop), then Phase D (UI + settings + nav), then a
+multi-round bugfix sequence to get the LiteRT-LM tool-calling integration
+right (the architecture had to shift from text-marker parsing to LiteRT-LM's
+structured tool API; one `Conversation` per turn rather than per generate).
 
 ### M3 — Datasets & classifier training (weeks 4–14, runs largely in parallel with M1/M2)
 

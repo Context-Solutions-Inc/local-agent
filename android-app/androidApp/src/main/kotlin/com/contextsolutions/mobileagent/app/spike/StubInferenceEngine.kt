@@ -7,6 +7,7 @@ import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.ModelHandle
+import com.contextsolutions.mobileagent.inference.ToolDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -46,7 +47,11 @@ class StubInferenceEngine(
         // No-op for the stub. The real engine releases LiteRT-LM tensors here.
     }
 
-    override fun generate(handle: ModelHandle, request: GenerationRequest): Flow<GenerationEvent> = flow {
+    override fun generate(
+        handle: ModelHandle,
+        request: GenerationRequest,
+        toolDispatcher: ToolDispatcher?,
+    ): Flow<GenerationEvent> = flow {
         delay(simulatedFirstTokenLatencyMs)
         val response = cannedResponse.take(maxResponseChars(request.maxTokens))
         val tokens = response.split(' ').filter { it.isNotEmpty() }

@@ -2,12 +2,26 @@ package com.contextsolutions.mobileagent.inference
 
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.LogSeverity
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -52,8 +66,8 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         modelPath: String,
         config: InferenceConfig,
     ): ModelHandle = withContext(Dispatchers.IO) {
-        // WARNING level keeps Logcat clean in production; bump to INFO when
-        // debugging perf or accelerator selection on the M0 spike.
+        // WARNING level keeps Logcat clean in production; bump to INFO/VERBOSE
+        // when debugging perf, accelerator selection, or chat-template emission.
         Engine.setNativeMinLogSeverity(LogSeverity.WARNING)
 
         val requested = resolveAccelerator(config.accelerator)
@@ -138,7 +152,11 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
         typed.engine.close()
     }
 
-    override fun generate(handle: ModelHandle, request: GenerationRequest): Flow<GenerationEvent> = flow {
+    override fun generate(
+        handle: ModelHandle,
+        request: GenerationRequest,
+        toolDispatcher: ToolDispatcher?,
+    ): Flow<GenerationEvent> = flow {
         val typed = handle as? LiteRtModelHandle
             ?: error("ModelHandle is not a LiteRtModelHandle; engine binding is wrong.")
 
@@ -146,31 +164,230 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
             topK = typed.config.topK,
             topP = typed.config.topP.toDouble(),
             temperature = typed.config.temperature.toDouble(),
-            // Random per generation; M1 plumbs an optional caller-supplied seed
-            // through GenerationRequest for reproducibility in tests/eval.
             seed = (System.nanoTime() and 0x7FFFFFFF).toInt(),
         )
-        val conversationConfig = ConversationConfig(samplerConfig = samplerConfig)
 
+        val isStructured = request.history.isNotEmpty()
+
+        // Legacy spike-harness path: one prompt, no tools. Keep it minimal.
+        if (!isStructured) {
+            val convoConfig = ConversationConfig(samplerConfig = samplerConfig)
+            var tokenIndex = 0
+            typed.engine.createConversation(convoConfig).use { conversation ->
+                conversation.sendMessageAsync(request.prompt)
+                    .catch { t -> emit(GenerationEvent.Error(t.message ?: "unknown error", t)) }
+                    .collect { chunk ->
+                        val text = chunk.contents.contents
+                            .filterIsInstance<Content.Text>()
+                            .joinToString("") { it.text }
+                        if (text.isNotEmpty()) {
+                            emit(GenerationEvent.TokenChunk(text, tokenIndex))
+                            tokenIndex++
+                        }
+                    }
+            }
+            emit(GenerationEvent.Done(tokenIndex, FinishReason.END_OF_TURN))
+            return@flow
+        }
+
+        // Structured path: ONE conversation per user turn, drive sendMessageAsync
+        // multiple times on it. Per https://ai.google.dev/edge/litert-lm/android,
+        // reusing the same Conversation is what lets the model correlate a tool
+        // response with the prior call. Re-creating the conversation each step
+        // and replaying via initialMessages does not.
+        val current = request.history.last()
+        val initialMessages = request.history.dropLast(1).map { it.toLiteRtMessage() }
+        val convoConfig = ConversationConfig(
+            systemInstruction = request.systemInstruction
+                ?.takeIf { it.isNotBlank() }
+                ?.let { Contents.of(it) }
+                ?: Contents.of(""),
+            initialMessages = initialMessages,
+            tools = request.tools.map { it.toLiteRtToolProvider() },
+            samplerConfig = samplerConfig,
+            automaticToolCalling = false,
+        )
+
+        val conversation = typed.engine.createConversation(convoConfig)
         var tokenIndex = 0
-        typed.engine.createConversation(conversationConfig).use { conversation ->
-            conversation.sendMessageAsync(request.prompt)
-                .catch { t ->
-                    emit(GenerationEvent.Error(message = t.message ?: "unknown error", cause = t))
+        try {
+            // First leg: send the current message (typically a User string;
+            // could also be a Tool turn if the agent loop is resuming after
+            // an external interrupt — not used in the current production path).
+            var nextMessage: Any = current.toCurrentMessage()
+
+            stepLoop@ while (true) {
+                val pendingCalls = mutableMapOf<String, com.google.ai.edge.litertlm.ToolCall>()
+                val flow = when (nextMessage) {
+                    is String -> conversation.sendMessageAsync(nextMessage as String)
+                    is Message -> conversation.sendMessageAsync(nextMessage as Message)
+                    else -> error("unexpected outbound type: ${nextMessage::class}")
                 }
-                .collect { chunk ->
-                    // LiteRT-LM emits per-token (or per-small-chunk) text. The exact
-                    // emission granularity is opaque; we forward each chunk as a
-                    // TokenChunk and let the UI/agent loop handle whatever shape arrives.
-                    val text = chunk.toString()
+                var failed = false
+                flow.catch { t ->
+                    failed = true
+                    emit(GenerationEvent.Error(t.message ?: "unknown error", t))
+                }.collect { chunk ->
+                    chunk.toolCalls.forEach { call ->
+                        // Each chunk often carries the cumulative toolCalls list —
+                        // dedup by name+args so each logical call only runs once.
+                        val argsJson = serializeToolArguments(call.arguments)
+                        val key = "${call.name}|$argsJson"
+                        pendingCalls.putIfAbsent(key, call)
+                    }
+                    val text = chunk.contents.contents
+                        .filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }
                     if (text.isNotEmpty()) {
-                        emit(GenerationEvent.TokenChunk(text = text, tokenIndex = tokenIndex))
+                        emit(GenerationEvent.TokenChunk(text, tokenIndex))
                         tokenIndex++
                     }
                 }
+                if (failed) return@flow
+
+                if (pendingCalls.isEmpty() || toolDispatcher == null) break@stepLoop
+
+                // Execute tools, build a tool-response message, send it back to
+                // the SAME conversation. Gemma's correlation depends on this.
+                val responses = pendingCalls.values.map { call ->
+                    val argsJson = serializeToolArguments(call.arguments)
+                    val responseText = toolDispatcher.execute(
+                        PendingToolCall(name = call.name, argumentsJson = argsJson),
+                    )
+                    val structured = parseAsStructured(responseText) ?: responseText
+                    Content.ToolResponse(call.name, structured)
+                }
+                nextMessage = Message.tool(Contents.of(responses))
+            }
+        } finally {
+            conversation.close()
         }
-        emit(GenerationEvent.Done(totalTokens = tokenIndex, finishReason = FinishReason.END_OF_TURN))
+        emit(GenerationEvent.Done(tokenIndex, FinishReason.END_OF_TURN))
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * The "current" message for sendMessageAsync. For a User turn we return a
+     * raw String (matches LiteRT-LM's String overload of sendMessageAsync); for
+     * a Tool turn we return a Message so the response carries the structured
+     * Content.ToolResponse + the tool name. Other roles fall back to the
+     * generic Message conversion.
+     */
+    private fun HistoryMessage.toCurrentMessage(): Any = when (role) {
+        HistoryRole.USER -> text
+        else -> toLiteRtMessage()
+    }
+
+    private fun HistoryMessage.toLiteRtMessage(): Message = when (role) {
+        HistoryRole.SYSTEM -> Message.system(text)
+        HistoryRole.USER -> Message.user(text)
+        HistoryRole.MODEL -> {
+            if (toolCalls.isNotEmpty()) {
+                // Gemma's chat template only correlates a tool response with
+                // its prior call when the call is structured (Message.toolCalls
+                // populated). Inlining the call as text in the contents leaves
+                // the response orphaned and the model just refuses to use it.
+                val liteRtCalls = toolCalls.map { it.toLiteRtToolCall() }
+                Message.model(Contents.of(text), liteRtCalls, emptyMap())
+            } else {
+                Message.model(text)
+            }
+        }
+        HistoryRole.TOOL -> {
+            // Tool turns must use Content.ToolResponse so Gemma can correlate
+            // the result with the prior tool call. Plain text content makes the
+            // model think the call was never answered and it keeps emitting
+            // fresh tool calls until the agent's per-turn cap fires.
+            //
+            // The `response` payload also has to be a STRUCTURED Java type
+            // (Map/List/primitive) — LiteRT-LM's JsonConvertersKt.toJsonElement
+            // wraps a String as a JSON-quoted string ("response": "[{...}]"),
+            // not as the JSON array/object the model expects. So we parse our
+            // payload back into Kotlin maps/lists before handing it over.
+            val name = toolName
+                ?: error("HistoryMessage(role=TOOL) requires a toolName so the engine can wrap it as Content.ToolResponse")
+            val structured = parseAsStructured(text) ?: text
+            Message.tool(Contents.of(Content.ToolResponse(name, structured)))
+        }
+    }
+
+    private fun HistoryToolCall.toLiteRtToolCall(): com.google.ai.edge.litertlm.ToolCall {
+        val args: Map<String, Any?> = (parseAsStructured(argumentsJson) as? Map<String, Any?>) ?: emptyMap()
+        return com.google.ai.edge.litertlm.ToolCall(name, args)
+    }
+
+    private fun parseAsStructured(jsonText: String): Any? = try {
+        kotlinJson.parseToJsonElement(jsonText).toJavaStructured()
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun JsonElement.toJavaStructured(): Any? = when (this) {
+        is JsonNull -> null
+        is JsonPrimitive -> when {
+            isString -> content
+            booleanOrNull != null -> booleanOrNull
+            longOrNull != null -> longOrNull
+            doubleOrNull != null -> doubleOrNull
+            else -> content
+        }
+        is JsonArray -> map { it.toJavaStructured() }
+        is JsonObject -> entries.associate { it.key to it.value.toJavaStructured() }
+    }
+
+    private val kotlinJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /**
+     * Adapts our [ToolDefinition] to LiteRT-LM's [OpenApiTool]. The
+     * [OpenApiTool.execute] callback is a no-op — `automaticToolCalling`
+     * is false, so LiteRT-LM forwards calls to us via the streamed
+     * [Message.toolCalls] instead of running them itself.
+     */
+    private fun ToolDefinition.toLiteRtToolProvider(): com.google.ai.edge.litertlm.ToolProvider {
+        val descriptor: OpenApiTool = object : OpenApiTool {
+            override fun getToolDescriptionJsonString(): String = descriptionJson
+            override fun execute(args: String): String = ""
+        }
+        return tool(descriptor)
+    }
+
+    /**
+     * Renders a [com.google.ai.edge.litertlm.ToolCall.arguments] map to a
+     * compact JSON object. The agent-loop side parses it back to extract
+     * named arguments (e.g. `query`).
+     */
+    private fun serializeToolArguments(args: Map<String, Any?>): String {
+        val sb = StringBuilder("{")
+        var first = true
+        for ((key, value) in args) {
+            if (!first) sb.append(',')
+            first = false
+            sb.append('"').append(escapeJsonString(key)).append("\":")
+            sb.append(jsonValue(value))
+        }
+        sb.append('}')
+        return sb.toString()
+    }
+
+    private fun jsonValue(v: Any?): String = when (v) {
+        null -> "null"
+        is Boolean -> v.toString()
+        is Number -> v.toString()
+        is String -> "\"" + escapeJsonString(v) + "\""
+        else -> "\"" + escapeJsonString(v.toString()) + "\""
+    }
+
+    private fun escapeJsonString(s: String): String = buildString(s.length) {
+        for (c in s) {
+            when (c) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(c)
+            }
+        }
+    }
 
     /**
      * Maps [Accelerator.AUTO] to the concrete first-choice for the device.

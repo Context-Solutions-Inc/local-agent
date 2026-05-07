@@ -1,5 +1,5 @@
 -- Local search cache per PRD section 3.4. Keyed by normalized query (lowercased,
--- whitespace-collapsed). TTL category determines expiration.
+-- whitespace-collapsed). TTL category determines expiration; LRU caps total size.
 
 CREATE TABLE search_cache (
     normalized_query TEXT NOT NULL PRIMARY KEY,
@@ -7,20 +7,36 @@ CREATE TABLE search_cache (
     payload_json TEXT NOT NULL,               -- formatted result payload (top-3 organic, ≤2KB)
     category TEXT NOT NULL,                   -- 'time_sensitive' (5 min TTL) | 'general' (24h TTL)
     cached_at_epoch_ms INTEGER NOT NULL,
+    last_accessed_at_epoch_ms INTEGER NOT NULL, -- bumped on cache hit; drives LRU eviction
     expires_at_epoch_ms INTEGER NOT NULL
 );
 
 CREATE INDEX search_cache_by_expires ON search_cache(expires_at_epoch_ms);
+CREATE INDEX search_cache_by_last_accessed ON search_cache(last_accessed_at_epoch_ms);
 
 insertCacheEntry:
-INSERT OR REPLACE INTO search_cache(normalized_query, original_query, payload_json, category, cached_at_epoch_ms, expires_at_epoch_ms)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO search_cache(normalized_query, original_query, payload_json, category, cached_at_epoch_ms, last_accessed_at_epoch_ms, expires_at_epoch_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 selectCacheEntry:
 SELECT * FROM search_cache WHERE normalized_query = ? AND expires_at_epoch_ms > ?;
 
+updateLastAccessed:
+UPDATE search_cache SET last_accessed_at_epoch_ms = ? WHERE normalized_query = ?;
+
 deleteExpiredEntries:
 DELETE FROM search_cache WHERE expires_at_epoch_ms <= ?;
+
+-- LRU eviction once the cache exceeds its 500-entry bound (PRD §3.4). Removes
+-- the (count - :maxEntries) least-recently-accessed rows. Caller passes the
+-- current cap; behaviour is a no-op when count <= maxEntries.
+evictLruWhenAboveCap:
+DELETE FROM search_cache
+WHERE normalized_query IN (
+    SELECT normalized_query FROM search_cache
+    ORDER BY last_accessed_at_epoch_ms ASC
+    LIMIT MAX(0, (SELECT COUNT(*) FROM search_cache) - :maxEntries)
+);
 
 clearAllEntries:
 DELETE FROM search_cache;

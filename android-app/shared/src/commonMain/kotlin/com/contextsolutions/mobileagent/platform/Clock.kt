@@ -14,6 +14,7 @@ import kotlinx.datetime.TimeZone
  */
 expect class AgentClock() {
     fun now(): Instant
+    fun nowEpochMs(): Long
     fun systemTimeZone(): TimeZone
     fun localNow(): LocalDateTime
 }
