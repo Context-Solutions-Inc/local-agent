@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.classifier
 
 import com.contextsolutions.mobileagent.agent.TimeContext
+import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.memory.MemoryCategory
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
@@ -35,20 +37,91 @@ class QueryRewriter(
 
     /**
      * Returns the rewritten query, or `null` to abort and FallThrough.
+     *
+     * @param memories optional retrieved memories. When non-empty, the
+     *   rewriter will try to substitute possessives ("my team", "where I
+     *   live", …) with a span extracted from the matching memory before
+     *   falling through. This is the M5 promotion path described in
+     *   PRD §3.2.1: "did my team win" with an Eagles preference memory
+     *   becomes a normal high-band FireSearch with a concrete query.
      */
-    fun rewrite(originalQuery: String): String? {
+    fun rewrite(originalQuery: String, memories: List<Memory> = emptyList()): String? {
         val trimmed = originalQuery.trim()
         if (trimmed.isEmpty()) return null
-        if (containsMemoryReference(trimmed)) return null
+
+        val substituted = applyPossessiveSubstitutions(trimmed, memories)
+
+        if (containsMemoryReference(substituted)) return null
 
         val context = timeContextProvider()
-        val rewritten = applyDateTimeSubstitutions(trimmed, context)
+        val rewritten = applyDateTimeSubstitutions(substituted, context)
 
         val collapsed = rewritten.replace(Regex("\\s+"), " ").trim()
         if (collapsed.isEmpty()) return null
         if (collapsed.split(' ').size < 2) return null
 
         return collapsed
+    }
+
+    // -- Possessive substitution ------------------------------------------
+
+    /**
+     * Walk [POSSESSIVE_RULES] in order; for the first rule whose regex
+     * matches and whose category has a memory in [memories], replace the
+     * matched span with the extracted memory tail. Multiple rules can fire
+     * (e.g., a query mentioning both "my team" and "my city") — each is
+     * resolved independently with the most-similar memory of that category.
+     *
+     * If extraction fails (no marker in the memory text, or the tail is
+     * too long to be a clean noun phrase), the rule is skipped and the
+     * possessive falls through to the abort regex below.
+     */
+    private fun applyPossessiveSubstitutions(query: String, memories: List<Memory>): String {
+        if (memories.isEmpty()) return query
+        var result = query
+        for (rule in POSSESSIVE_RULES) {
+            if (!rule.regex.containsMatchIn(result)) continue
+            val memory = memories.firstOrNull { it.category == rule.category } ?: continue
+            val span = extractSubstitutionSpan(memory.text) ?: continue
+            result = rule.regex.replace(result, span)
+        }
+        return result
+    }
+
+    /**
+     * Extract a noun-phrase tail from the user's verbatim memory text.
+     * v1's templated extraction (M5_PLAN.md §2 Q3) stores the user's whole
+     * disclosure as the memory text — e.g. "my favorite nfl team is the
+     * philadelphia eagles" — so we need a heuristic to pull "philadelphia
+     * eagles" out of it.
+     *
+     * Strategy: find the last copula/preposition marker, take everything
+     * after it, strip punctuation. If the tail is empty or implausibly long
+     * (>5 tokens — likely a multi-clause sentence), give up. Brittle by
+     * design; v1.x replaces with Gemma-generated canonical memory text.
+     */
+    private fun extractSubstitutionSpan(memoryText: String): String? {
+        val lower = memoryText.lowercase()
+        var bestIdx = -1
+        var bestMarkerLen = 0
+        for (marker in SPAN_MARKERS) {
+            val idx = lower.lastIndexOf(marker)
+            if (idx > bestIdx) {
+                bestIdx = idx
+                bestMarkerLen = marker.length
+            }
+        }
+        if (bestIdx < 0) return null
+        val tail = memoryText.substring(bestIdx + bestMarkerLen)
+            .trim()
+            .trimEnd(',', '.', '!', '?', ';', ':')
+        if (tail.isEmpty()) return null
+        // Reject "we played hard last night" — too sentence-like for a
+        // possessive substitution. 5 tokens is enough headroom for
+        // "philadelphia eagles" / "the new york knicks" / "google in mountain
+        // view california" without swallowing whole clauses.
+        if (tail.split(Regex("\\s+")).size > 5) return null
+        return tail
     }
 
     // -- Memory-reference detection ----------------------------------------
@@ -122,6 +195,8 @@ class QueryRewriter(
     private fun wordRegex(phrase: String): Regex =
         Regex("(?i)\\b" + Regex.escape(phrase) + "\\b")
 
+    private data class PossessiveRule(val regex: Regex, val category: MemoryCategory)
+
     private companion object {
         // Matches first-person possessives + a small set of "where I"/"when I"
         // constructs that strongly suggest the query needs memory context to
@@ -135,6 +210,49 @@ class QueryRewriter(
                 "when\\s+i\\s+(?:was|got|moved|started|joined)|" +
                 "i\\s+(?:live|work|study)\\s+(?:in|at|for)" +
                 """)\b"""
+        )
+
+        // Possessive → category mapping (M5_PLAN.md §4 Phase C).
+        // Order matters: more specific patterns are checked first because
+        // each rule mutates the query in place. "my team" is matched before
+        // any catch-all `\bmy\s+\w+\b` (which still lives in the abort
+        // regex above to short-circuit unhandled possessives).
+        private val POSSESSIVE_RULES: List<PossessiveRule> = listOf(
+            // Sports — preference category
+            PossessiveRule(Regex("(?i)\\bmy\\s+team\\b"), MemoryCategory.PREFERENCE),
+            PossessiveRule(Regex("(?i)\\bmy\\s+(favorite\\s+)?(?:sports?\\s+)?team\\b"), MemoryCategory.PREFERENCE),
+            // Professional — employer / workplace
+            PossessiveRule(Regex("(?i)\\bmy\\s+(?:company|employer|workplace|job)\\b"), MemoryCategory.PROFESSIONAL),
+            PossessiveRule(Regex("(?i)\\bwhere\\s+i\\s+work\\b"), MemoryCategory.PROFESSIONAL),
+            // Identity — location
+            PossessiveRule(Regex("(?i)\\bwhere\\s+i\\s+live\\b"), MemoryCategory.PERSONAL_IDENTITY),
+            PossessiveRule(Regex("(?i)\\bmy\\s+(?:city|hometown|home\\s+town|neighborhood|neighbourhood)\\b"), MemoryCategory.PERSONAL_IDENTITY),
+            // Relationship — partners / kids / pets
+            PossessiveRule(
+                Regex("(?i)\\bmy\\s+(?:partner|spouse|wife|husband|girlfriend|boyfriend|gf|bf)\\b"),
+                MemoryCategory.RELATIONSHIP,
+            ),
+            PossessiveRule(
+                Regex("(?i)\\bmy\\s+(?:dog|cat|pet)\\b"),
+                MemoryCategory.RELATIONSHIP,
+            ),
+            PossessiveRule(
+                Regex("(?i)\\bmy\\s+(?:kid|kids|son|daughter|child|children)\\b"),
+                MemoryCategory.RELATIONSHIP,
+            ),
+        )
+
+        // Span markers used by [extractSubstitutionSpan] — looked up in
+        // MEMORY-text-lowered order; whichever appears LAST wins (so for
+        // "my favorite nfl team is the philadelphia eagles" we extract the
+        // tail after " is the " rather than after " is "). Markers include
+        // a leading and trailing space so they only match between word
+        // boundaries — avoids spurious hits inside words.
+        private val SPAN_MARKERS: List<String> = listOf(
+            " is the ", " are the ", " was the ", " were the ",
+            " is ", " are ", " was ", " were ",
+            " named ", " called ",
+            " at ", " for ", " in ", " from ", " of ",
         )
     }
 }

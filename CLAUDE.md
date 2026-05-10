@@ -15,6 +15,11 @@ Before suggesting architecture, scope, or code structure, read:
 6. `docs/M3_PLAN.md` — M3 phase-by-phase plan + ratified decisions
 7. `docs/M3_M4_HANDOFF.md` — operational handoff for the v1.0 classifier (M4 starting point)
 8. `docs/preflight_memory_shared_v1.0.0_MODEL_CARD.md` — classifier spec, eval metrics, known weaknesses
+9. `docs/M4_PLAN.md` — M4 phase log + decisions (pre-flight integration)
+10. `docs/M4_M5_HANDOFF.md` — operational handoff for memory subsystem starting point
+11. `docs/M5_PLAN.md` — M5 phase log + decisions (memory subsystem)
+12. `docs/M5_M6_HANDOFF.md` — operational handoff into M6 (telemetry, schema migration must-do, deferred items)
+13. `docs/M6_KICKOFF.md` — kickoff prompt for M6 (read only when starting M6)
 
 ## Project at a glance
 
@@ -348,7 +353,7 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
 | M2 Web search & agent loop (incl. M1 WS-2/3/11) | ✅ Complete 2026-05-07. End-to-end chat + tool-calling + UI. Single LiteRT-LM `Conversation` per user turn, structured tool registration, `ToolDispatcher` callback. 107 unit tests. Known limitation: Brave snippets are page descriptions; works well for sports/stocks/news but doesn't yield raw weather numbers without page fetching. |
 | M3 Datasets & classifier training | ✅ Complete 2026-05-09. Datasets `preflight_v1.0.0` (11,670) + `memory_v1.0.0` (7,707) frozen with regression-set SHA-256s in manifests. Single shared DistilBERT-base + 3 task heads exported to `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB INT8). §7 GATE: FAIL by 4-7pp on two pre-flight metrics — defensible v1 with documented v1.x improvement path (precision ceiling is dataset-level boundary noise, not tunable). Memory presence passes (92.2% test / 96.2% regression). 26 unit tests in `classifier-training/`. Detailed phase log in `docs/M3_PLAN.md`; M4 handoff at `docs/M3_M4_HANDOFF.md`. |
 | M4 Pre-flight integration | ✅ Complete 2026-05-10. Classifier wired into `AgentLoop` via `:shared/commonMain/classifier/PreflightRouter` (engine in `:shared/androidMain` on `com.google.ai.edge.litert:litert:2.1.4`). Three-band routing per PRD §3.2.1; deterministic-only rewriter (memory-context queries abort to FallThrough until M5). Pixel 7 CPU latency p95=113 ms (M4 gate <150 ms ✓; PRD §2.3 80 ms aspiration tracked as model card v1.x #5 — int32 input re-export). End-to-end on real Pixel 7: pre-flight fires for time-sensitive queries with rewritten search queries; M2 path unchanged for middle/low band. WS-14 `ct-regression-check` CLI shipped — verifies SHA-256s, runs `ct-eval-classifier --split regression`, gates on >2pp regression across 19 metrics. 142 Kotlin tests + 40 Python tests. Detailed phase log in `docs/M4_PLAN.md`; M5 handoff at `docs/M4_M5_HANDOFF.md`. |
-| M5 Memory subsystem | Not started |
+| M5 Memory subsystem | ✅ Complete 2026-05-10. all-MiniLM-L6-v2 INT8 embedder (23.5 MB) on `com.google.ai.edge.litert:litert:2.1.4`; SQLite memory store (BLOB embeddings, brute-force cosine, eviction cascade); retrieval injected before pre-flight + `[MEMORY CONTEXT BLOCK]` (SYSTEM_PROMPT §5); possessive substitution in `QueryRewriter` ("did my team win" → "did philadelphia eagles win"); post-turn extraction with explicit remember/forget commands (broadened regex covers possessives + determiners + interrogatives); MemoryScreen + ConversationMemoryListScreen + chat-bar badge; storage hardening audit (no memory text in any log path). Pixel 7 end-to-end retrieval p95 = 72 ms (under PRD §3.2.4's 100 ms). 265 Kotlin unit tests (+123 over M4). Detailed phase log in `docs/M5_PLAN.md`; M6 handoff at `docs/M5_M6_HANDOFF.md`. |
 | M6 Polish, eval, telemetry | Not started |
 | M7 Closed beta → Play Store | Not started |
 
@@ -482,3 +487,112 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
   (instrumentation), `ClassifierLatencyBenchmark` (instrumentation).
   Python: `tests/test_regression_check.py` (14 unit tests for diff/SHA
   logic).
+
+## M5 architecture cheat sheet (for M6 / v1.x follow-ups)
+
+- **Memory package (`:shared/commonMain/memory/`)** —
+  `Memory` data class (id, text, category, conversationId, createdAt,
+  lastAccessed, accessCount, embedding[384], expiresAt), `MemoryCategory`
+  enum mirroring schemas.py order, `EmbedderEngine` interface,
+  `EmbedderOutput` (FloatArray[384]), `MemoryStore` interface,
+  `SqlDelightMemoryStore` impl, `MemoryRetriever`, `MemoryExtractor`,
+  `MemoryEvictor`, `RememberForgetDetector`, `TempContextDateParser`,
+  `MemoryPreferences` interface; `internal/Cosine.kt`,
+  `internal/EmbeddingBlob.kt` (LE Float32 ↔ ByteArray codec).
+- **Embedder engine (`:shared/androidMain/memory/LiteRtEmbedderEngine.kt`)**
+  — backed by `com.google.ai.edge.litert:litert:2.1.4` (same runtime as
+  the M4 classifier; CLAUDE.md inv. #18). MiniLM exports with mean-pool +
+  L2-norm baked into the graph, so the on-device output is a single
+  normalised 384-dim vector — cosine reduces to dot product but the
+  `cosine()` function still divides by norms for safety.
+  - GPU rejected (`BROADCAST_TO`/`EMBEDDING_LOOKUP`/`CAST INT64→FLOAT32`
+    unsupported, same as the classifier). CPU XNNPACK p95 = 40.68 ms.
+  - One output tensor; no per-head dispatch. Verifies `[1, 384]` at
+    warmUp.
+- **Vocab dedup with classifier.** MiniLM uses bert-base-uncased
+  WordPiece — byte-identical SHA-256 to the existing classifier
+  `assets/vocab.txt`. Both engines reuse the single vocab + tokenizer
+  singleton via Hilt. No `minilm_vocab.txt`.
+- **Memory store (`SqlDelightMemoryStore`)** — brute-force cosine over
+  all non-expired rows (1k cap → 31.87 ms p95 dominated by SQLite BLOB
+  → ByteArray JNI copy, NOT the math). Top-K with atomic `last_accessed`
+  + `access_count` bump in a transaction. Pre-loading embeddings to a
+  resident `Map<String, FloatArray>` is the v1.x perf option if
+  retrieval ever drifts above PRD §3.2.4's 100 ms budget; deferred
+  because end-to-end p95 = 72 ms.
+- **Schema (`Memories.sq`)** — added `access_count INTEGER NOT NULL
+  DEFAULT 0` in M5. **No migration support is wired up**; existing dev
+  installs need `pm clear com.contextsolutions.mobileagent.debug` (or
+  uninstall) before Phase C+ M5 builds run. Documented inline in the
+  .sq file. M6 should add `.sqm` migration files before any production
+  rollout.
+- **AgentLoop integration (`:shared/commonMain/agent/AgentLoop.kt`)** —
+  retrieval runs **before** pre-flight (sequential, M5_PLAN §2). The
+  retriever is nullable so M2/M4 callers compile unchanged. Returned
+  memories flow into both `PreflightRouter.route(query, memories)` (so
+  `QueryRewriter` can do possessive substitution) and
+  `assembler.assembleStructured(memoryBlock = renderMemoryBlock(...))`
+  (so the §5 block lands in the system prompt).
+- **Possessive substitution (`QueryRewriter`)** — pattern table maps
+  "my team" → PREFERENCE, "my company"/"where I work" → PROFESSIONAL,
+  "where I live"/"my city" → PERSONAL_IDENTITY, "my partner|spouse|
+  dog|cat|pet|kid" → RELATIONSHIP. Span heuristic finds the last
+  copula/preposition (` is the `/` is `/` at `/` in `/` named `/etc.)
+  and takes the tail (cap 5 tokens). Brittle by design — v1.x replaces
+  with Gemma-generated canonical memory text per PRD §3.2.4 v1.x note.
+- **Post-turn extraction (`MemoryExtractor`)** — wired via
+  `ChatViewModel.runMemoryExtraction(event)` on `AgentEvent.Done`.
+  Detector path (Remember/Forget) bypasses the classifier; classifier
+  path runs `WordPieceTokenizer.encodePair(user, assistant)` →
+  `engine.classify` → presence argMax → multi-label sigmoid > 0.5 →
+  one memory per active category sharing the user-message embedding.
+  Dedup via `findCosineMatch(>0.85)`. Forget uses the *retrieval*
+  threshold (0.5), not the dedup threshold — fixed during on-device
+  review. Eviction cascade runs once before any inserts. Every branch
+  catches and logs; never throws.
+- **Remember/forget regex coverage** — the connector alternation in
+  `RememberForgetDetector` covers `that|this|me|i'?m|i\s+am|i|my|our|
+  its|their|his|her|the|a|an|when|where|how|to|about` for both
+  `REMEMBER_REGEX` and `FORGET_REGEX`. "Remember my dog's name is
+  Evie" / "Forget my anniversary" / "Remember when we met" all match
+  in v1; broadened during the on-device review.
+- **`temporary_context` expiry (`TempContextDateParser`)** — parses ISO
+  dates / "in N (days|weeks|months|years)" / "on (weekday)" / "today |
+  tonight | tomorrow | next week | next month | next year". Returns
+  null when nothing matches; extractor falls back to `now + 30d`.
+- **MemoryPreferences toggle** — `SharedPreferencesMemoryPreferences`
+  on Android (plain SharedPreferences, non-secret). Phase E
+  `MemoryScreen` exposes the toggle. Each call to `extract()` re-reads
+  the preference, so toggling takes effect on the next user turn.
+- **UI (`:androidApp/.../app/ui/memory/`)** — `MemoryScreen` (grouped
+  list + per-row delete + clear-all + creation toggle),
+  `ConversationMemoryListScreen` (per-chat slice with category chip),
+  `ConversationMemoryBadge` (chat top bar; hidden when count == 0),
+  `MemoryViewModel` (single class drives both screens; refresh-on-entry
+  via `LaunchedEffect(Unit)` pattern). `MainScreen` route added:
+  Chat / Settings / MemoryManagement / ConversationMemory(id) sealed
+  hierarchy with custom Saver. **In-place edit deferred to v1.x per
+  Q4** — delete-and-re-state is the v1 workaround.
+- **Edge-to-edge IME fix.** `enableEdgeToEdge()` in MainActivity stops
+  `windowSoftInputMode=adjustResize` from auto-resizing the window —
+  Compose has to consume the IME inset directly. Both `ChatScreen` and
+  `SettingsScreen` content columns carry `Modifier.imePadding()` so
+  the keyboard pushes the input up.
+- **Storage hardening (WS-12)** — every `Log.*` / `logger` call in the
+  memory pipeline emits counts, IDs, accelerator names, or `text.length`
+  only — never raw memory or user text. Verified 2026-05-10 (M5_PLAN
+  §6 / §7). Telemetry-exclusion comment markers in `Memories.sq` and
+  `MemoryExtractor` so the M6 WS-13 telemetry builder cannot
+  accidentally read memory content. Brave search payload only carries
+  rewriter-substituted strings (memory-derived but not raw memory text)
+  per PRD §4.4.
+- **Tests** — Kotlin (host): `MemoryRetrieverTest`, `MemoryExtractorTest`,
+  `MemoryEvictorTest`, `RememberForgetDetectorTest`,
+  `TempContextDateParserTest`, `CosineTest`, `EmbeddingBlobTest`,
+  `SqlDelightMemoryStoreTest`, `MinilmTokenizerFixtureTest`,
+  `MemoryViewModelTest`, plus new cases in
+  `QueryRewriterMemoryTest`, `AgentLoopMemoryTest`,
+  `PromptAssemblerMemoryBlockTest`. Instrumentation:
+  `EmbedderSpikeTest`, `EmbedderEndToEndTest`,
+  `MemoryRetrievalLatencyBenchmark`. 265 unit + 4 instrumentation;
+  every Phase D/E branch covered.

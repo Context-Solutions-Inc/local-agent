@@ -369,13 +369,70 @@ in `docs/M4_PLAN.md`. Top-line summary:
 load), pair-encoder API on `WordPieceTokenizer`, expected probability
 shapes.
 
-### M5 — Memory subsystem (weeks 14–18)
+### M5 — Memory subsystem ✅ COMPLETE 2026-05-10 — see `docs/M5_PLAN.md`
 
-- **WS-9:** all-MiniLM-L6-v2 INT8 embedder integrated. Memory storage: SQLite table per PRD §3.2.4 with embeddings stored as BLOBs. **Brute-force cosine over up to 1,000 entries — no native vector index needed at this scale (sub-10ms on Pixel 7 for 1k × 384-dim).** Retrieval with K=5 / threshold 0.5, expiration filter, recency weighting. Eviction policy: expired → 90-day-stale → LRU+frequency.
-- **WS-10:** Background memory extraction job after each user turn. Templated candidate generation (Gemma-based generation deferred to v1.x per PRD §3.2.4). Embedding-based dedup (cosine > 0.85). Explicit remember/forget command detection routes through the same classifier with a different label head.
-- **WS-11:** Memory management UI: list all memories grouped by category, edit/delete individual entries, clear all, disable creation toggle. Per-conversation indicator showing memories created in that conversation.
-- **WS-12:** Verify memory database file is on `NSFileProtectionCompleteUntilFirstUserAuthentication`-equivalent (Android FBE Credential Encrypted Storage). No memory content in any log path or telemetry payload.
-- **Deliverable:** Persistent memory across conversations, fully transparent and user-controllable per PRD §3.2.4.
+Detailed phase-by-phase status, ratified decisions, and exit criteria live
+in `docs/M5_PLAN.md`. Top-line summary:
+
+- **WS-9 shipped:**
+  - `all-MiniLM-L6-v2` INT8 embedder (23.5 MB, exported via
+    `classifier-training/scripts/export_minilm_litert.py`) running on
+    `com.google.ai.edge.litert:litert:2.1.4` (CPU XNNPACK; GPU rejected
+    the graph for the same reason as the classifier).
+  - Memory store: SQLite table per PRD §3.2.4 with embeddings as BLOBs
+    (little-endian Float32, 1,536 bytes per row); brute-force cosine
+    over non-expired rows.
+  - Retrieval (K=5 / threshold 0.5) with atomic `last_accessed` +
+    `access_count` bump on hits; eviction cascade (expired → 90-day
+    stale → LRU+freq) runs pre-insert at the 1,000-row capacity.
+  - `[MEMORY CONTEXT BLOCK]` (SYSTEM_PROMPT.md §5) injected when
+    retrieval finds anything; bullet format `- (<category>) <text>`.
+  - Possessive substitution in `QueryRewriter` — "did my team win" with
+    seeded Eagles preference rewrites to "did philadelphia eagles win
+    <date>" and routes high-band FireSearch.
+- **WS-10 shipped:**
+  - `MemoryExtractor` runs on `Dispatchers.IO` after each
+    `AgentEvent.Done`. Detector path (Remember/Forget) bypasses
+    classifier; classifier path runs `encodePair` → presence head argMax →
+    multi-label sigmoid > 0.5 per category.
+  - Verbatim-user-text memories per Q3 in M5_PLAN.md §2 (Gemma-rewritten
+    canonical text deferred to v1.x).
+  - Dedup via cosine > 0.85; forget at the *retrieval* threshold (0.5)
+    so loosely-named queries resolve.
+  - Remember/forget regex covers `that|this|me|i'm|i am|i|to|about|my|
+    our|the|when|where|how|...` per the on-device review fix.
+- **WS-11 shipped:**
+  - `MemoryScreen` (grouped by category, per-row delete with confirmation,
+    clear-all, creation toggle), `ConversationMemoryListScreen`
+    (per-chat list with category chip), `ConversationMemoryBadge`
+    (chat top bar; hidden when count == 0), Settings entry.
+  - Bonus fix: `imePadding()` on chat + settings columns so the soft
+    keyboard no longer hides the input.
+- **WS-12 shipped:**
+  - Memory subsystem audit: every `Log.*` / `logger` call emits counts,
+    IDs, accelerator names, or `text.length` only — never raw memory
+    text or user payloads. Documented in `docs/M5_PLAN.md` §6 / §7.
+  - Telemetry-exclusion comment markers in `Memories.sq` and
+    `MemoryExtractor` so the M6 WS-13 telemetry builder cannot
+    accidentally read memory content.
+  - DB file lives at `Context.dataDir/databases/mobile_agent.db` —
+    Android FBE Credential Encrypted Storage by default on Android 16
+    (PRD §4.4 satisfied without extra config).
+
+| Metric | Result |
+|---|---|
+| Embedder forward pass p95 (Pixel 7 CPU) | 40.68 ms |
+| Cosine over 1k entries p95 | 31.87 ms (BLOB JNI dominates; v1.x can pre-load to memory) |
+| **End-to-end retrieval p95 (PRD §3.2.4 budget 100 ms)** | **72.01 ms ✓** |
+| Auxiliary footprint (classifier 67.7 + embedder 23.5) | 91.2 MB / 200 MB cap ✓ |
+| Unit tests | 265/265 (was 142 at end of M4 — +123 in M5) |
+
+**M6 hand-off at `docs/M5_M6_HANDOFF.md`** covers the telemetry
+counter-only contract, schema-migration follow-up (the `access_count`
+column was added in-place; existing dev installs need `pm clear`
+before M6 tightens the migration story), classifier recall improvement
+queue (RELATIONSHIP under-represented in v1.0), and embedder
+GPU-re-export option.
 
 ### M6 — Polish, eval, telemetry (weeks 18–22)
 
@@ -383,6 +440,29 @@ shapes.
 - **WS-13:** Opt-in telemetry. Off by default. Aggregate counters only — no query strings, no memory content, no conversation text. Explicit consent screen with itemized list of what is and is not transmitted.
 - **WS-14:** Full eval harness gates classifier and system-prompt changes via CI. Canonical query set per SYSTEM_PROMPT.md §11.
 - **WS-15:** Crashlytics with aggressive content scrubbing (custom log redactor). Performance telemetry: model load time, first-token p50/p95, search latency, pre-flight hit rate. Data Safety form drafted, privacy policy drafted and reviewed.
+- **M5 carry-overs (see `docs/M5_M6_HANDOFF.md`):**
+  - **Schema migration files** for `Memories.sq` (added `access_count`
+    in M5 in-place; production-blocker — closed beta clean-installs are
+    fine but a public release that upgrades over an existing install
+    would crash on first DB write).
+  - **Telemetry counter shape** — handoff §1 enumerates the suggested
+    set (`memory_extracted_total`, `memory_dedup_skipped_total`,
+    `memory_forgotten_total`, `memory_evicted_total{tier}`,
+    `memory_retrieved_total`, `memory_retrieval_p95_ms`). Memory text
+    + embedding BLOBs are off-limits; comment markers in `Memories.sq`
+    and `MemoryExtractor` document this.
+  - **Hosted CI for `ct-regression-check`** — currently the local
+    script ships in `classifier-training/scripts/`; move to
+    GitHub Actions or Cloud Build per WS-14.
+- **Eager Gemma load (new request, M6 scope):** today the LiteRT-LM
+  Gemma 4 model cold-loads on the user's first prompt (4–8 s). Trigger
+  the load earlier — when the chat screen comes into view — so the
+  model is warm by the time the user finishes typing. The existing
+  5-minute idle unload (M0 Decision 5) and `onTrimMemory()` proactive
+  unload stay in place; M6 should also consider unloading when the
+  chat screen leaves the foreground for an extended window
+  (Activity-pause vs. brief navigation-to-Settings — see kickoff
+  prompt for the trade-offs).
 - **Deliverable:** Internal-quality build ready for closed beta.
 
 ### M7 — Closed beta → public launch (weeks 22–26)

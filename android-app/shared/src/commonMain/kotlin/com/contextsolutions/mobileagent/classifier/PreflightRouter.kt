@@ -1,6 +1,7 @@
 package com.contextsolutions.mobileagent.classifier
 
 import com.contextsolutions.mobileagent.classifier.internal.softmax
+import com.contextsolutions.mobileagent.memory.Memory
 
 /**
  * Phase C / WS-8 routing decision (PRD §3.2.1). Drives the three-band
@@ -43,7 +44,17 @@ class PreflightRouter(
 
     private var classifierUnavailableLogged = false
 
-    suspend fun route(query: String): PreflightDecision {
+    /**
+     * @param memories optional retrieved memories from the [com.contextsolutions.mobileagent.memory.MemoryRetriever]
+     *   side of the agent loop. Threaded into the rewriter so possessives
+     *   like "my team" get substituted with the matching memory text
+     *   (M5 Phase C). Empty list reproduces M4 behavior — the rewriter
+     *   aborts on possessives.
+     */
+    suspend fun route(
+        query: String,
+        memories: List<Memory> = emptyList(),
+    ): PreflightDecision {
         if (!searchAvailableProvider()) {
             logger("[preflight] decision=SearchDisabled query=\"${redact(query)}\"")
             return PreflightDecision.SearchDisabled
@@ -68,7 +79,7 @@ class PreflightRouter(
 
         val decision = when {
             pSearch > thresholds.highBand -> {
-                val rewritten = rewriter.rewrite(query)
+                val rewritten = rewriter.rewrite(query, memories)
                 if (rewritten == null) {
                     PreflightDecision.FallThrough(
                         reason = FallThroughReason.RewriterAbort,

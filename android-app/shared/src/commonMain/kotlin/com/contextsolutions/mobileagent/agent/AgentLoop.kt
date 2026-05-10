@@ -6,6 +6,8 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
@@ -51,6 +53,7 @@ class AgentLoop(
     private val assembler: PromptAssembler,
     private val searchService: SearchService,
     private val preflightRouter: PreflightRouter,
+    private val memoryRetriever: MemoryRetriever? = null,
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
 ) {
 
@@ -68,6 +71,15 @@ class AgentLoop(
         // turnMessages is faithful to what actually happened.
         val turnAppendix = mutableListOf<ChatMessage>(userMessage)
 
+        // -- Memory retrieval (PRD §3.2.4) --
+        // Runs BEFORE pre-flight (M5_PLAN.md §2 — sequential with retrieval
+        // first). The retriever is null until M5 wiring lands; the router's
+        // empty-list path reproduces M4 behavior exactly.
+        val retrievedMemories: List<Memory> = memoryRetriever
+            ?.retrieve(input.userMessage)
+            ?.map { it.memory }
+            ?: emptyList()
+
         // -- Pre-flight (PRD §3.2.1) --
         // The router runs the classifier, applies thresholds, and (on a
         // high-band hit) rewrites date/time relatives. We branch on its
@@ -78,7 +90,7 @@ class AgentLoop(
             addAll(priorHistory)
             add(userMessage)
         }
-        when (val decision = preflightRouter.route(input.userMessage)) {
+        when (val decision = preflightRouter.route(input.userMessage, retrievedMemories)) {
             is PreflightDecision.FireSearch -> {
                 send(AgentEvent.SearchStarted(decision.rewrittenQuery))
                 val outcome = searchService.search(decision.rewrittenQuery)
@@ -122,6 +134,7 @@ class AgentLoop(
 
         val structured = assembler.assembleStructured(
             history = historyForPrompt,
+            memoryBlock = PromptAssembler.renderMemoryBlock(retrievedMemories),
             preflightNotice = preflightNotice,
             searchAvailable = searchService.isAvailable(),
         )

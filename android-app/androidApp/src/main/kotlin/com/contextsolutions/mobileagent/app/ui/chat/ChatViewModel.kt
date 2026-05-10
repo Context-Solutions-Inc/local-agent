@@ -12,7 +12,12 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.classifier.ClassifierEngine
+import com.contextsolutions.mobileagent.memory.EmbedderEngine
+import com.contextsolutions.mobileagent.memory.MemoryExtractor
+import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.search.SearchOutcome
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 import com.contextsolutions.mobileagent.search.SearchSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -37,18 +42,37 @@ import kotlinx.coroutines.launch
  * separately from the user-visible bubble list so Gemma sees the full context
  * on follow-up turns while the UI shows a clean conversation.
  */
+@OptIn(ExperimentalUuidApi::class)
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val agentLoopFactory: AgentLoopFactory,
     private val sessionManager: InferenceSessionManager,
     private val inventory: ModelInventory,
     private val classifierEngine: ClassifierEngine,
+    private val embedderEngine: EmbedderEngine,
+    private val memoryExtractor: MemoryExtractor,
+    private val memoryStore: MemoryStore,
 ) : ViewModel() {
 
     val sessionState: StateFlow<SessionState> = sessionManager.state
 
     private val _ui = MutableStateFlow(ChatUiState())
     val ui: StateFlow<ChatUiState> = _ui.asStateFlow()
+
+    /**
+     * Memory count for the current conversation — drives the badge in
+     * the chat top bar (M5 Phase E). Refreshed after every Done event so
+     * a newly-extracted memory appears within ~1 turn of when it landed.
+     */
+    private val _memoryCount = MutableStateFlow(0)
+    val memoryCount: StateFlow<Int> = _memoryCount.asStateFlow()
+
+    /**
+     * The active conversation ID. Exposed to the chat screen so the
+     * "memories from this chat" route can scope itself correctly.
+     */
+    private val _conversationId = MutableStateFlow<String?>(null)
+    val conversationId: StateFlow<String?> = _conversationId.asStateFlow()
 
     /** Internal full conversation as the agent sees it (includes tool_call/tool turns). */
     private var agentHistory: List<ChatMessage> = emptyList()
@@ -69,12 +93,32 @@ class ChatViewModel @Inject constructor(
                 Log.w(TAG, "pre-flight classifier unavailable; agent will fall through to Gemma")
             }
         }
+
+        // M5 Phase B: warm the embedder in parallel. Once loaded the
+        // memory subsystem (retrieval + extraction, Phases C/D) is ready.
+        // Failure is silent — MemoryRetriever / MemoryExtractor see
+        // isLoaded=false and degrade to no-op (PRD §3.2.4 graceful
+        // degradation).
+        viewModelScope.launch(Dispatchers.IO) {
+            val accelerator = embedderEngine.warmUp()
+            if (accelerator != null) {
+                Log.i(TAG, "memory embedder ready on $accelerator")
+            } else {
+                Log.w(TAG, "memory embedder unavailable; memory subsystem will be inert")
+            }
+        }
     }
 
     fun send(prompt: String) {
         val trimmed = prompt.trim()
         if (trimmed.isEmpty()) return
         currentJob?.cancel()
+
+        // Generate a conversation ID lazily on the first send so memories
+        // extracted during this chat can be grouped for the Phase E badge.
+        if (_conversationId.value == null) {
+            _conversationId.value = "conv-${Uuid.random()}"
+        }
 
         // Add user bubble immediately so it appears even before the model loads.
         _ui.update {
@@ -118,9 +162,29 @@ class ChatViewModel @Inject constructor(
         currentJob?.cancel()
     }
 
+    /**
+     * Re-query the badge count for the current conversation. Called from
+     * [com.contextsolutions.mobileagent.app.ui.chat.ChatScreen]'s
+     * `LaunchedEffect(Unit)` so a delete on `MemoryScreen` is reflected
+     * on return — the count update during extraction only fires after
+     * a Done event, so without this hook a deletion stays invisible
+     * until the user sends a new message.
+     */
+    fun refreshMemoryCount() {
+        val cid = _conversationId.value ?: run {
+            _memoryCount.value = 0
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
+        }
+    }
+
     fun newConversation() {
         currentJob?.cancel()
         agentHistory = emptyList()
+        _conversationId.value = null
+        _memoryCount.value = 0
         _ui.value = ChatUiState()
     }
 
@@ -155,6 +219,7 @@ class ChatViewModel @Inject constructor(
                         isGenerating = false,
                     )
                 }
+                runMemoryExtraction(event)
             }
             is AgentEvent.Error -> _ui.update {
                 it.copy(
@@ -163,6 +228,37 @@ class ChatViewModel @Inject constructor(
                     searchStatus = SearchStatus.None,
                     isGenerating = false,
                 )
+            }
+        }
+    }
+
+    /**
+     * M5 Phase D: post-turn memory extraction. Fire-and-forget on
+     * [Dispatchers.IO] so a slow extractor can never block the UI or the
+     * next user turn. The extractor itself catches every failure path —
+     * we just gate on having a real user message to work with.
+     */
+    private fun runMemoryExtraction(event: AgentEvent.Done) {
+        val userMessage = event.turnMessages
+            .firstOrNull { it is ChatMessage.User }
+            ?.text
+            ?: return
+        val assistantText = event.message.text
+        val cid = _conversationId.value
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                memoryExtractor.extract(
+                    userMessage = userMessage,
+                    assistantResponse = assistantText,
+                    conversationId = cid,
+                )
+            }.onFailure {
+                Log.w(TAG, "memory extraction crashed; turn already complete", it)
+            }
+            // Refresh the badge count after extraction settles. Sequencing
+            // matters: the count must reflect the just-completed extract.
+            if (cid != null) {
+                runCatching { _memoryCount.value = memoryStore.countForConversation(cid) }
             }
         }
     }

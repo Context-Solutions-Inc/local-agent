@@ -4,6 +4,7 @@ import com.contextsolutions.mobileagent.agent.AgentLoop
 import com.contextsolutions.mobileagent.agent.PromptAssembler
 import com.contextsolutions.mobileagent.agent.currentTimeContext
 import com.contextsolutions.mobileagent.classifier.PreflightRouter
+import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
 import com.contextsolutions.mobileagent.search.SearchService
@@ -41,12 +42,14 @@ object AgentModule {
         assembler: PromptAssembler,
         searchService: SearchService,
         preflightRouter: PreflightRouter,
+        memoryRetriever: MemoryRetriever,
     ): AgentLoopFactory = AgentLoopFactory { session ->
         AgentLoop(
             session = session,
             assembler = assembler,
             searchService = searchService,
             preflightRouter = preflightRouter,
+            memoryRetriever = memoryRetriever,
         )
     }
 }

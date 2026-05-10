@@ -139,10 +139,17 @@ android {
 // Stage just the small text fixtures needed by JVM unit tests into a
 // dedicated build dir. Binds in via the test source set above.
 val collectClassifierTestResources = tasks.register<Copy>("collectClassifierTestResources") {
-    description = "Stage vocab.txt + preflight_config.json + tokenizer fixture for JVM tests."
+    description = "Stage vocab.txt + preflight_config.json + tokenizer fixtures for JVM tests."
     from(rootDir.resolve("androidApp/src/main/assets/vocab.txt"))
     from(rootDir.resolve("androidApp/src/main/assets/preflight_config.json"))
     from(rootDir.resolve("../classifier-training/tests/fixtures/tokenizer_canonical_inputs.json"))
+    // M5 — MiniLM tokenizer fixture for the embedder. Same WordPiece vocab
+    // as DistilBERT (bert-base-uncased), so the existing tokenizer should
+    // produce byte-exact results for these strings too.
+    from(rootDir.resolve("../classifier-training/tests/fixtures/minilm_tokenizer_canonical_inputs.json"))
+    // M5 — embedder canonical reference vectors (used by the on-device
+    // EmbedderEndToEndTest, NOT by JVM tests, but harmless to stage here too).
+    from(rootDir.resolve("../classifier-training/tests/fixtures/embedder_canonical_outputs.json"))
     into(layout.buildDirectory.dir("generated/classifierTestResources"))
 }
 tasks.matching { it.name.endsWith("UnitTestJavaRes") || it.name.endsWith("UnitTestSources") }
@@ -191,11 +198,58 @@ val copyClassifierTflite = tasks.register("copyClassifierTflite") {
     }
 }
 
+// M5 / WS-9 asset bundling. Mirror of copyClassifierTflite for the embedder
+// (`all-MiniLM-L6-v2` INT8). Same gitignored-source-of-truth + SHA-verify
+// pattern. Note the vocab is NOT bundled separately — MiniLM ships the
+// bert-base-uncased WordPiece vocab which is byte-identical to the
+// distilbert-base-uncased vocab we already ship at assets/vocab.txt
+// (verified via classifier-training/scripts/export_minilm_litert.py).
+val copyEmbedderTflite = tasks.register("copyEmbedderTflite") {
+    description = "Copy + verify the all-MiniLM-L6-v2 embedder .tflite into androidApp assets."
+    group = "build"
+    val srcFile = rootDir.resolve("../models/all-MiniLM-L6-v2_int8.tflite")
+    val dstFile = rootDir.resolve("androidApp/src/main/assets/all-MiniLM-L6-v2_int8.tflite")
+    val expectedSha = "d4320c6f082450d542949ca1067cbc82de4c0c4c4f2ff8915752ff0885c55dcb"
+    inputs.file(srcFile)
+    outputs.file(dstFile)
+    doLast {
+        if (!srcFile.exists()) {
+            throw GradleException(
+                "Embedder artifact missing: ${srcFile.absolutePath}\n" +
+                    "Build it via classifier-training/scripts/export_minilm_litert.py " +
+                    "(see docs/M5_PLAN.md §9) before running this build."
+            )
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        srcFile.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf); if (n <= 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        val actual = digest.digest().joinToString("") { byte: Byte -> "%02x".format(byte) }
+        if (actual != expectedSha) {
+            throw GradleException(
+                "Embedder SHA-256 mismatch.\n" +
+                    "  expected: $expectedSha (v1.0 ship)\n" +
+                    "  actual:   $actual\n" +
+                    "Update build.gradle.kts after a deliberate embedder re-export."
+            )
+        }
+        dstFile.parentFile.mkdirs()
+        srcFile.copyTo(dstFile, overwrite = true)
+    }
+}
+
 androidComponents.onVariants { variant ->
     val variantName = variant.name.replaceFirstChar { c -> c.titlecase() }
     project.tasks
         .matching { it.name == "merge${variantName}Assets" }
-        .configureEach { dependsOn(copyClassifierTflite) }
+        .configureEach {
+            dependsOn(copyClassifierTflite)
+            dependsOn(copyEmbedderTflite)
+        }
 }
 
 dependencies {

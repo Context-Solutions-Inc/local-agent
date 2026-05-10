@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,11 +50,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenMemoryManagement: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    memoryViewModel: com.contextsolutions.mobileagent.app.ui.memory.MemoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val memoryState by memoryViewModel.state.collectAsState()
     var keyInput by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { memoryViewModel.refresh() }
 
     LaunchedEffect(state.keyJustSaved) {
         if (state.keyJustSaved) {
@@ -78,6 +84,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
@@ -171,6 +178,22 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            SectionHeader("Memory")
+            val memoryCountLabel = when (memoryState.totalCount) {
+                0 -> "no memories saved"
+                1 -> "1 memory saved"
+                else -> "${memoryState.totalCount} memories saved"
+            }
+            val creationLabel = if (memoryState.creationEnabled) "creation on" else "creation off"
+            Text(
+                "$memoryCountLabel · $creationLabel.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
         }
     }
 }

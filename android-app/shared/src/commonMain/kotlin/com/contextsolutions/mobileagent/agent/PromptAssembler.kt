@@ -4,6 +4,7 @@ import com.contextsolutions.mobileagent.inference.HistoryMessage
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.HistoryToolCall
 import com.contextsolutions.mobileagent.inference.ToolDefinition
+import com.contextsolutions.mobileagent.memory.Memory
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDateTime
 
@@ -210,6 +211,55 @@ the results are included below in the conversation as a tool result. Answer
 the user's question using those results. Do NOT emit another web_search tool
 call for this query unless the results are clearly insufficient and a
 different search would help."""
+
+        // SYSTEM_PROMPT.md §5 — verbatim. Wrapped at the same column the file
+        // uses so the model sees the exact spec text. The bullet list is
+        // rendered separately by [renderMemoryBlock] and inserted at
+        // `{memory_list}`.
+        const val MEMORY_CONTEXT_HEADER: String = "=== Relevant context from previous conversations ==="
+
+        const val MEMORY_CONTEXT_FOOTER: String = """These facts come from previous conversations with this user. Use them to
+personalize your response and resolve ambiguous references (e.g., "my team,"
+"my project," "where I live"). Do not mention these facts unprompted unless
+they are directly relevant to the current query. If a fact appears outdated
+or contradicts what the user says now, prioritize the user's current
+statement."""
+
+        /** PRD §5.3 cap on memories per turn. */
+        const val MEMORY_CONTEXT_MAX_ENTRIES: Int = 5
+
+        /**
+         * Render a [Memory] list into the SYSTEM_PROMPT.md §5 block, or
+         * `null` when [memories] is empty (the assembler omits the block
+         * entirely so the model isn't primed to invent context).
+         *
+         * Bullet format (v1, simple): `- (<category>) <text>`. Category
+         * prefix tells Gemma what kind of fact this is — useful when v1's
+         * verbatim memory text is rough ("user mentioned: i live in
+         * toronto" rather than "user lives in toronto"). v1.x replaces
+         * the verbatim text with Gemma-generated canonical sentences.
+         *
+         * Memories are taken in input order — the caller (typically
+         * [com.contextsolutions.mobileagent.memory.MemoryRetriever]) sorts
+         * by similarity descending. Capped at [MEMORY_CONTEXT_MAX_ENTRIES].
+         * Expired `temporary_context` rows MUST be filtered upstream
+         * (PRD §5.3 — "filtered out before retrieval and never appear in
+         * this block").
+         */
+        fun renderMemoryBlock(memories: List<Memory>): String? {
+            if (memories.isEmpty()) return null
+            val rows = memories.take(MEMORY_CONTEXT_MAX_ENTRIES)
+            val bullets = rows.joinToString(separator = "\n") { memory ->
+                "- (${memory.category.wireName}) ${memory.text}"
+            }
+            return buildString {
+                append(MEMORY_CONTEXT_HEADER)
+                append('\n')
+                append(bullets)
+                append("\n\n")
+                append(MEMORY_CONTEXT_FOOTER)
+            }
+        }
 
         const val BEHAVIOR_GUIDELINES: String = """=== Guidelines ===
 

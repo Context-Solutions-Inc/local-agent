@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.search.SearchSource
 
@@ -59,10 +61,13 @@ import com.contextsolutions.mobileagent.search.SearchSource
 fun ChatScreen(
     onOpenSpike: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenConversationMemory: (conversationId: String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
+    val memoryCount by viewModel.memoryCount.collectAsState()
+    val conversationId by viewModel.conversationId.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -72,11 +77,26 @@ fun ChatScreen(
         if (total > 0) listState.animateScrollToItem(total - 1)
     }
 
+    // Re-query the badge count whenever the chat screen comes back into
+    // the composition — handles the "delete a memory in MemoryScreen
+    // and return to chat" path where the in-flight count is otherwise
+    // stuck at the pre-delete value.
+    LaunchedEffect(Unit) {
+        viewModel.refreshMemoryCount()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Chat") },
                 actions = {
+                    val cid = conversationId
+                    if (cid != null) {
+                        ConversationMemoryBadge(
+                            count = memoryCount,
+                            onClick = { onOpenConversationMemory(cid) },
+                        )
+                    }
                     TextButton(onClick = onOpenSettings) { Text("Settings") }
                     TextButton(onClick = { viewModel.newConversation() }) { Text("New") }
                     TextButton(onClick = onOpenSpike) { Text("Spike") }
@@ -84,10 +104,16 @@ fun ChatScreen(
             )
         },
     ) { padding ->
+        // imePadding() pushes the bottom of the chat column up by the
+        // height of the soft keyboard. Edge-to-edge (set in MainActivity)
+        // means the IME is no longer auto-resizing the window — Compose
+        // has to consume the inset itself, otherwise the input field gets
+        // covered.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .padding(horizontal = 16.dp),
         ) {
             SessionBanner(session)
