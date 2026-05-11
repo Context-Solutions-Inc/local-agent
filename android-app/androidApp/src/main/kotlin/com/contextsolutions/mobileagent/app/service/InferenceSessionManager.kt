@@ -15,6 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,8 +66,20 @@ class InferenceSessionManager @Inject constructor(
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
 ) {
 
-    /** Mutable for tests (TestDispatcher / shorter timeout). Not part of the public API. */
+    /**
+     * Idle timeout used after the most recent generation ends. Mutable for tests
+     * (TestDispatcher / shorter timeout). Not part of the public API.
+     */
     internal var idleTimeout: Duration = DEFAULT_IDLE_TIMEOUT
+
+    /**
+     * Idle timeout used after a successful [warmUpIfPossible] load. Shorter than
+     * [idleTimeout] because the post-warm-up state means the user is on the chat
+     * surface but hasn't actually committed to a turn — if they don't engage
+     * within this window, release the GPU rather than holding it indefinitely.
+     * The eager warm-up will reload on the next Chat-screen entry (1–3 s on Pixel 7).
+     */
+    internal var idleTimeoutAfterWarmUp: Duration = DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP
 
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
@@ -159,6 +172,19 @@ class InferenceSessionManager @Inject constructor(
                     WarmUpOutcome.AlreadyLoaded
                 } else {
                     val loaded = ensureLoadedLocked(modelPath, config)
+                    // Bound how long a warmed-up-but-unused model stays
+                    // resident. Pre-watchdog the warm-up path didn't schedule
+                    // any idle unload, so the model stayed loaded until the
+                    // OS reaped the process or onTrimMemory fired — and on
+                    // a GPU build this contributed to the system_server
+                    // soft-reboot failure mode by holding the GPU
+                    // indefinitely while the user wasn't actually generating.
+                    // The post-generation timeout (5 min) still applies once
+                    // a real turn happens; this shorter post-warmup window
+                    // only fires when the user warmed up and walked away.
+                    if (activeGenerationCount == 0) {
+                        scheduleIdleUnloadLocked(idleTimeoutAfterWarmUp)
+                    }
                     WarmUpOutcome.Loaded(loaded.activeAccelerator)
                 }
             }
@@ -221,8 +247,12 @@ class InferenceSessionManager @Inject constructor(
      * in-flight generation; for now, deferring is the safe behaviour.
      */
     fun forceUnload(reason: UnloadReason = UnloadReason.Manual) {
-        if (reason == UnloadReason.TrimMemory) {
-            counters.increment(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL)
+        when (reason) {
+            UnloadReason.TrimMemory ->
+                counters.increment(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL)
+            UnloadReason.MainThreadWatchdog ->
+                counters.increment(CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL)
+            UnloadReason.Manual -> Unit
         }
         scope.launch {
             mutex.withLock {
@@ -278,10 +308,10 @@ class InferenceSessionManager @Inject constructor(
         idleUnloadJob = null
     }
 
-    private fun scheduleIdleUnloadLocked() {
+    private fun scheduleIdleUnloadLocked(timeout: Duration = idleTimeout) {
         cancelIdleUnloadLocked()
         idleUnloadJob = scope.launch {
-            delay(idleTimeout)
+            delay(timeout)
             mutex.withLock {
                 // Re-check: a new generation may have started while we waited.
                 if (activeGenerationCount == 0) {
@@ -308,6 +338,7 @@ class InferenceSessionManager @Inject constructor(
 
     companion object {
         val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
+        val DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP: Duration = 60.seconds
     }
 }
 
@@ -323,6 +354,15 @@ enum class UnloadReason {
 
     /** `Application.onTrimMemory()` at TRIM_MEMORY_RUNNING_CRITICAL+. */
     TrimMemory,
+
+    /**
+     * Fired by [com.contextsolutions.mobileagent.observability.MainThreadHeartbeatWatchdog]
+     * when the main thread fails to ack heartbeats for >20 s. Pre-emptive
+     * release before `system_server`'s own ~60 s watchdog times out and
+     * soft-reboots the device (root cause analysis in the M7 watchdog PR).
+     * Increments [com.contextsolutions.mobileagent.telemetry.CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL].
+     */
+    MainThreadWatchdog,
 }
 
 /**

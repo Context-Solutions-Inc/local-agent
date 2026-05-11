@@ -10,10 +10,15 @@ import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -297,6 +302,79 @@ class InferenceSessionManagerTest {
         assertEquals(SessionState.Loaded(Accelerator.GPU), manager.state.value)
     }
 
+    // ─── M7 watchdog PR: post-warmup idle + new UnloadReason ──────────────
+
+    @Test
+    fun `warmUpIfPossible schedules idle unload after the shorter post-warmup timeout`() = runTest {
+        val (manager, engine, _) = newManager()
+        manager.idleTimeoutAfterWarmUp = POST_WARMUP_IDLE_TIMEOUT
+
+        manager.warmUpIfPossible(MODEL_PATH)
+        // runCurrent() drains immediately-pending tasks (the scheduling itself)
+        // without advancing virtual time, so we can observe the
+        // "loaded but timer not yet fired" intermediate state.
+        runCurrent()
+        assertEquals(0, engine.unloadCount.get())
+
+        // Just before the shorter post-warmup timeout: still loaded.
+        advanceTimeBy(POST_WARMUP_IDLE_TIMEOUT.inWholeMilliseconds - 1)
+        runCurrent()
+        assertEquals(0, engine.unloadCount.get())
+
+        // After the timeout: unloaded.
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(1, engine.unloadCount.get())
+        assertEquals(SessionState.Unloaded, manager.state.value)
+    }
+
+    @Test
+    fun `generate after warm-up resets idle timer to post-generation timeout`() = runTest {
+        val (manager, engine, _) = newManager()
+        manager.idleTimeoutAfterWarmUp = POST_WARMUP_IDLE_TIMEOUT
+
+        manager.warmUpIfPossible(MODEL_PATH)
+        manager.generate(MODEL_PATH, REQUEST).collect { /* drain */ }
+        runCurrent()
+
+        // Wait past the post-warmup window — should NOT unload, because the
+        // generation should have switched us to the longer post-generation
+        // timer (cancelIdleUnloadLocked inside generate).
+        advanceTimeBy(POST_WARMUP_IDLE_TIMEOUT.inWholeMilliseconds + 100)
+        runCurrent()
+        assertEquals(0, engine.unloadCount.get())
+
+        // The post-generation timer is the IDLE_TIMEOUT (1.minute in tests,
+        // 5.minutes in prod). Advance past it.
+        advanceTimeBy(IDLE_TIMEOUT.inWholeMilliseconds + 1)
+        runCurrent()
+        assertEquals(1, engine.unloadCount.get())
+    }
+
+    @Test
+    fun `forceUnload with MainThreadWatchdog increments the dedicated counter`() = runTest {
+        val counters = RecordingCounters()
+        val manager = newManagerWith(
+            FakeInferenceEngine(),
+            FakeForegroundServiceController(),
+            counters = counters,
+        )
+        manager.acquire(MODEL_PATH)
+
+        manager.forceUnload(UnloadReason.MainThreadWatchdog)
+        advanceUntilIdle()
+
+        assertEquals(
+            1L,
+            counters.value(CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL),
+        )
+        // TrimMemory must not double-count from a watchdog trip.
+        assertEquals(
+            0L,
+            counters.value(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL),
+        )
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────
 
     private fun TestScope.newManager(): Triple<InferenceSessionManager, FakeInferenceEngine, FakeForegroundServiceController> {
@@ -309,9 +387,10 @@ class InferenceSessionManagerTest {
         engine: FakeInferenceEngine,
         fgs: FakeForegroundServiceController,
         thermal: ThermalStatusProvider = FakeThermalStatusProvider(),
+        counters: TelemetryCounters = com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters,
     ): InferenceSessionManager {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val manager = InferenceSessionManager(engine, fgs, thermal)
+        val manager = InferenceSessionManager(engine, fgs, thermal, counters)
         manager.idleTimeout = IDLE_TIMEOUT
         manager.ioDispatcher = dispatcher
         manager.scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -321,8 +400,29 @@ class InferenceSessionManagerTest {
     private companion object {
         const val MODEL_PATH = "/data/test/model.litertlm"
         val IDLE_TIMEOUT = 1.minutes
+        val POST_WARMUP_IDLE_TIMEOUT = 15.seconds
         val REQUEST = GenerationRequest(prompt = "hi")
     }
+}
+
+/**
+ * Trivial recording impl that captures every call into a map for
+ * assertion. Latency observations are recorded as the count of samples;
+ * we don't care about the values in these tests.
+ */
+private class RecordingCounters : TelemetryCounters {
+    private val counters = ConcurrentHashMap<String, AtomicLong>()
+    private val latencies = ConcurrentHashMap<String, AtomicLong>()
+
+    override fun increment(name: String, by: Long) {
+        counters.computeIfAbsent(name) { AtomicLong(0) }.addAndGet(by)
+    }
+
+    override fun observeLatency(metric: String, durationMs: Long) {
+        latencies.computeIfAbsent(metric) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    fun value(name: String): Long = counters[name]?.get() ?: 0L
 }
 
 private class FakeInferenceEngine(

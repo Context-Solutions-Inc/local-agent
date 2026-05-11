@@ -146,6 +146,17 @@ android {
             )
         }
     }
+
+    // M7 watchdog PR — let android.* stubs return default values from JVM
+    // unit tests instead of throwing "Method X not mocked." This is the
+    // canonical Android pattern for keeping fast JVM tests free of
+    // Robolectric. `Log.w/e` and friends become no-ops, which is exactly
+    // what we want for the watchdog tests (the log calls are observability
+    // only). Doesn't affect Android-side tests (androidTest/) or
+    // production behaviour.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Stage just the small text fixtures needed by JVM unit tests into a

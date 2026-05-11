@@ -2,6 +2,8 @@ package com.contextsolutions.mobileagent.app.di
 
 import android.content.Context
 import com.contextsolutions.mobileagent.app.BuildConfig
+import com.contextsolutions.mobileagent.app.observability.HandlerMainThreadProbe
+import com.contextsolutions.mobileagent.app.observability.MainThreadProbe
 import com.contextsolutions.mobileagent.app.spike.StubInferenceEngine
 import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
 import com.contextsolutions.mobileagent.inference.DefaultHfAuthTokenProvider
@@ -10,6 +12,7 @@ import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.LiteRtInferenceEngineFactory
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.platform.SecureStorage
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -68,4 +71,21 @@ object InferenceModule {
         val devToken = if (BuildConfig.INTERNAL_BUILD) BuildConfig.HF_AUTH_TOKEN else null
         return DefaultHfAuthTokenProvider(secureStorage, devToken)
     }
+}
+
+/**
+ * Companion `@Binds` module — keeps the `@Binds` interface-style provider
+ * (required for [MainThreadProbe] → [HandlerMainThreadProbe]) separate from
+ * the `object`-style providers above. The watchdog itself
+ * ([com.contextsolutions.mobileagent.app.observability.MainThreadHeartbeatWatchdog])
+ * has an `@Inject` constructor so Hilt resolves it automatically — no
+ * explicit `@Provides` needed.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class WatchdogModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindMainThreadProbe(impl: HandlerMainThreadProbe): MainThreadProbe
 }

@@ -68,6 +68,21 @@ object CounterNames {
     const val INFERENCE_WARMUP_FAILED_TOTAL = "inference_warmup_failed_total"
     const val INFERENCE_UNLOADED_IDLE_TOTAL = "inference_unloaded_idle_total"
     const val INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL = "inference_unloaded_trim_memory_total"
+    /**
+     * Fires when the app's MainThreadHeartbeatWatchdog tripped and forced a
+     * model unload to avert a system-server-watchdog soft reboot. See
+     * [com.contextsolutions.mobileagent.observability.MainThreadHeartbeatWatchdog].
+     * Counted alongside [MAIN_THREAD_WATCHDOG_TRIPPED_TOTAL] — every trip
+     * increments both, but separating them lets us see "watchdog ran but
+     * model wasn't actually loaded" cases (forceUnload no-ops).
+     */
+    const val INFERENCE_UNLOADED_WATCHDOG_TOTAL = "inference_unloaded_watchdog_total"
+    /**
+     * Standalone counter for the watchdog firing, independent of whether a
+     * model was actually loaded at the time. Diagnostic for "how often is
+     * the app hitting a >20s main-thread stall" in the wild.
+     */
+    const val MAIN_THREAD_WATCHDOG_TRIPPED_TOTAL = "main_thread_watchdog_tripped_total"
 
     // daily_preflight
     const val PREFLIGHT_HIGH_BAND_TOTAL = "preflight_high_band_total"

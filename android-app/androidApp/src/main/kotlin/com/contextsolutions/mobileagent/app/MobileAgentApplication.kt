@@ -1,8 +1,11 @@
 package com.contextsolutions.mobileagent.app
 
+import android.app.Activity
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.os.Bundle
 import android.util.Log
+import com.contextsolutions.mobileagent.app.observability.MainThreadHeartbeatWatchdog
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
 import com.contextsolutions.mobileagent.app.service.UnloadReason
@@ -35,7 +38,17 @@ class MobileAgentApplication : Application() {
     @Inject
     lateinit var crashReporter: SafeCrashReporter
 
+    @Inject
+    lateinit var mainThreadWatchdog: MainThreadHeartbeatWatchdog
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Count of currently-`onStart`'d activities. The watchdog runs only
+     * while > 0 (i.e., process is foregrounded). Cheaper than adding the
+     * `androidx.lifecycle:lifecycle-process` dep just for [ProcessLifecycleOwner].
+     */
+    private var startedActivityCount: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -70,6 +83,42 @@ class MobileAgentApplication : Application() {
         // existing schedules are preserved across app restarts; this is
         // safe to call every onCreate.
         TelemetryUploadWorker.schedule(this)
+
+        // (d) M7 — main-thread responsiveness watchdog. Pre-empts the
+        // GPU-saturation soft-reboot failure mode (see crash analysis in
+        // the watchdog PR description). Gated on foreground via the
+        // activity-lifecycle callbacks below so we don't fire false
+        // positives while the OS parks the main thread in background.
+        registerActivityLifecycleCallbacks(WatchdogForegroundGate())
+    }
+
+    /**
+     * Counts onStart/onStop activity transitions and toggles the
+     * [MainThreadHeartbeatWatchdog] accordingly. Same primitive as
+     * [androidx.lifecycle.ProcessLifecycleOwner] — keeping it inline
+     * avoids adding the `lifecycle-process` artifact for this single use.
+     *
+     * All callbacks run on the main thread, so [startedActivityCount]
+     * doesn't need synchronisation.
+     */
+    private inner class WatchdogForegroundGate : ActivityLifecycleCallbacks {
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+        override fun onActivityStarted(activity: Activity) {
+            if (startedActivityCount == 0) {
+                mainThreadWatchdog.start()
+            }
+            startedActivityCount++
+        }
+        override fun onActivityResumed(activity: Activity) = Unit
+        override fun onActivityPaused(activity: Activity) = Unit
+        override fun onActivityStopped(activity: Activity) {
+            startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
+            if (startedActivityCount == 0) {
+                mainThreadWatchdog.stop()
+            }
+        }
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+        override fun onActivityDestroyed(activity: Activity) = Unit
     }
 
     /**
