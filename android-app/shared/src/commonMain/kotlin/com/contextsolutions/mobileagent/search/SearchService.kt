@@ -1,5 +1,10 @@
 package com.contextsolutions.mobileagent.search
 
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.LatencyNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
+
 /**
  * Orchestrates a single web search end-to-end:
  *  1. Resolve the API key (early return on no-key — search is a degraded-mode
@@ -18,6 +23,8 @@ class SearchService(
     private val client: BraveSearchClient,
     private val cache: SearchCacheDao,
     private val isEnabled: () -> Boolean = { true },
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
+    private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
 ) {
     /**
      * True when a search would actually run if attempted. The agent loop calls
@@ -29,30 +36,56 @@ class SearchService(
     fun isAvailable(): Boolean = isEnabled() && keyProvider.hasKey()
 
     suspend fun search(query: String): SearchOutcome {
-        if (!isEnabled()) {
-            return SearchOutcome.Error(
-                SearchOutcome.ErrorKind.Disabled,
-                "Web search is disabled in settings",
-            )
-        }
-        val key = keyProvider.currentKey()
-        if (key.isNullOrBlank()) {
-            return SearchOutcome.Error(SearchOutcome.ErrorKind.NoKey, "No Brave Search key configured")
-        }
-
-        when (val cached = cache.lookup(query)) {
-            is SearchCacheDao.CacheLookup.Hit ->
-                return SearchOutcome.Success(cached.payload, fromCache = true)
-            SearchCacheDao.CacheLookup.Miss -> Unit
-        }
-
-        return when (val result = client.search(query, key)) {
-            is BraveSearchResult.Success -> {
-                cache.store(query, result.payload)
-                SearchOutcome.Success(result.payload, fromCache = false)
+        // M6 Phase C counters: increment once per invocation regardless of
+        // outcome. Latency observation wraps the full path including cache
+        // hits (the lookup is the work, not the cost-savings reporting).
+        counters.increment(CounterNames.SEARCH_INVOKED_TOTAL)
+        val startMs = nowEpochMs()
+        try {
+            if (!isEnabled()) {
+                counters.increment(CounterNames.SEARCH_DISABLED_TOTAL)
+                return SearchOutcome.Error(
+                    SearchOutcome.ErrorKind.Disabled,
+                    "Web search is disabled in settings",
+                )
             }
-            is BraveSearchResult.Error -> SearchOutcome.Error(result.kind.toServiceKind(), result.message)
+            val key = keyProvider.currentKey()
+            if (key.isNullOrBlank()) {
+                counters.increment(CounterNames.SEARCH_NO_KEY_TOTAL)
+                return SearchOutcome.Error(SearchOutcome.ErrorKind.NoKey, "No Brave Search key configured")
+            }
+
+            when (val cached = cache.lookup(query)) {
+                is SearchCacheDao.CacheLookup.Hit -> {
+                    counters.increment(CounterNames.SEARCH_CACHE_HIT_TOTAL)
+                    return SearchOutcome.Success(cached.payload, fromCache = true)
+                }
+                SearchCacheDao.CacheLookup.Miss -> Unit
+            }
+
+            return when (val result = client.search(query, key)) {
+                is BraveSearchResult.Success -> {
+                    cache.store(query, result.payload)
+                    SearchOutcome.Success(result.payload, fromCache = false)
+                }
+                is BraveSearchResult.Error -> {
+                    counters.increment(
+                        CounterNames.SEARCH_ERROR_TOTAL,
+                        tag = result.kind.toCounterTag(),
+                    )
+                    SearchOutcome.Error(result.kind.toServiceKind(), result.message)
+                }
+            }
+        } finally {
+            counters.observeLatency(LatencyNames.SEARCH_MS, nowEpochMs() - startMs)
         }
+    }
+
+    private fun BraveSearchResult.ErrorKind.toCounterTag(): String = when (this) {
+        BraveSearchResult.ErrorKind.Network -> "network"
+        BraveSearchResult.ErrorKind.Auth -> "client_error"
+        BraveSearchResult.ErrorKind.RateLimited -> "server_error"
+        BraveSearchResult.ErrorKind.BadResponse -> "unexpected"
     }
 
     private fun BraveSearchResult.ErrorKind.toServiceKind(): SearchOutcome.ErrorKind = when (this) {

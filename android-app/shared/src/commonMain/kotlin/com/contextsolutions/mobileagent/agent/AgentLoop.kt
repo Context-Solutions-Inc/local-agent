@@ -11,6 +11,10 @@ import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.LatencyNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -55,11 +59,18 @@ class AgentLoop(
     private val preflightRouter: PreflightRouter,
     private val memoryRetriever: MemoryRetriever? = null,
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
+    private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
 ) {
 
     private val argumentsJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
     fun run(input: AgentTurnInput): Flow<AgentEvent> = channelFlow {
+        // M6 Phase C — counter for the daily_inference event. Increments
+        // once per user turn entering the loop (regardless of whether the
+        // turn errors later). No content recorded.
+        counters.increment(CounterNames.QUERIES_TOTAL)
+
         // Treat the inbound user message as the trailing turn in history.
         val priorHistory = input.history
         val userMessage = ChatMessage.User(input.userMessage)
@@ -154,10 +165,24 @@ class AgentLoop(
         }
 
         var errored = false
+        // M6 Phase C — first-token latency starts when we hand the request
+        // to the engine. Pre-flight + memory retrieval + the synthetic
+        // search round-trip on FireSearch all happen BEFORE this point;
+        // those are observed under their own metrics, so the user-perceived
+        // "first text on screen after send()" decomposes cleanly.
+        val generateStartMs = nowEpochMs()
+        var firstTokenObserved = false
         try {
             session.generate(request, dispatcher).collect { event ->
                 when (event) {
                     is GenerationEvent.TokenChunk -> {
+                        if (!firstTokenObserved) {
+                            counters.observeLatency(
+                                LatencyNames.FIRST_TOKEN_MS,
+                                nowEpochMs() - generateStartMs,
+                            )
+                            firstTokenObserved = true
+                        }
                         finalText.append(event.text)
                         send(AgentEvent.TokenChunk(event.text))
                     }

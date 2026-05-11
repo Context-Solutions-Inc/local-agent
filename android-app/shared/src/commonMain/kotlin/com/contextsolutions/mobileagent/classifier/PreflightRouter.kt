@@ -2,6 +2,10 @@ package com.contextsolutions.mobileagent.classifier
 
 import com.contextsolutions.mobileagent.classifier.internal.softmax
 import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.LatencyNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 
 /**
  * Phase C / WS-8 routing decision (PRD §3.2.1). Drives the three-band
@@ -40,6 +44,8 @@ class PreflightRouter(
     private val configProvider: () -> PreflightConfig,
     private val searchAvailableProvider: suspend () -> Boolean,
     private val logger: (String) -> Unit = {},
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
+    private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
 ) {
 
     private var classifierUnavailableLogged = false
@@ -57,9 +63,13 @@ class PreflightRouter(
     ): PreflightDecision {
         if (!searchAvailableProvider()) {
             logger("[preflight] decision=SearchDisabled query=\"${redact(query)}\"")
+            // SearchDisabled is not a band — don't record a band counter.
+            // Phase C `daily_search.search_disabled_total` is recorded by
+            // SearchService where the toggle actually short-circuits.
             return PreflightDecision.SearchDisabled
         }
 
+        val startMs = nowEpochMs()
         val tokenized = tokenizer.encodeSingle(query)
         val output = engine.classify(tokenized.inputIds, tokenized.attentionMask)
         if (output == null) {
@@ -67,6 +77,7 @@ class PreflightRouter(
                 logger("[preflight] classifier unavailable; all queries fall through to Gemma")
                 classifierUnavailableLogged = true
             }
+            counters.increment(CounterNames.PREFLIGHT_CLASSIFIER_UNAVAILABLE_TOTAL)
             return PreflightDecision.FallThrough(
                 reason = FallThroughReason.ClassifierUnavailable,
                 pSearchRequired = null,
@@ -98,6 +109,21 @@ class PreflightRouter(
                 reason = FallThroughReason.MiddleBand,
                 pSearchRequired = pSearch,
             )
+        }
+
+        // M6 Phase C — counter + latency observation. Recorded after the
+        // decision so the metric reflects the full inference + dispatch
+        // cost. Band counters are mutually exclusive for a given query.
+        counters.observeLatency(LatencyNames.PREFLIGHT_MS, nowEpochMs() - startMs)
+        when (decision) {
+            is PreflightDecision.FireSearch -> counters.increment(CounterNames.PREFLIGHT_HIGH_BAND_TOTAL)
+            is PreflightDecision.SkipSearch -> counters.increment(CounterNames.PREFLIGHT_LOW_BAND_TOTAL)
+            is PreflightDecision.FallThrough -> when (decision.reason) {
+                FallThroughReason.MiddleBand -> counters.increment(CounterNames.PREFLIGHT_MIDDLE_BAND_TOTAL)
+                FallThroughReason.RewriterAbort -> counters.increment(CounterNames.PREFLIGHT_REWRITER_ABORT_TOTAL)
+                FallThroughReason.ClassifierUnavailable -> Unit // handled above before this branch
+            }
+            is PreflightDecision.SearchDisabled -> Unit // can't reach here, see above
         }
 
         logger(formatLogLine(query, decision))

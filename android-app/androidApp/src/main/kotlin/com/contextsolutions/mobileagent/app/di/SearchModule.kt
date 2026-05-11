@@ -60,6 +60,7 @@ object SearchModule {
         client: BraveSearchClient,
         cache: SearchCacheDao,
         secureStorage: SecureStorage,
+        counters: com.contextsolutions.mobileagent.telemetry.TelemetryCounters,
     ): SearchService = SearchService(
         keyProvider = keyProvider,
         client = client,
@@ -67,5 +68,6 @@ object SearchModule {
         // Default ON; only the explicit string "false" disables. UI writes
         // "true"/"false" via SettingsViewModel.
         isEnabled = { secureStorage.get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+        counters = counters,
     )
 }

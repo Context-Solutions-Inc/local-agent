@@ -118,6 +118,16 @@ sqldelight {
             // Default 3.18 dialect is older than what Android 16's bundled SQLite supports,
             // and older than the 3.25 floor we actually need.
             dialect(libs.sqldelight.sqlite.dialect)
+            // Schema snapshots live next to the .sq + .sqm files. verifyMigrations
+            // (enabled below) walks .sqm files forward from the snapshot and compares
+            // the result against the .sq schema. Generated via
+            // `./gradlew :shared:generateMobileAgentDatabaseSchema` after a clean v1
+            // state is checked in (one-time bootstrap; subsequent versions auto-update).
+            schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
+            // Build-time schema-drift gate. Re-enabled in Phase A once the v1 snapshot
+            // exists; without it, the task short-circuits silently because there's
+            // nothing to verify against. M6 Phase A.
+            verifyMigrations.set(true)
         }
     }
 }

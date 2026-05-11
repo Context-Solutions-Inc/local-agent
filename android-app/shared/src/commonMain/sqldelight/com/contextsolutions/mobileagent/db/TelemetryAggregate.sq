@@ -1,22 +1,131 @@
--- Opt-in classifier-improvement telemetry per PRD section 3.2.1 / 4.4.
--- Stores aggregate counters only. NEVER query strings, NEVER memory content,
--- NEVER conversation text. Off by default; uploaded periodically when opted in.
+-- Opt-in classifier-improvement + perf telemetry per PRD §3.2.1 / §4.4.
+-- Off by default; uploaded periodically when the user has opted in.
+--
+-- COUNTER-ONLY CONTRACT: this schema stores aggregate counter values + latency
+-- percentile summaries. NEVER store query strings, NEVER memory content, NEVER
+-- conversation text, NEVER per-memory IDs (those are stable across an install
+-- and could re-identify). Phase C's TelemetryPayloadBuilder reads ONLY these
+-- two tables; M5 WS-12 storage hardening + M6 Phase C unit tests enforce that
+-- it never touches the `memories` or `messages` tables.
+--
+-- Time bucket: counters roll up per UTC day (window_start_epoch_ms is the
+-- start of the day boundary in UTC). Latency percentiles are also per-day so
+-- the same `window_start_epoch_ms` joins both tables.
+--
+-- Counter naming convention: `subsystem_event_total` for counts (e.g.
+-- `preflight_high_band_total`, `memory_extracted_total`). Tags encoded inline
+-- with `:tag` suffix so we don't need a separate tags column — e.g.
+-- `memory_evicted_total:expired`, `search_error_total:network`. Latency
+-- metrics: `subsystem_event_ms` (e.g. `first_token_ms`, `memory_retrieval_ms`).
 
-CREATE TABLE telemetry_counters (
-    bucket TEXT NOT NULL,                     -- e.g. 'preflight_high_conf_search', 'preflight_low_conf_skip'
+-- ── Counters ──────────────────────────────────────────────────────────────
+
+CREATE TABLE telemetry_aggregate (
     window_start_epoch_ms INTEGER NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (bucket, window_start_epoch_ms)
+    counter_name          TEXT    NOT NULL,
+    counter_value         INTEGER NOT NULL,
+    uploaded_at_epoch_ms  INTEGER,             -- NULL until uploader marks it transmitted
+    PRIMARY KEY (window_start_epoch_ms, counter_name)
 );
 
-incrementCounter:
-INSERT INTO telemetry_counters(bucket, window_start_epoch_ms, count)
-VALUES (?, ?, 1)
-ON CONFLICT(bucket, window_start_epoch_ms)
-DO UPDATE SET count = count + 1;
+CREATE INDEX telemetry_aggregate_by_uploaded
+    ON telemetry_aggregate(uploaded_at_epoch_ms);
 
-selectCountersForUpload:
-SELECT * FROM telemetry_counters WHERE window_start_epoch_ms < ?;
+-- Upsert: atomic increment within a (window, counter_name) bucket. Called
+-- by the in-memory counter registry at session-end flush.
+upsertCounter:
+INSERT INTO telemetry_aggregate(window_start_epoch_ms, counter_name, counter_value, uploaded_at_epoch_ms)
+VALUES (?, ?, ?, NULL)
+ON CONFLICT(window_start_epoch_ms, counter_name)
+DO UPDATE SET counter_value = counter_value + excluded.counter_value;
 
-deleteUploadedCounters:
-DELETE FROM telemetry_counters WHERE window_start_epoch_ms < ?;
+-- Per-day, never-uploaded counter rows. Read by TelemetryPayloadBuilder when
+-- assembling the next upload payload.
+selectUnuploadedCountersBefore:
+SELECT window_start_epoch_ms, counter_name, counter_value
+FROM telemetry_aggregate
+WHERE uploaded_at_epoch_ms IS NULL
+  AND window_start_epoch_ms < ?
+ORDER BY window_start_epoch_ms ASC, counter_name ASC;
+
+-- Mark a window's worth of rows as uploaded. Caller passes the exact
+-- (window_start, counter_name) pairs it just transmitted; the upsert query
+-- above never overwrites uploaded rows so this is safe even if the worker
+-- restarts mid-batch.
+markCounterUploaded:
+UPDATE telemetry_aggregate
+SET uploaded_at_epoch_ms = ?
+WHERE window_start_epoch_ms = ?
+  AND counter_name = ?;
+
+-- Retention: drop counter rows older than the cutoff. Storage-bounding only;
+-- once a row is uploaded we don't need it. Called by the uploader after a
+-- successful batch.
+deleteCountersUploadedBefore:
+DELETE FROM telemetry_aggregate
+WHERE uploaded_at_epoch_ms IS NOT NULL
+  AND uploaded_at_epoch_ms < ?;
+
+-- Whole-table sweep used by Settings → Clear telemetry data.
+deleteAllCounters:
+DELETE FROM telemetry_aggregate;
+
+-- ── Latency percentiles ───────────────────────────────────────────────────
+--
+-- 1024-sample reservoir per metric per day in memory; flushed to the table
+-- below as a single row summarising the day's p50/p95/p99 + sample count.
+
+CREATE TABLE telemetry_latency_aggregate (
+    window_start_epoch_ms INTEGER NOT NULL,
+    metric_name           TEXT    NOT NULL,
+    p50_ms                INTEGER NOT NULL,
+    p95_ms                INTEGER NOT NULL,
+    p99_ms                INTEGER NOT NULL,
+    sample_count          INTEGER NOT NULL,
+    uploaded_at_epoch_ms  INTEGER,
+    PRIMARY KEY (window_start_epoch_ms, metric_name)
+);
+
+CREATE INDEX telemetry_latency_aggregate_by_uploaded
+    ON telemetry_latency_aggregate(uploaded_at_epoch_ms);
+
+-- Insert-or-replace: the reservoir flush always emits the full day's
+-- percentile summary for the current window. If the worker fires multiple
+-- times within the same window (e.g., session-end retries), the later write
+-- with a higher sample_count overwrites — last-writer-wins is correct because
+-- the in-memory reservoir holds every sample for the current open window.
+upsertLatency:
+INSERT INTO telemetry_latency_aggregate(
+    window_start_epoch_ms, metric_name, p50_ms, p95_ms, p99_ms, sample_count, uploaded_at_epoch_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, NULL)
+ON CONFLICT(window_start_epoch_ms, metric_name)
+DO UPDATE SET
+    p50_ms       = excluded.p50_ms,
+    p95_ms       = excluded.p95_ms,
+    p99_ms       = excluded.p99_ms,
+    sample_count = excluded.sample_count,
+    -- Resetting upload status: if we got a fresh reservoir flush, the row's
+    -- summary just changed; the prior upload doesn't apply to the new values.
+    uploaded_at_epoch_ms = NULL;
+
+selectUnuploadedLatenciesBefore:
+SELECT window_start_epoch_ms, metric_name, p50_ms, p95_ms, p99_ms, sample_count
+FROM telemetry_latency_aggregate
+WHERE uploaded_at_epoch_ms IS NULL
+  AND window_start_epoch_ms < ?
+ORDER BY window_start_epoch_ms ASC, metric_name ASC;
+
+markLatencyUploaded:
+UPDATE telemetry_latency_aggregate
+SET uploaded_at_epoch_ms = ?
+WHERE window_start_epoch_ms = ?
+  AND metric_name = ?;
+
+deleteLatenciesUploadedBefore:
+DELETE FROM telemetry_latency_aggregate
+WHERE uploaded_at_epoch_ms IS NOT NULL
+  AND uploaded_at_epoch_ms < ?;
+
+deleteAllLatencies:
+DELETE FROM telemetry_latency_aggregate;

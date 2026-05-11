@@ -7,6 +7,7 @@ import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.db.MemoriesQueries
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.LiteRtEmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryEvictor
@@ -66,11 +67,13 @@ object MemoryModule {
         embedder: EmbedderEngine,
         store: MemoryStore,
         clock: AgentClock,
+        counters: TelemetryCounters,
     ): MemoryRetriever = MemoryRetriever(
         embedder = embedder,
         store = store,
         nowProvider = { clock.nowEpochMs() },
         logger = { Log.i("MemoryRetriever", it) },
+        counters = counters,
     )
 
     // -- Phase D wiring -----------------------------------------------------
@@ -102,8 +105,9 @@ object MemoryModule {
 
     @Provides
     @Singleton
-    fun provideMemoryEvictor(): MemoryEvictor = MemoryEvictor(
+    fun provideMemoryEvictor(counters: TelemetryCounters): MemoryEvictor = MemoryEvictor(
         logger = { Log.i("MemoryEvictor", it) },
+        counters = counters,
     )
 
     @Provides
@@ -118,6 +122,7 @@ object MemoryModule {
         dateParser: TempContextDateParser,
         clock: AgentClock,
         preferences: MemoryPreferences,
+        counters: TelemetryCounters,
     ): MemoryExtractor = MemoryExtractor(
         classifier = classifier,
         tokenizer = tokenizer,
@@ -129,5 +134,6 @@ object MemoryModule {
         nowProvider = { clock.nowEpochMs() },
         creationEnabledProvider = { preferences.creationEnabled() },
         logger = { Log.i("MemoryExtractor", it) },
+        counters = counters,
     )
 }

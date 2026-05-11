@@ -11,6 +11,15 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    // M6 Phase C — reads androidApp/google-services.json and generates the
+    // FirebaseApp initializer + resources for FirebaseAnalytics. The .json
+    // file is gitignored via the root .gitignore "**/google-services.json"
+    // rule (see CLAUDE.md "Secrets" section).
+    alias(libs.plugins.google.services)
+    // M6 Phase D — uploads symbol mappings to Crashlytics for release builds
+    // and wires the SDK's auto-collection of native + JVM crashes. Debug
+    // builds skip the mappingFileUploadEnabled step automatically.
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 kotlin {
@@ -258,7 +267,16 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // M6 Phase C — Firebase. BoM aligns transitive firebase-* versions; the
+    // analytics-ktx artifact pulls in FirebaseAnalytics + auto-init. Drop
+    // additional firebase-* deps here as later phases bring them in
+    // (firebase-crashlytics in Phase D).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.crashlytics)
     implementation(libs.androidx.startup.runtime)
     implementation(libs.androidx.work.runtime.ktx)
 

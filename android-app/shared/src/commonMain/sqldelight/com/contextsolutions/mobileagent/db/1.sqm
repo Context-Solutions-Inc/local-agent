@@ -1,0 +1,30 @@
+-- Migration v1 → v2 (M6 Phase A, 2026-05-10).
+--
+-- Catches up M0/M1/M2/M4 (v1) installs to the M5 (v2) schema. M5 modified
+-- Memories.sq in-place without a migration, so without this .sqm any pre-M5
+-- install would crash on first DB access after upgrade.
+--
+-- v1 → v2 deltas:
+--   1. Add `access_count` column (M5: PRD §3.2.4 "LRU + access-frequency" tier).
+--   2. Add index `memories_by_conversation` (M5: backs ConversationMemoryListScreen).
+--   3. Add index `memories_by_last_accessed` (M5: backs the tier-3 LRU eviction query).
+--
+-- Upgrade-path cases:
+--   * Fresh M6 installs: Schema.create() emits the v2 schema directly (columns +
+--     indexes inline). SQLDelight records DB user_version = 2. No migration needed.
+--   * Upgrade from M0/M1/M2/M4 (pre-M5): on-disk DB is at v1. AndroidSqliteDriver
+--     detects user_version = 1 → calls Schema.migrate(1, 2) → runs the statements
+--     below → safely lands at v2 with existing rows getting access_count = 0.
+--   * Upgrade from M5 dev install: column + indexes already exist but user_version
+--     stayed at 1 because M5 skipped the version bump. The ALTER + CREATE INDEX
+--     below would throw "duplicate column / index". Documented in docs/M6_PLAN.md
+--     Phase A — M5 dev installs need `pm clear` once before the first M6 install;
+--     only affects the user's local Pixel 7, no production install exists.
+--
+-- Future schema changes: add 2.sqm, 3.sqm, etc. — SQLDelight derives
+-- Schema.version from the highest .sqm filename + 1.
+
+ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX memories_by_conversation ON memories(conversation_id);
+CREATE INDEX memories_by_last_accessed ON memories(last_accessed_epoch_ms);

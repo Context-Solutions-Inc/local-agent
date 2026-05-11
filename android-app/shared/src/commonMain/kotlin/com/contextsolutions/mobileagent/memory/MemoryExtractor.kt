@@ -5,6 +5,9 @@ import com.contextsolutions.mobileagent.classifier.ClassifierOutput
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.classifier.internal.argMax
 import com.contextsolutions.mobileagent.classifier.internal.sigmoid
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -61,6 +64,7 @@ class MemoryExtractor(
     private val creationEnabledProvider: () -> Boolean = { true },
     private val idGenerator: () -> String = { "mem-${Uuid.random()}" },
     private val logger: (String) -> Unit = {},
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
 ) {
 
     /**
@@ -74,7 +78,10 @@ class MemoryExtractor(
         assistantResponse: String,
         conversationId: String?,
     ): ExtractionReport {
-        if (!creationEnabledProvider()) return ExtractionReport.SkippedDisabled
+        if (!creationEnabledProvider()) {
+            counters.increment(CounterNames.MEMORY_CREATION_DISABLED_TOTAL)
+            return ExtractionReport.SkippedDisabled
+        }
         val trimmedUser = userMessage.trim()
         if (trimmedUser.isEmpty()) return ExtractionReport.NoOp
 
@@ -116,6 +123,7 @@ class MemoryExtractor(
         // command as a no-op (the user already told us this).
         val existingMatch = store.findCosineMatch(embedding, now = now)
         if (existingMatch != null) {
+            counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
             return ExtractionReport.Created(
                 emptyList(),
                 deduped = listOf(existingMatch.id),
@@ -135,6 +143,7 @@ class MemoryExtractor(
             store.insert(memory)
             created += memory
         }
+        counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
         logger("[memory-extract] command=Remember created=${created.size}")
         return ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
     }
@@ -157,6 +166,7 @@ class MemoryExtractor(
             now = now,
         )
         if (deleted != null) {
+            counters.increment(CounterNames.MEMORY_FORGOTTEN_TOTAL)
             logger("[memory-extract] command=Forget deleted=${deleted.id}")
         }
         return ExtractionReport.Forgot(deletedId = deleted?.id)
@@ -189,6 +199,7 @@ class MemoryExtractor(
         val now = nowProvider()
         val existing = store.findCosineMatch(embedding, now = now)
         if (existing != null) {
+            counters.increment(CounterNames.MEMORY_DEDUP_SKIPPED_TOTAL)
             return ExtractionReport.Created(emptyList(), deduped = listOf(existing.id))
         }
 
@@ -205,6 +216,7 @@ class MemoryExtractor(
             store.insert(memory)
             created += memory
         }
+        counters.increment(CounterNames.MEMORY_EXTRACTED_TOTAL, by = created.size.toLong())
         logger("[memory-extract] presence=has categories=${activeCategories.size} created=${created.size}")
         return ExtractionReport.Created(created.map { it.id }, deduped = emptyList())
     }

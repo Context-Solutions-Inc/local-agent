@@ -1,5 +1,9 @@
 package com.contextsolutions.mobileagent.memory
 
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
+
 /**
  * Three-tier eviction cascade per PRD §3.2.4. Runs **before** every
  * insert; stops as soon as the store is back under [capacity].
@@ -26,6 +30,7 @@ open class MemoryEvictor(
     private val capacity: Int = DEFAULT_CAPACITY,
     private val staleMs: Long = DEFAULT_STALE_MS,
     private val logger: (String) -> Unit = {},
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
 ) {
 
     /**
@@ -82,6 +87,12 @@ open class MemoryEvictor(
         val total = expired + stale + lru
         if (total > 0) {
             logger("[memory-evict] expired=$expired stale=$stale lru=$lru total=$total")
+            // M6 Phase C — `memory_evicted_total` tagged by tier so we can
+            // see which eviction policy is doing the work in aggregate.
+            // Counters increment by row count, not by call.
+            if (expired > 0) counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "expired", by = expired.toLong())
+            if (stale > 0) counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "stale", by = stale.toLong())
+            if (lru > 0) counters.increment(CounterNames.MEMORY_EVICTED_TOTAL, tag = "lru", by = lru.toLong())
         }
         return EvictionReport.Ran(
             deletedExpired = expired,

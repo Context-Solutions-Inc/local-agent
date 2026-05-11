@@ -20,6 +20,8 @@ Before suggesting architecture, scope, or code structure, read:
 11. `docs/M5_PLAN.md` — M5 phase log + decisions (memory subsystem)
 12. `docs/M5_M6_HANDOFF.md` — operational handoff into M6 (telemetry, schema migration must-do, deferred items)
 13. `docs/M6_KICKOFF.md` — kickoff prompt for M6 (read only when starting M6)
+14. `docs/M6_PLAN.md` — M6 phase plan + ratified decisions (polish, eval, telemetry)
+15. `docs/M6_M7_HANDOFF.md` — operational handoff into M7 (release engineering, deferred items, Phase G findings)
 
 ## Project at a glance
 
@@ -198,6 +200,126 @@ parser is unused in the production path (still has tests).
     play-services-tflite (inv. #18); same pattern will recur if M5's embedder
     has transitive collisions.
 
+20. **SQLDelight `.sqm` files go ALONGSIDE `.sq` files in the same package
+    directory** (NOT in a `migrations/` subdir as some online examples
+    show). Schema version is auto-derived: with `N.sqm` present,
+    `Schema.version` becomes `N + 1`. `verifyMigrations = true` REQUIRES a
+    committed `.db` schema snapshot per prior version in
+    `schemaOutputDirectory` (we use `src/commonMain/sqldelight/databases/`)
+    — without one, code-gen itself fails with "No table found with name X"
+    (NOT just the verify task, the whole `generate…Interface` task).
+    **Snapshot dance to add a new migration:** (a) generate
+    `<currentVersion>.db` FIRST via `./gradlew
+    :shared:generateCommonMainMobileAgentDatabaseSchema` while the `.sq`
+    files are still at the old state, (b) write the new `.sqm`, (c)
+    update the `.sq` schema, (d) rebuild — `verifyMigrations` confirms
+    `Schema.create()` matches the result of applying every `.sqm` in
+    order against the prior `.db`. ALSO: because SQLite's `ALTER TABLE
+    ADD COLUMN` always appends to the end of the column list, the `.sq`
+    file MUST declare new columns at the END of `CREATE TABLE`, otherwise
+    `verifyMigrations` flags a column-order drift between fresh and
+    upgraded installs. See the inline comment in `Memories.sq`.
+
+21. **Hilt `@Provides` methods do NOT auto-fill default constructor
+    parameters.** If a class has `@Inject constructor(..., dep: Foo =
+    NoOpFoo)` AND it's constructed by a `@Provides` factory (not by
+    Hilt's auto-resolved constructor), the factory MUST explicitly pass
+    the real `Foo` — otherwise the default fires and the dep is silently
+    no-opped in production. M6 Phase C hit this with `TelemetryCounters`
+    at `MemoryModule.provideMemoryRetriever/Extractor/Evictor`,
+    `SearchModule.provideSearchService`,
+    `ClassifierModule.providePreflightRouter`, and
+    `AgentModule.provideAgentLoopFactory` — every memory/preflight/search
+    counter silently no-opped in production until the providers were
+    updated. **If you add a parameter-with-default to a class
+    constructed via `@Provides`, also update the provider.**
+
+22. **For "do X whenever screen Y is visible" use
+    `LifecycleResumeEffect(key)` from
+    `androidx.lifecycle:lifecycle-runtime-compose`, NOT
+    `LaunchedEffect(key)`.** `LaunchedEffect` re-fires only on key
+    change; it MISSES the background → foreground transition because the
+    route key is unchanged. `LifecycleResumeEffect` re-fires on EITHER
+    (a) key change OR (b) Activity `ON_RESUME`. Pair with
+    `onPauseOrDispose { job?.cancel() }` for clean cancellation on
+    background. M6 Phase B's eager Gemma warm-up first shipped with
+    `LaunchedEffect(route)` and silently failed for the
+    background→foreground case (5-min idle unload while in another app →
+    return to Chat → model stays unloaded). Fixed by switching to
+    `LifecycleResumeEffect(route)`. **Pattern for any future "while this
+    screen is visible" need.**
+
+23. **Firebase SDK deps live in `:androidApp`, NOT `:shared/androidMain`.**
+    Firebase Analytics / Crashlytics / etc. are app-scoped. The shared
+    module shouldn't depend on them. Pattern: define the abstraction
+    interface in `:shared/commonMain` (e.g.,
+    `AnalyticsSink`, `SafeCrashReporter`); implement in
+    `:androidApp/.../telemetry/FirebaseAnalyticsSink.kt` or
+    `:androidApp/.../observability/FirebaseSafeCrashReporter.kt`. M6
+    Phase C / D both followed this. Initial mistake during Phase D:
+    placed `FirebaseAnalyticsSink` in `:shared/androidMain`; broke
+    compilation because Firebase deps aren't on that classpath. Moved
+    to `:androidApp/.../telemetry/`. **Don't leak Firebase into the
+    shared module.**
+
+24. **Firebase Crashlytics has NO `beforeSend` egress hook** (unlike
+    Sentry). Redaction must live at every call site, behind the
+    `SafeCrashReporter` facade in `:androidApp/.../observability/`.
+    Direct `FirebaseCrashlytics.getInstance(...).recordException(...)`
+    outside the facade is a contract violation — `ContentRedactor` only
+    runs through the facade. **Never put user text in exception messages
+    or breadcrumbs in the first place** (memory text, query content,
+    raw search results) — the redactor is defense-in-depth, not a
+    license to leak. The facade's `recordException` wraps the throwable
+    in a `RedactedThrowable` (preserves stack trace + class name, scrubs
+    message); `log()` runs the breadcrumb text through the same
+    redactor; `setCustomKey` redacts the value.
+
+25. **Crashlytics non-fatals batch until next app launch.**
+    `FirebaseCrashlytics.recordException(t)` queues the report locally
+    and ships on the next app start. To force immediate upload (debug
+    verification): `FirebaseCrashlytics.sendUnsentReports()`. M6
+    exposed this via `SafeCrashReporter.flushPending()`; the debug
+    button in Settings calls it after `recordException` so the leak
+    test surfaces in the dashboard within ~1 minute instead of "after
+    the user restarts". **ALSO:** Crashlytics dedupes non-fatals by
+    exception class + top-of-stack signature. If you record the same
+    exception twice in a session, you see ONE issue in the dashboard
+    with the events count incremented — NOT two new entries in the
+    issue list. To verify a second debug-button tap fired, look at
+    the existing issue's "Events" count or drill into the latest
+    session.
+
+26. **Compose `liveRegion = Polite` on a streaming/growing text fires
+    on every content update.** TalkBack re-reads the entire growing
+    string repeatedly — unusable for token-streamed chat responses.
+    **DO NOT** put `liveRegion` on the partial-text bubble. Instead,
+    for one-shot announcements (e.g., "the assistant's response is now
+    complete, read it once"), use
+    `LocalView.current.announceForAccessibility(text)` from a
+    `LaunchedEffect(messages.size)` that fires only when the list
+    grows AND the newest entry is the type you want announced. M6
+    Phase E hit this on the chat streaming bubble; the corrected
+    pattern is at the top of `ChatScreen.kt`. **`announceForAccessibility`
+    was deprecated in API 36** but is still the canonical primitive for
+    this case; the deprecation notes the live-region pattern as the
+    replacement but live-region doesn't fit "announce once on
+    transition".
+
+27. **Counter telemetry uses a separate channel from text-aware
+    loggers.** `MemoryExtractor`, `MemoryRetriever`, `MemoryEvictor`,
+    etc. inject BOTH a `logger: (String) -> Unit` for diagnostic text
+    (counts, IDs, accelerator names — safe for logcat) AND a
+    `TelemetryCounters` for counts (off-device-bound). **DO NOT bridge
+    the logger callbacks into telemetry** — that would leak the text
+    payload off-device. Comment markers in `Memories.sq` and
+    `MemoryExtractor.kt` document the exclusion contract. Production
+    callsites get the real `InMemoryTelemetryCounters` via Hilt; tests
+    use the `NoOpTelemetryCounters` default from `:shared/commonMain`.
+    M6 Phase C's `TelemetryPayloadBuilderTest` includes a load-bearing
+    canary test: seeds the `memories` table with a unique marker
+    string and asserts it never appears in any built payload.
+
 ## Build & run
 
 ```bash
@@ -354,7 +476,7 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
 | M3 Datasets & classifier training | ✅ Complete 2026-05-09. Datasets `preflight_v1.0.0` (11,670) + `memory_v1.0.0` (7,707) frozen with regression-set SHA-256s in manifests. Single shared DistilBERT-base + 3 task heads exported to `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB INT8). §7 GATE: FAIL by 4-7pp on two pre-flight metrics — defensible v1 with documented v1.x improvement path (precision ceiling is dataset-level boundary noise, not tunable). Memory presence passes (92.2% test / 96.2% regression). 26 unit tests in `classifier-training/`. Detailed phase log in `docs/M3_PLAN.md`; M4 handoff at `docs/M3_M4_HANDOFF.md`. |
 | M4 Pre-flight integration | ✅ Complete 2026-05-10. Classifier wired into `AgentLoop` via `:shared/commonMain/classifier/PreflightRouter` (engine in `:shared/androidMain` on `com.google.ai.edge.litert:litert:2.1.4`). Three-band routing per PRD §3.2.1; deterministic-only rewriter (memory-context queries abort to FallThrough until M5). Pixel 7 CPU latency p95=113 ms (M4 gate <150 ms ✓; PRD §2.3 80 ms aspiration tracked as model card v1.x #5 — int32 input re-export). End-to-end on real Pixel 7: pre-flight fires for time-sensitive queries with rewritten search queries; M2 path unchanged for middle/low band. WS-14 `ct-regression-check` CLI shipped — verifies SHA-256s, runs `ct-eval-classifier --split regression`, gates on >2pp regression across 19 metrics. 142 Kotlin tests + 40 Python tests. Detailed phase log in `docs/M4_PLAN.md`; M5 handoff at `docs/M4_M5_HANDOFF.md`. |
 | M5 Memory subsystem | ✅ Complete 2026-05-10. all-MiniLM-L6-v2 INT8 embedder (23.5 MB) on `com.google.ai.edge.litert:litert:2.1.4`; SQLite memory store (BLOB embeddings, brute-force cosine, eviction cascade); retrieval injected before pre-flight + `[MEMORY CONTEXT BLOCK]` (SYSTEM_PROMPT §5); possessive substitution in `QueryRewriter` ("did my team win" → "did philadelphia eagles win"); post-turn extraction with explicit remember/forget commands (broadened regex covers possessives + determiners + interrogatives); MemoryScreen + ConversationMemoryListScreen + chat-bar badge; storage hardening audit (no memory text in any log path). Pixel 7 end-to-end retrieval p95 = 72 ms (under PRD §3.2.4's 100 ms). 265 Kotlin unit tests (+123 over M4). Detailed phase log in `docs/M5_PLAN.md`; M6 handoff at `docs/M5_M6_HANDOFF.md`. |
-| M6 Polish, eval, telemetry | Not started |
+| M6 Polish, eval, telemetry | ✅ Complete 2026-05-11. Schema migration v1→v2→v3 with `verifyMigrations` build-time gate; eager Gemma load via `LifecycleResumeEffect` (first-token 1–3s on cold-open-then-send on Pixel 7 vs 4–8s baseline; target calibrated to 1–5s acceptable, <5s required — see `docs/M6_M7_HANDOFF.md` §5 Finding 2); opt-in Firebase Analytics telemetry pipeline (counter-only, memory-exclusion canary test, 4 themed daily events verified end-to-end via DebugView); Firebase Crashlytics behind `SafeCrashReporter` facade with `ContentRedactor` scrubbing; 3-screen first-run onboarding; `ThermalBanner` at MODERATE/SEVERE + full block at CRITICAL; accessibility audit (TalkBack one-shot announce on streaming response complete); 2 hosted-CI workflows (`regression-gate.yml`, `prompt-eval-gate.yml`). 318 unit tests (+53 over M5). Phase G on-device walkthrough confirmed onboarding, eager load, thermal banner/block, telemetry pipeline + consent-OFF, bug-bash drills 7+9. Phase G Finding 1 (`docs/M6_M7_HANDOFF.md` §5): memory-rewrite chain misses on verbatim-text + middle-band classifier — known v1.0 limitation; v1.x fix is Gemma-canonical memory text per M5_M6_HANDOFF §6. |
 | M7 Closed beta → Play Store | Not started |
 
 ## M2 architecture cheat sheet (for follow-ups)
@@ -596,3 +718,131 @@ mistake to make. See `android-app/secrets.properties.example` for the fields.
   `EmbedderSpikeTest`, `EmbedderEndToEndTest`,
   `MemoryRetrievalLatencyBenchmark`. 265 unit + 4 instrumentation;
   every Phase D/E branch covered.
+
+## M6 architecture cheat sheet (for M7 / v1.x follow-ups)
+
+- **Schema (`:shared/commonMain/sqldelight/.../db/`)** — three versions
+  in v1: M0 baseline (v1), M5 added `memories.access_count` + 2 indexes
+  (now v2 via `1.sqm`), M6 Phase C replaced the M1 stub
+  `telemetry_counters` table with `telemetry_aggregate` +
+  `telemetry_latency_aggregate` (v3 via `2.sqm`). `verifyMigrations =
+  true` in `:shared/build.gradle.kts`. Snapshots in
+  `src/commonMain/sqldelight/databases/{1,2}.db`. Inv. #20 covers the
+  snapshot-dance procedure for adding the next migration.
+- **Eager Gemma load** —
+  `:androidApp/.../app/ui/MainScreen.kt`'s
+  `LifecycleResumeEffect(route)` debounces 300 ms then calls
+  `MainViewModel.warmUpEagerly()` → `InferenceSessionManager.warmUpIfPossible()`.
+  Outcome enum: `AlreadyLoaded` / `AlreadyLoading` / `SkippedThermal` /
+  `Loaded` / `Failed`. Thermal-gated at SEVERE+. Idempotent under
+  concurrent calls. `MobileAgentApplication.onTrimMemory` passes
+  `UnloadReason.TrimMemory` to the new `forceUnload(reason)` overload so
+  the debug-button "Unload" doesn't trip the
+  `inference_unloaded_trim_memory_total` counter. **Inv. #22 is the
+  load-bearing pattern** — `LaunchedEffect(route)` first shipped here
+  but missed background→foreground; switched to `LifecycleResumeEffect`.
+- **Thermal infrastructure** —
+  `:shared/commonMain/inference/ThermalStatusProvider.kt` (interface,
+  Flow + snapshot) + `:shared/androidMain/.../AndroidThermalStatusProvider.kt`
+  (wraps `PowerManager.currentThermalStatus` +
+  `addThermalStatusListener` via `callbackFlow`). `ThermalStatus` enum
+  has `isThrottling` (>= SEVERE) for the warm-up skip and `isBlocking`
+  (>= CRITICAL) for the chat banner / send-disable gate.
+  `:androidApp/.../app/ui/chat/ThermalBanner.kt` renders the warning
+  surface; dismissal is keyed on thermal level (escalation re-shows the
+  banner).
+- **Telemetry pipeline (M6 Phase C):**
+  - `:shared/commonMain/telemetry/TelemetryCounters.kt` interface +
+    `CounterNames` + `LatencyNames` constants pin the wire-format
+    names. `NoOpTelemetryCounters` is the default.
+  - `:shared/androidMain/.../InMemoryTelemetryCounters.kt` —
+    ConcurrentHashMap<WindowedKey, AtomicLong> for counters,
+    `ReservoirSampler` (Vitter Algorithm R, 1024 samples) for latencies.
+    Flush via the `TelemetryFlusher` interface; window keyed at RECORD
+    time so counts attribute to the correct UTC day even across
+    flush-boundary midnight.
+  - `:shared/commonMain/telemetry/TelemetryConsentManager.kt` — default
+    OFF (PRD §3.2.1). Android impl backed by `SharedPreferences`. Bound
+    to `FirebaseAnalytics.setAnalyticsCollectionEnabled` AND
+    `FirebaseCrashlytics.setCrashlyticsCollectionEnabled` via
+    `MobileAgentApplication.onCreate`'s consent-flow observer.
+  - `:shared/commonMain/telemetry/TelemetryPayloadBuilder.kt` reads ONLY
+    the aggregate tables. Routes counters into 4 themed Firebase events
+    by prefix (`preflight_*` → `daily_preflight`, etc.). Each event
+    carries `window_start_epoch_ms` for BigQuery joins. **Inv. #27 +
+    the load-bearing `TelemetryPayloadBuilderTest` memory-exclusion
+    canary test enforce the no-content contract.**
+  - `:androidApp/.../telemetry/FirebaseAnalyticsSink.kt` (Phase C) +
+    `:androidApp/.../observability/FirebaseSafeCrashReporter.kt`
+    (Phase D) — the only Firebase SDK touchpoints. **Inv. #23 keeps
+    Firebase out of `:shared/androidMain`.**
+  - `:androidApp/.../service/TelemetryUploadWorker.kt` — periodic
+    WorkManager worker, 24h cadence, `UNMETERED` constraint (no
+    charging gate). Drains the recorder, asks the builder for events
+    BEFORE today's UTC midnight (so today's open window doesn't get
+    half-sent), dispatches via `AnalyticsSink`, marks rows uploaded.
+    Debug button in Settings calls `runNow(context)` which sets
+    `KEY_INCLUDE_CURRENT_WINDOW = true` so today's data ships
+    immediately for verification.
+- **Crashlytics + ContentRedactor (M6 Phase D):**
+  - `:shared/commonMain/observability/ContentRedactor.kt` — regex set
+    for `Authorization` / `X-Subscription-Token` / bare `Bearer <token>`
+    / URL query strings. `redactThrowable(t)` wraps in a
+    `RedactedThrowable` that preserves stack trace + class name.
+  - `:shared/commonMain/observability/SafeCrashReporter.kt` interface +
+    `:androidApp/.../observability/FirebaseSafeCrashReporter.kt` impl.
+    Every callsite goes through this facade — **inv. #24 forbids
+    direct `FirebaseCrashlytics.recordException` outside.**
+    `flushPending()` calls `sendUnsentReports()` for the debug button
+    (**inv. #25** — non-fatals batch until next launch by default).
+  - `MobileAgentApplication.installRedactingUncaughtExceptionHandler`
+    chains: redact first, then delegate to whatever Crashlytics
+    installed. Crashlytics dedupes same-process crashes within a
+    session.
+- **Onboarding (M6 Phase E):**
+  - `:shared/commonMain/onboarding/OnboardingPreferences.kt` + Android
+    impl backed by `SharedPreferences`. Three independent booleans
+    (`disclosureAcknowledged`, `braveKeyDecided`, telemetry-decided
+    lives on `TelemetryConsentManager.firstRunDecided`).
+  - `:androidApp/.../app/ui/onboarding/{DisclosureScreen,
+    BraveKeyScreen, TelemetryConsentScreen, OnboardingHost,
+    OnboardingViewModel}.kt`. The host derives the active step from
+    the three flags; `MainScreen.onboardingComplete` gates the existing
+    download → chat routing.
+- **Canonical eval gate (M6 Phase F):**
+  - `:androidApp/src/test/.../canonical/CanonicalEvalTest.kt` — 15
+    canonical queries spanning preflight bands, memory-conditional
+    rewriting, search-disabled, and prompt-block presence. Drives
+    `PreflightRouter` + `QueryRewriter` + `PromptAssembler` against
+    fake classifier outputs (routing-layer regression detection;
+    classifier accuracy is `ct-regression-check`'s domain). Surfaces
+    every regression in a single assertion message.
+  - `eval/canonical/README.md` documents the schema + how to add new
+    queries.
+  - `.github/workflows/regression-gate.yml` runs
+    `ct-regression-check --skip-eval` on PRs touching `models/`,
+    `datasets/`, `classifier-training/`. Pip-cache for fast runs.
+    `workflow_dispatch` with `full_eval: true` for occasional full
+    classifier evals.
+  - `.github/workflows/prompt-eval-gate.yml` runs `CanonicalEvalTest`
+    on PRs touching `SYSTEM_PROMPT.md`, `PromptAssembler.kt`,
+    `PreflightRouter.kt`, `QueryRewriter.kt`, or the canonical eval
+    files. Uploads test reports on failure.
+- **Privacy docs:** `docs/PRIVACY_POLICY.md` (user-facing) +
+  `docs/DATA_SAFETY_NOTES.md` (Play Console form cheat-sheet). Both
+  drafts; Phase G should re-verify against PRD §4.4 + the shipped
+  telemetry contract before public launch.
+- **Tests** — 318 host-side unit tests (was 265 at end of M5; +53 in M6
+  across `MemoriesMigrationTest` (5 + 1 chain test for v1→v3),
+  `InferenceSessionManagerTest` (7 new for `warmUpIfPossible`),
+  `InMemoryTelemetryCountersTest` (9), `TelemetryPayloadBuilderTest`
+  (9 incl. memory + message exclusion canaries), `TelemetryUploaderTest`
+  (5 + 1 for include_current_window), `ContentRedactorTest` (15),
+  `CanonicalEvalTest` (1 covering 15 canonical queries inline)).
+- **Deferred items M7 inherits:** offline indicator chip + ready
+  interstitial (Phase E v1.x), NDK Crashlytics (`firebase-crashlytics-ndk`),
+  detekt lint rule for direct `FirebaseCrashlytics` access outside the
+  facade, feedback UI / thumbs-up-down (would enable
+  classifier-precision telemetry), conversation persistence,
+  MemoryStore `Flow` extension, undo snackbar. All documented in
+  `docs/M6_PLAN.md §8` and the eventual M6_M7_HANDOFF.

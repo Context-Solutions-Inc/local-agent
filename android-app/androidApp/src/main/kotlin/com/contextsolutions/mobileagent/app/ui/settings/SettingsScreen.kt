@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.contextsolutions.mobileagent.app.BuildConfig
 
 /**
  * Settings: Brave API key (BYOK), web-search toggle, cache clear. Reachable from
@@ -194,6 +195,88 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in
+            // contract: default OFF, toggle is reachable from both first-run
+            // onboarding (Phase E) and this Settings section.
+            SectionHeader("Anonymous telemetry")
+            Text(
+                if (state.telemetryEnabled) {
+                    "Aggregate counters help us improve the assistant. Off uploads next cycle if you toggle this off."
+                } else {
+                    "Off. The app never sends usage data when this is off."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Share anonymous counters", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = state.telemetryEnabled,
+                    onCheckedChange = { viewModel.setTelemetryEnabled(it) },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "What we send: counts per day — queries, search invocations, " +
+                    "memory operations, latency percentiles. Plus redacted " +
+                    "crash reports so we can fix what breaks. What we don't: " +
+                    "your queries, your memories, conversation content, any identifier.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+
+            // Debug-only: bypass the 24h periodic schedule and fire one
+            // telemetry upload immediately. Watch `adb logcat -s
+            // TelemetryWorker:I` for the outcome line. The uploader still
+            // gates on consent — this button never sends data when the
+            // toggle above is OFF.
+            if (BuildConfig.DEBUG) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { viewModel.triggerTelemetryUploadNow() }) {
+                    Text("Run telemetry upload now (debug)")
+                }
+                Text(
+                    "Debug-only. Bypasses the 24 h periodic schedule. " +
+                        "Outcome in logcat -s TelemetryWorker:I.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { viewModel.triggerCrashRedactionTest() }) {
+                    Text("Test crash redaction (debug)")
+                }
+                Text(
+                    "Debug-only. Records a non-fatal whose message contains a " +
+                        "fake Bearer token, then force-flushes so it ships " +
+                        "immediately. Dashboard typically shows the new issue " +
+                        "within 1–5 min. Expect 'Bearer <redacted>' in the " +
+                        "message, NOT the raw value.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { viewModel.triggerBreadcrumbRedactionTest() }) {
+                    Text("Test breadcrumb redaction (debug)")
+                }
+                Text(
+                    "Debug-only. Records a breadcrumb with a fake subscription " +
+                        "token. Breadcrumbs only appear in the dashboard ATTACHED " +
+                        "TO a crash — tap this, then tap 'Test crash redaction' " +
+                        "above; the breadcrumb appears in that crash's Logs tab " +
+                        "with 'X-Subscription-Token: <redacted>'.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
         }
     }
 }

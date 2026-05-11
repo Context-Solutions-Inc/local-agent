@@ -34,6 +34,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
 import com.contextsolutions.mobileagent.inference.Accelerator
+import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.search.SearchSource
 
 /**
@@ -75,6 +78,27 @@ fun ChatScreen(
     LaunchedEffect(ui.messages.size, ui.partialText.length, ui.isGenerating) {
         val total = ui.messages.size + (if (ui.partialText.isNotEmpty() || ui.isGenerating) 1 else 0)
         if (total > 0) listState.animateScrollToItem(total - 1)
+    }
+
+    // M6 Phase E accessibility — announce a completed assistant response
+    // exactly ONCE to TalkBack (not per token). The previous attempt put
+    // liveRegion on the streaming bubble; that fired on every partial
+    // update and re-read the entire growing string. The right signal is
+    // "messages list grew AND newest entry is an Assistant" — that's the
+    // transition from streaming to done. `lastSeenSize` survives in
+    // remember within a composition, so route-flips (Chat → Settings →
+    // Chat) reset it to the current size, suppressing re-announcement of
+    // already-rendered history.
+    val view = LocalView.current
+    var lastSeenSize by remember { mutableIntStateOf(ui.messages.size) }
+    LaunchedEffect(ui.messages.size) {
+        if (ui.messages.size > lastSeenSize) {
+            val newest = ui.messages.lastOrNull()
+            if (newest is UiMessage.Assistant && newest.text.isNotBlank()) {
+                view.announceForAccessibility(newest.text)
+            }
+        }
+        lastSeenSize = ui.messages.size
     }
 
     // Re-query the badge count whenever the chat screen comes back into
@@ -128,11 +152,23 @@ fun ChatScreen(
             ) {
                 if (ui.messages.isEmpty() && ui.partialText.isEmpty() && !ui.isGenerating && ui.error == null) {
                     item {
-                        Text(
-                            "Type a question. Web search runs automatically when the model needs current info.",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(vertical = 24.dp),
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "Hello.",
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Text(
+                                text = "Ask anything. The assistant runs on your device — your messages stay here. " +
+                                    "It'll search the web automatically when it needs current info.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 items(ui.messages) { message ->
@@ -171,12 +207,17 @@ fun ChatScreen(
                 Spacer(Modifier.height(4.dp))
             }
 
+            // M6 Phase E — thermal warning (PRD §4.3). Banner at
+            // MODERATE+; full block + disabled send at CRITICAL+.
+            val thermal by viewModel.thermalStatus.collectAsState()
+            ThermalBanner(thermal)
+
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Ask anything…") },
-                enabled = !ui.isGenerating,
+                enabled = !ui.isGenerating && !thermal.isBlocking,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             )
             Spacer(Modifier.height(8.dp))
@@ -186,7 +227,7 @@ fun ChatScreen(
                         viewModel.send(input)
                         input = ""
                     },
-                    enabled = !ui.isGenerating && input.isNotBlank(),
+                    enabled = !ui.isGenerating && !thermal.isBlocking && input.isNotBlank(),
                 ) {
                     Text("Send")
                 }
@@ -252,6 +293,11 @@ private fun StreamingAssistantBubble(
     searchStatus: SearchStatus,
     isGenerating: Boolean,
 ) {
+    // No liveRegion here — the partial text grows by tokens, and a live
+    // region would re-announce the growing string on every update,
+    // making TalkBack unusable on streamed responses. The completed
+    // assistant message is announced ONCE via `View.announceForAccessibility`
+    // from the ChatScreen-level LaunchedEffect that watches messages.size.
     Column(modifier = Modifier.fillMaxWidth()) {
         if (searchStatus is SearchStatus.Searching) {
             SearchingChip(searchStatus.query)

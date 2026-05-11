@@ -1,0 +1,45 @@
+-- Migration v2 → v3 (M6 Phase C, 2026-05-10).
+--
+-- Replaces the M1 `telemetry_counters` stub with the M6 Phase C two-table
+-- design (counters + latency percentiles) per M6_PLAN §3.3.1.
+--
+-- The M1 stub was never wired up — no production data lives in it on any
+-- install. Safe to DROP without preserving rows. Future schema changes to
+-- telemetry should land as 3.sqm additions, not in-place .sq edits.
+--
+-- Upgrade-path cases:
+--   * Fresh M6 installs: Schema.create() emits v3 directly. No migration.
+--   * Upgrade from M0/M1/M2/M4 (v1): 1.sqm runs first (adds memories.access_count
+--     + 2 indexes), then 2.sqm runs (replaces telemetry_counters).
+--   * Upgrade from M5 (v2 in-place from 1.sqm): 2.sqm runs cleanly.
+--   * Upgrade from M5 *dev install* (DB still reports user_version=1 because M5
+--     never bumped Schema.version): 1.sqm fails on "duplicate column" — same
+--     pm-clear-once workaround as Phase A documented. Production never sees
+--     this path.
+
+DROP TABLE IF EXISTS telemetry_counters;
+
+CREATE TABLE telemetry_aggregate (
+    window_start_epoch_ms INTEGER NOT NULL,
+    counter_name          TEXT    NOT NULL,
+    counter_value         INTEGER NOT NULL,
+    uploaded_at_epoch_ms  INTEGER,
+    PRIMARY KEY (window_start_epoch_ms, counter_name)
+);
+
+CREATE INDEX telemetry_aggregate_by_uploaded
+    ON telemetry_aggregate(uploaded_at_epoch_ms);
+
+CREATE TABLE telemetry_latency_aggregate (
+    window_start_epoch_ms INTEGER NOT NULL,
+    metric_name           TEXT    NOT NULL,
+    p50_ms                INTEGER NOT NULL,
+    p95_ms                INTEGER NOT NULL,
+    p99_ms                INTEGER NOT NULL,
+    sample_count          INTEGER NOT NULL,
+    uploaded_at_epoch_ms  INTEGER,
+    PRIMARY KEY (window_start_epoch_ms, metric_name)
+);
+
+CREATE INDEX telemetry_latency_aggregate_by_uploaded
+    ON telemetry_latency_aggregate(uploaded_at_epoch_ms);

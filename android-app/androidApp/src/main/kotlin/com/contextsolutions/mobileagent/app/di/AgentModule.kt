@@ -8,6 +8,7 @@ import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
 import com.contextsolutions.mobileagent.search.SearchService
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -43,6 +44,7 @@ object AgentModule {
         searchService: SearchService,
         preflightRouter: PreflightRouter,
         memoryRetriever: MemoryRetriever,
+        counters: TelemetryCounters,
     ): AgentLoopFactory = AgentLoopFactory { session ->
         AgentLoop(
             session = session,
@@ -50,6 +52,7 @@ object AgentModule {
             searchService = searchService,
             preflightRouter = preflightRouter,
             memoryRetriever = memoryRetriever,
+            counters = counters,
         )
     }
 }

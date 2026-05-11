@@ -1,5 +1,10 @@
 package com.contextsolutions.mobileagent.memory
 
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.LatencyNames
+import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
+
 /**
  * Retrieval entry point for the agent loop. Composes [EmbedderEngine] +
  * [MemoryStore] into the single call the [com.contextsolutions.mobileagent.agent.AgentLoop]
@@ -27,6 +32,7 @@ class MemoryRetriever(
     private val store: MemoryStore,
     private val nowProvider: () -> Long,
     private val logger: (String) -> Unit = {},
+    private val counters: TelemetryCounters = NoOpTelemetryCounters,
 ) {
 
     private var failureLogged = false
@@ -45,15 +51,23 @@ class MemoryRetriever(
         if (trimmed.isEmpty()) return emptyList()
 
         val now = nowProvider()
+        val startMs = nowProvider()
         return try {
             val output = embedder.embed(trimmed)
                 ?: return emptyList<MemoryHit>().also { logFailureOnce("embedder unavailable") }
-            store.retrieveTopK(
+            val hits = store.retrieveTopK(
                 queryEmbedding = output.vector,
                 k = k,
                 threshold = threshold,
                 now = now,
             )
+            // M6 Phase C — `memory_retrieved_total` counts non-empty
+            // retrievals only (matching the M5 handoff contract). Latency
+            // is always recorded so we can spot regression even when no
+            // memories matched.
+            counters.observeLatency(LatencyNames.MEMORY_RETRIEVAL_MS, nowProvider() - startMs)
+            if (hits.isNotEmpty()) counters.increment(CounterNames.MEMORY_RETRIEVED_TOTAL)
+            hits
         } catch (t: Throwable) {
             logFailureOnce("memory retrieval failed: ${t.message}")
             emptyList()

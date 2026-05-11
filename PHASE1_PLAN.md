@@ -434,36 +434,15 @@ before M6 tightens the migration story), classifier recall improvement
 queue (RELATIONSHIP under-represented in v1.0), and embedder
 GPU-re-export option.
 
-### M6 — Polish, eval, telemetry (weeks 18–22)
+### M6 — Polish, eval, telemetry ✅ COMPLETE 2026-05-11 — see `docs/M6_PLAN.md` + `docs/M6_M7_HANDOFF.md`
 
-- **WS-11:** First-run UX polish, accessibility pass (TalkBack, dynamic type, color contrast), all error states from PRD §6.2 (no key, offline, no model, low storage, thermal critical, Brave 4xx/5xx). Thermal-state warnings in UI per PRD §4.3.
-- **WS-13:** Opt-in telemetry. Off by default. Aggregate counters only — no query strings, no memory content, no conversation text. Explicit consent screen with itemized list of what is and is not transmitted.
-- **WS-14:** Full eval harness gates classifier and system-prompt changes via CI. Canonical query set per SYSTEM_PROMPT.md §11.
-- **WS-15:** Crashlytics with aggressive content scrubbing (custom log redactor). Performance telemetry: model load time, first-token p50/p95, search latency, pre-flight hit rate. Data Safety form drafted, privacy policy drafted and reviewed.
-- **M5 carry-overs (see `docs/M5_M6_HANDOFF.md`):**
-  - **Schema migration files** for `Memories.sq` (added `access_count`
-    in M5 in-place; production-blocker — closed beta clean-installs are
-    fine but a public release that upgrades over an existing install
-    would crash on first DB write).
-  - **Telemetry counter shape** — handoff §1 enumerates the suggested
-    set (`memory_extracted_total`, `memory_dedup_skipped_total`,
-    `memory_forgotten_total`, `memory_evicted_total{tier}`,
-    `memory_retrieved_total`, `memory_retrieval_p95_ms`). Memory text
-    + embedding BLOBs are off-limits; comment markers in `Memories.sq`
-    and `MemoryExtractor` document this.
-  - **Hosted CI for `ct-regression-check`** — currently the local
-    script ships in `classifier-training/scripts/`; move to
-    GitHub Actions or Cloud Build per WS-14.
-- **Eager Gemma load (new request, M6 scope):** today the LiteRT-LM
-  Gemma 4 model cold-loads on the user's first prompt (4–8 s). Trigger
-  the load earlier — when the chat screen comes into view — so the
-  model is warm by the time the user finishes typing. The existing
-  5-minute idle unload (M0 Decision 5) and `onTrimMemory()` proactive
-  unload stay in place; M6 should also consider unloading when the
-  chat screen leaves the foreground for an extended window
-  (Activity-pause vs. brief navigation-to-Settings — see kickoff
-  prompt for the trade-offs).
-- **Deliverable:** Internal-quality build ready for closed beta.
+- **WS-11 (UX polish + a11y):** 3-screen first-run onboarding (disclosure → Brave key → telemetry consent); `ThermalBanner` at MODERATE/SEVERE (dismissible) + CRITICAL (full block, Send disabled); accessibility audit — `liveRegion = Polite` on streaming bubbles, onboarding heading semantics; chat empty state polished. Live TalkBack walk + dynamic-type 200% deferred to M7 closed-beta bug-bash.
+- **WS-13 (telemetry):** Opt-in (default OFF) Firebase Analytics pipeline. 4 themed daily events (`daily_inference`, `daily_preflight`, `daily_search`, `daily_memory`) routed by counter prefix. `TelemetryPayloadBuilder` reads only aggregate tables — memory-exclusion canary test enforces no content leaks. `TelemetryUploadWorker` (24h, UNMETERED). Settings toggle + first-run consent screen + DEBUG "Run telemetry upload now" button. Schema v2 → v3 via `2.sqm`.
+- **WS-14 (hosted CI):** `.github/workflows/regression-gate.yml` runs `ct-regression-check --skip-eval` on PRs touching `models/`/`datasets/`/`classifier-training/`; `workflow_dispatch` for full eval. `.github/workflows/prompt-eval-gate.yml` runs `CanonicalEvalTest` (15 canonical queries with fake classifier outputs) on PRs touching `SYSTEM_PROMPT.md` or routing-layer code.
+- **WS-15 (Crashlytics + perf):** Firebase Crashlytics behind `SafeCrashReporter` facade with shared `ContentRedactor` (Authorization / X-Subscription-Token / Bearer / URL queries). `RedactedThrowable` preserves stack trace + class name. Single consent toggle gates Analytics + Crashlytics. NDK Crashlytics + detekt lint rule deferred to v1.x. Privacy policy + Data Safety notes drafted at `docs/`.
+- **M5 carry-overs landed:** schema migration `1.sqm` (v1→v2, `access_count` + 2 indexes) + `verifyMigrations=true` build-time gate; telemetry counter API + `:shared/commonMain/telemetry/CounterNames` per M5_M6_HANDOFF §1; hosted CI for `ct-regression-check` (WS-14 above).
+- **Eager Gemma load (new in M6):** `InferenceSessionManager.warmUpIfPossible()` + `LifecycleResumeEffect(route)` in MainScreen fires warm-up on chat-screen entry (300ms debounce). Thermal-gated at SEVERE+. **First-token target calibrated to 1–5s acceptable, <5s required** (originally aspired <1.5s; real Pixel 7 measurement is 1–3s — see `docs/M6_M7_HANDOFF.md` §5 Finding 2). Existing 5-min idle unload + `onTrimMemory()` paths preserved; new `UnloadReason` enum distinguishes idle / TrimMemory / Manual for telemetry attribution.
+- **Deliverable:** Internal-quality build ready for closed beta. **318 unit tests** at end of M6 (+53 over M5). All Phase A–F host-side green; Phase G on-device walkthrough on Pixel 7 confirmed onboarding, eager load, thermal banner/block, 4-event telemetry pipeline + consent-OFF gate, bug-bash drills 7+9. Known v1.0 limitation surfaced (Phase G Finding 1): memory-rewrite chain misses on verbatim-text + middle-band classifier (`my favorite team is the eagles` stored verbatim doesn't clear retrieval cosine for "did my team win last night"); v1.x fix is Gemma-generated canonical memory text per M5_M6_HANDOFF §6.
 
 ### M7 — Closed beta → public launch (weeks 22–26)
 

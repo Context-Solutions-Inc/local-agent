@@ -12,6 +12,8 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.classifier.ClassifierEngine
+import com.contextsolutions.mobileagent.inference.ThermalStatus
+import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryStore
@@ -25,8 +27,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -52,9 +56,18 @@ class ChatViewModel @Inject constructor(
     private val embedderEngine: EmbedderEngine,
     private val memoryExtractor: MemoryExtractor,
     private val memoryStore: MemoryStore,
+    thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
     val sessionState: StateFlow<SessionState> = sessionManager.state
+
+    /**
+     * M6 Phase E — surface thermal state to the chat UI (PRD §4.3).
+     * Banner at MODERATE/SEVERE; full block at CRITICAL+. The flow emits
+     * the current value on subscribe and again on every transition.
+     */
+    val thermalStatus: StateFlow<ThermalStatus> = thermalStatusProvider.statusFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, thermalStatusProvider.current())
 
     private val _ui = MutableStateFlow(ChatUiState())
     val ui: StateFlow<ChatUiState> = _ui.asStateFlow()

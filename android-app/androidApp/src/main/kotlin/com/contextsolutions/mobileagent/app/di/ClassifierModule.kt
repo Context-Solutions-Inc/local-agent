@@ -98,6 +98,7 @@ object ClassifierModule {
         rewriter: QueryRewriter,
         config: PreflightConfig,
         searchService: SearchService,
+        counters: com.contextsolutions.mobileagent.telemetry.TelemetryCounters,
     ): PreflightRouter = PreflightRouter(
         engine = engine,
         tokenizer = tokenizer,
@@ -109,5 +110,6 @@ object ClassifierModule {
         configProvider = { config },
         searchAvailableProvider = { searchService.isAvailable() },
         logger = { Log.i(TAG, it) },
+        counters = counters,
     )
 }

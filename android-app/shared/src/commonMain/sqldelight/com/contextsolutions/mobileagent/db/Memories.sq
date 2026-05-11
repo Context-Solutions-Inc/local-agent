@@ -1,9 +1,12 @@
 -- Memory store per PRD section 3.2.4. Embeddings stored as BLOB; brute-force cosine
 -- similarity over up to ~1,000 entries is sub-10ms on Pixel 7 — no native vector index needed.
 --
--- M5 adds the `access_count` column to support PRD §3.2.4's "LRU + access-frequency
--- heuristic" eviction tier. Existing dev installs from M0/M1/M2 must be wiped
--- before this schema lands (no migration support is wired up yet — followup for M6).
+-- Schema lives at version 2 (M6 Phase A). v1 → v2 delta in 1.sqm adds the
+-- `access_count` column M5 introduced for PRD §3.2.4's "LRU + access-frequency
+-- heuristic" eviction tier, plus the two indexes M5 added for retrieval +
+-- eviction queries (`memories_by_conversation`, `memories_by_last_accessed`).
+-- AndroidSqliteDriver applies the migration automatically on upgrade from
+-- M0/M1/M2/M4 builds. Fresh installs land directly on v2 via Schema.create().
 --
 -- TELEMETRY EXCLUSION (PRD §4.4 + WS-12): The contents of this table — memory `text`,
 -- `embedding` BLOBs, `conversation_id` — must NEVER flow into the M6 WS-13 opt-in
@@ -11,6 +14,14 @@
 -- day, retrievals per day). When the telemetry builder lands in M6, gate it on a
 -- contract-level review that this table is not read.
 
+-- Column order note: `access_count` sits at the END of the declaration so the
+-- v2 schema produced by Schema.create() matches the schema produced by
+-- Schema.migrate() running 1.sqm's `ALTER TABLE memories ADD COLUMN access_count …`
+-- (SQLite's ALTER TABLE always appends). Without this alignment,
+-- verifyCommonMainMobileAgentDatabaseMigration flags a column-order drift between
+-- fresh and upgraded installs. SQLite is order-insensitive at the query layer,
+-- so the placement doesn't affect behavior. The embedding-column comment is held
+-- to the M0/v1 wording for the same reason.
 CREATE TABLE memories (
     id TEXT NOT NULL PRIMARY KEY,
     text TEXT NOT NULL,
@@ -18,9 +29,9 @@ CREATE TABLE memories (
     conversation_id TEXT,                     -- FK soft-reference (memory may outlive its source conversation)
     created_at_epoch_ms INTEGER NOT NULL,
     last_accessed_epoch_ms INTEGER NOT NULL,
-    access_count INTEGER NOT NULL DEFAULT 0,  -- bumped on retrieval hit; tier-3 eviction key
-    embedding BLOB NOT NULL,                  -- 384-dim float32 little-endian (1,536 bytes) for all-MiniLM-L6-v2
-    expires_at_epoch_ms INTEGER               -- NULL for non-expiring memories
+    embedding BLOB NOT NULL,                  -- 384-dim float32 (1536 bytes) for all-MiniLM-L6-v2
+    expires_at_epoch_ms INTEGER,              -- NULL for non-expiring memories
+    access_count INTEGER NOT NULL DEFAULT 0   -- bumped on retrieval hit; tier-3 eviction key
 );
 
 CREATE INDEX memories_by_category ON memories(category);

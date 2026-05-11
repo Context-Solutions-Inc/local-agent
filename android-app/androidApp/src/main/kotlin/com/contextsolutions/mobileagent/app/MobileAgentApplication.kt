@@ -4,8 +4,21 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.util.Log
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
+import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
+import com.contextsolutions.mobileagent.app.service.UnloadReason
+import com.contextsolutions.mobileagent.observability.SafeCrashReporter
+import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
+import com.contextsolutions.mobileagent.telemetry.TelemetryFlusher
+import com.google.firebase.analytics.FirebaseAnalytics
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class MobileAgentApplication : Application() {
@@ -13,11 +26,86 @@ class MobileAgentApplication : Application() {
     @Inject
     lateinit var sessionManager: InferenceSessionManager
 
+    @Inject
+    lateinit var telemetryConsent: TelemetryConsentManager
+
+    @Inject
+    lateinit var telemetryFlusher: TelemetryFlusher
+
+    @Inject
+    lateinit var crashReporter: SafeCrashReporter
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         // Auxiliary models (pre-flight classifier, memory extractor, embedder) will be
         // loaded here at app start in M3+ since their combined footprint is small enough
         // (PRD section 4.2). Gemma 4 is loaded lazily on first query, not here.
+
+        // M6 Phase C + D — telemetry + crash-reporting orchestration.
+        //
+        // (a) Bind Firebase Analytics + Crashlytics collection to the
+        // user's consent. Both SDKs have their own internal collection
+        // (session_start, crash auto-capture) that runs independently of
+        // our code. Without these flips, opting out wouldn't actually
+        // stop the SDKs from phoning home for their own bookkeeping.
+        // PRD §3.2.1 + §4.4: opt-in only, no implicit telemetry.
+        val firebase = FirebaseAnalytics.getInstance(this)
+        telemetryConsent.enabledFlow()
+            .distinctUntilChanged()
+            .onEach { enabled ->
+                firebase.setAnalyticsCollectionEnabled(enabled)
+                crashReporter.setCollectionEnabled(enabled)
+            }
+            .launchIn(appScope)
+
+        // (b) Install our redacting uncaught-exception handler. Chains
+        // through to whatever Crashlytics installed (or the default
+        // platform handler if Crashlytics is opted out). PRD §4.4: any
+        // crash report must scrub message + memory content.
+        installRedactingUncaughtExceptionHandler()
+
+        // (c) Schedule the periodic upload worker. KEEP policy means
+        // existing schedules are preserved across app restarts; this is
+        // safe to call every onCreate.
+        TelemetryUploadWorker.schedule(this)
+    }
+
+    /**
+     * Wrap whatever uncaught-exception handler Crashlytics installed
+     * (Crashlytics installs its own at SDK init time) with a layer that
+     * runs [SafeCrashReporter.recordException] first — that path applies
+     * [com.contextsolutions.mobileagent.observability.ContentRedactor]
+     * to the throwable before forwarding. The chained handler still
+     * gets called so Crashlytics's own crash-capture pipeline runs
+     * unchanged. Net effect: any unhandled crash arrives at Crashlytics
+     * twice (once as a redacted recordException, once as the raw
+     * uncaught-exception capture), but the SDK dedups same-process
+     * crashes within a session.
+     *
+     * Trade-off accepted: the duplicate is preferable to skipping
+     * Crashlytics's auto-capture entirely — without that path, we'd
+     * lose JNI/native crash surface coverage. v1.x could revisit
+     * once we have telemetry on real crash signatures.
+     */
+    private fun installRedactingUncaughtExceptionHandler() {
+        val existing = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching { crashReporter.recordException(throwable) }
+            existing?.uncaughtException(thread, throwable)
+        }
+    }
+
+    override fun onTerminate() {
+        // (c) Session-end flush — drain the in-memory recorder before the
+        // process dies. Best-effort: onTerminate is documented as never
+        // called on production builds (emulator/test only), but a flush
+        // here is still useful for dev iteration. Real "session-end" on
+        // production is handled by the next worker fire reading the SQL
+        // tables.
+        appScope.launch { telemetryFlusher.flush() }
+        super.onTerminate()
     }
 
     /**
@@ -41,7 +129,7 @@ class MobileAgentApplication : Application() {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             Log.w(TAG, "onTrimMemory level=$level — requesting model unload.")
-            sessionManager.forceUnload()
+            sessionManager.forceUnload(reason = UnloadReason.TrimMemory)
         }
     }
 
