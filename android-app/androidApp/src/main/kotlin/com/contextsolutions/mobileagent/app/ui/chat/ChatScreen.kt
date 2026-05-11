@@ -234,7 +234,6 @@ fun ChatScreen(
                 if (ui.isGenerating) {
                     OutlinedButton(onClick = { viewModel.cancel() }) { Text("Cancel") }
                 }
-                OutlinedButton(onClick = { viewModel.forceUnload() }) { Text("Unload") }
             }
             Spacer(Modifier.height(8.dp))
         }

@@ -96,8 +96,9 @@ fun DownloadScreen(viewModel: DownloadViewModel = hiltViewModel()) {
                 Spacer(Modifier.height(24.dp))
                 Text(
                     text = "⚠ Model spec is incomplete. Set MODEL_SHA256 + " +
-                        "MODEL_SIZE_BYTES in secrets.properties (and HF_AUTH_TOKEN " +
-                        "if downloading from a gated HuggingFace repo).",
+                        "MODEL_SIZE_BYTES in secrets.properties. The HuggingFace " +
+                        "auth token comes from your onboarding entry / Settings " +
+                        "(or the secrets.properties dev fallback on debug builds).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -194,7 +195,7 @@ private fun DownloadActions(
 
 private fun friendlyError(type: DownloadErrorType?, raw: String): String = when (type) {
     DownloadErrorType.NETWORK -> "Network error — check your connection."
-    DownloadErrorType.HTTP_CLIENT -> "Server rejected the request. (Is your HF token configured?)"
+    DownloadErrorType.HTTP_CLIENT -> "Server rejected the request. (Is your HuggingFace token set in Settings?)"
     DownloadErrorType.HTTP_SERVER -> "Server problem — please try again later."
     DownloadErrorType.STORAGE -> "Not enough free storage."
     DownloadErrorType.CHECKSUM -> "The file didn't match its expected checksum and was discarded."

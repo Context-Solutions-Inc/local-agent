@@ -35,6 +35,10 @@ fun OnboardingHost(
             onSave = viewModel::saveBraveKey,
             onSkip = viewModel::skipBraveKey,
         )
+        OnboardingStep.HfAuthToken -> HfAuthTokenScreen(
+            onSave = viewModel::saveHfAuthToken,
+            onSkip = viewModel::skipHfAuthToken,
+        )
         OnboardingStep.TelemetryConsent -> TelemetryConsentScreen(
             onAccept = { viewModel.setTelemetryConsent(true) },
             onDecline = { viewModel.setTelemetryConsent(false) },

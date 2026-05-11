@@ -4,9 +4,12 @@ import android.content.Context
 import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.app.spike.StubInferenceEngine
 import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
+import com.contextsolutions.mobileagent.inference.DefaultHfAuthTokenProvider
+import com.contextsolutions.mobileagent.inference.HfAuthTokenProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.LiteRtInferenceEngineFactory
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
+import com.contextsolutions.mobileagent.platform.SecureStorage
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -48,4 +51,21 @@ object InferenceModule {
     @Singleton
     fun provideThermalStatusProvider(@ApplicationContext context: Context): ThermalStatusProvider =
         AndroidThermalStatusProvider(context)
+
+    /**
+     * Resolves the HuggingFace token used by `ModelDownloader` to authenticate
+     * the gated Gemma 4 download. Same BYOK pattern as Brave Search:
+     *  - user-supplied token from [SecureStorage] takes precedence
+     *  - internal/debug builds fall back to `BuildConfig.HF_AUTH_TOKEN` so
+     *    engineers don't have to configure their own token to exercise the
+     *    download path
+     *  - release builds always pass `null` for the dev fallback — production
+     *    users provide their own token via onboarding or Settings
+     */
+    @Provides
+    @Singleton
+    fun provideHfAuthTokenProvider(secureStorage: SecureStorage): HfAuthTokenProvider {
+        val devToken = if (BuildConfig.INTERNAL_BUILD) BuildConfig.HF_AUTH_TOKEN else null
+        return DefaultHfAuthTokenProvider(secureStorage, devToken)
+    }
 }

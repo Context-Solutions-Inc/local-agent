@@ -72,6 +72,27 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(keyJustSaved = false) }
     }
 
+    fun saveHfAuthToken(token: String) {
+        val trimmed = token.trim()
+        if (trimmed.isEmpty()) {
+            secureStorage.remove(SecureStorageKeys.HF_AUTH_TOKEN)
+        } else {
+            secureStorage.put(SecureStorageKeys.HF_AUTH_TOKEN, trimmed)
+        }
+        _state.update {
+            it.copy(hasUserHfToken = trimmed.isNotEmpty(), hfTokenJustSaved = true)
+        }
+    }
+
+    fun clearHfAuthToken() {
+        secureStorage.remove(SecureStorageKeys.HF_AUTH_TOKEN)
+        _state.update { it.copy(hasUserHfToken = false, hfTokenJustSaved = false) }
+    }
+
+    fun acknowledgeHfTokenSaved() {
+        _state.update { it.copy(hfTokenJustSaved = false) }
+    }
+
     fun setSearchEnabled(enabled: Boolean) {
         secureStorage.put(SecureStorageKeys.SEARCH_ENABLED, if (enabled) "true" else "false")
         _state.update { it.copy(searchEnabled = enabled) }
@@ -149,10 +170,14 @@ class SettingsViewModel @Inject constructor(
     private fun initialState(): SettingsUiState {
         val hasUser = secureStorage.contains(SecureStorageKeys.BRAVE_API_KEY) &&
             !secureStorage.get(SecureStorageKeys.BRAVE_API_KEY).isNullOrBlank()
+        val hasUserHf = secureStorage.contains(SecureStorageKeys.HF_AUTH_TOKEN) &&
+            !secureStorage.get(SecureStorageKeys.HF_AUTH_TOKEN).isNullOrBlank()
         val searchEnabled = secureStorage.get(SecureStorageKeys.SEARCH_ENABLED) != "false"
         return SettingsUiState(
             hasUserKey = hasUser,
             hasDevKey = BuildConfig.INTERNAL_BUILD && BuildConfig.BRAVE_DEV_KEY.isNotBlank(),
+            hasUserHfToken = hasUserHf,
+            hasDevHfToken = BuildConfig.INTERNAL_BUILD && BuildConfig.HF_AUTH_TOKEN.isNotBlank(),
             searchEnabled = searchEnabled,
             cacheCount = -1L,
             telemetryEnabled = telemetryConsent.enabled(),
@@ -169,10 +194,13 @@ class SettingsViewModel @Inject constructor(
 data class SettingsUiState(
     val hasUserKey: Boolean,
     val hasDevKey: Boolean,
+    val hasUserHfToken: Boolean,
+    val hasDevHfToken: Boolean,
     val searchEnabled: Boolean,
     /** -1 = not yet loaded. */
     val cacheCount: Long,
     val telemetryEnabled: Boolean = false,
     val keyJustSaved: Boolean = false,
+    val hfTokenJustSaved: Boolean = false,
     val cacheJustCleared: Boolean = false,
 )

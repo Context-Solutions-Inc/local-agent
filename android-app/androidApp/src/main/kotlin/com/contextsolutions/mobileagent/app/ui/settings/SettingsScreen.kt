@@ -59,6 +59,8 @@ fun SettingsScreen(
     val memoryState by memoryViewModel.state.collectAsState()
     var keyInput by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
+    var hfTokenInput by remember { mutableStateOf("") }
+    var showHfToken by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { memoryViewModel.refresh() }
 
@@ -66,6 +68,13 @@ fun SettingsScreen(
         if (state.keyJustSaved) {
             keyInput = ""
             viewModel.acknowledgeKeySaved()
+        }
+    }
+
+    LaunchedEffect(state.hfTokenJustSaved) {
+        if (state.hfTokenJustSaved) {
+            hfTokenInput = ""
+            viewModel.acknowledgeHfTokenSaved()
         }
     }
 
@@ -129,6 +138,54 @@ fun SettingsScreen(
                 }
                 OutlinedButton(onClick = { showKey = !showKey }) {
                     Text(if (showKey) "Mask" else "Reveal")
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            SectionHeader("HuggingFace token")
+            Text(
+                "The Gemma 4 model weights live in a gated HuggingFace repository. " +
+                    "Provide a read-scoped access token from huggingface.co/settings/tokens " +
+                    "and accept the Gemma license on the model card before downloading.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            HfTokenStatusRow(state)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = hfTokenInput,
+                onValueChange = { hfTokenInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("HuggingFace access token") },
+                placeholder = {
+                    Text(if (state.hasUserHfToken) "Replace existing token" else "Paste token")
+                },
+                singleLine = true,
+                visualTransformation = if (showHfToken) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                trailingIcon = {
+                    Text(
+                        text = if (showHfToken) "Hide" else "Show",
+                        modifier = Modifier
+                            .padding(horizontal = 8.dp)
+                            .padding(vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.saveHfAuthToken(hfTokenInput) },
+                    enabled = hfTokenInput.isNotBlank(),
+                ) { Text("Save") }
+                if (state.hasUserHfToken) {
+                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text("Clear") }
+                }
+                OutlinedButton(onClick = { showHfToken = !showHfToken }) {
+                    Text(if (showHfToken) "Mask" else "Reveal")
                 }
             }
 
@@ -296,6 +353,16 @@ private fun KeyStatusRow(state: SettingsUiState) {
         state.hasUserKey -> "Your key is set." to MaterialTheme.colorScheme.primary
         state.hasDevKey -> "No user key — using bundled dev key (debug build only)." to MaterialTheme.colorScheme.outline
         else -> "No key configured. Web search will be disabled until you add one." to MaterialTheme.colorScheme.error
+    }
+    Text(label, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+@Composable
+private fun HfTokenStatusRow(state: SettingsUiState) {
+    val (label, color) = when {
+        state.hasUserHfToken -> "Your token is set." to MaterialTheme.colorScheme.primary
+        state.hasDevHfToken -> "No user token — using bundled dev token (debug build only)." to MaterialTheme.colorScheme.outline
+        else -> "No token configured. The model download will fail until you add one." to MaterialTheme.colorScheme.error
     }
     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
 }

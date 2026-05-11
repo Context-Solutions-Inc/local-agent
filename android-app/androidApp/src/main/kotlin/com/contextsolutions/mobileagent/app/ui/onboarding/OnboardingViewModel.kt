@@ -18,18 +18,19 @@ import kotlinx.coroutines.flow.onEach
 /**
  * Drives the first-run onboarding flow (M6 Phase E, PRD §6.1).
  *
- * Step state is derived from three persisted booleans:
+ * Step state is derived from four persisted booleans:
  *  - [OnboardingPreferences.disclosureAcknowledged]
  *  - [OnboardingPreferences.braveKeyDecided]
+ *  - [OnboardingPreferences.hfAuthTokenDecided]
  *  - [TelemetryConsentManager.firstRunDecided]
  *
  * The first one that isn't true determines the active step. When all
- * three are true, the host emits [OnboardingStep.Complete] and
+ * four are true, the host emits [OnboardingStep.Complete] and
  * `MainScreen` routes away from `OnboardingHost`.
  *
- * Brave key entry is wired straight to [SecureStorage] (same path
- * `SettingsViewModel.saveBraveKey` uses); the host doesn't need to
- * coordinate with SettingsViewModel for this.
+ * Brave key + HF token entries are wired straight to [SecureStorage] (same
+ * paths the corresponding `SettingsViewModel` calls use); the host doesn't
+ * need to coordinate with SettingsViewModel for this.
  */
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
@@ -48,8 +49,9 @@ class OnboardingViewModel @Inject constructor(
         combine(
             onboardingPreferences.disclosureAcknowledgedFlow(),
             onboardingPreferences.braveKeyDecidedFlow(),
+            onboardingPreferences.hfAuthTokenDecidedFlow(),
             telemetryConsent.firstRunDecidedFlow(),
-        ) { _, _, _ -> currentStep() }
+        ) { _, _, _, _ -> currentStep() }
             .onEach { _step.value = it }
             .launchIn(viewModelScope)
     }
@@ -72,6 +74,20 @@ class OnboardingViewModel @Inject constructor(
         onboardingPreferences.markBraveKeyDecided()
     }
 
+    /** Save the user's HuggingFace API token + mark the step decided. */
+    fun saveHfAuthToken(token: String) {
+        val trimmed = token.trim()
+        if (trimmed.isNotEmpty()) {
+            secureStorage.put(SecureStorageKeys.HF_AUTH_TOKEN, trimmed)
+        }
+        onboardingPreferences.markHfAuthTokenDecided()
+    }
+
+    /** Skip the HF token entry — user can add one later from Settings. */
+    fun skipHfAuthToken() {
+        onboardingPreferences.markHfAuthTokenDecided()
+    }
+
     fun setTelemetryConsent(enabled: Boolean) {
         telemetryConsent.setEnabled(enabled)
         telemetryConsent.markFirstRunDecided()
@@ -80,6 +96,7 @@ class OnboardingViewModel @Inject constructor(
     private fun currentStep(): OnboardingStep = when {
         !onboardingPreferences.disclosureAcknowledged() -> OnboardingStep.Disclosure
         !onboardingPreferences.braveKeyDecided() -> OnboardingStep.BraveKey
+        !onboardingPreferences.hfAuthTokenDecided() -> OnboardingStep.HfAuthToken
         !telemetryConsent.firstRunDecided() -> OnboardingStep.TelemetryConsent
         else -> OnboardingStep.Complete
     }
@@ -89,6 +106,7 @@ class OnboardingViewModel @Inject constructor(
 sealed interface OnboardingStep {
     data object Disclosure : OnboardingStep
     data object BraveKey : OnboardingStep
+    data object HfAuthToken : OnboardingStep
     data object TelemetryConsent : OnboardingStep
     data object Complete : OnboardingStep
 }

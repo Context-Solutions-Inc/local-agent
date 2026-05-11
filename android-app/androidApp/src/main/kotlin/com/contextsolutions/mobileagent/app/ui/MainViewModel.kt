@@ -41,21 +41,24 @@ class MainViewModel @Inject constructor(
 
     /**
      * True once the user has completed every onboarding step (disclosure
-     * + brave key + telemetry consent). M6 Phase E adds this gate before
-     * the [modelPresent] check, so a brand-new install lands on
-     * `OnboardingHost` rather than directly on the download screen.
+     * + brave key + HF auth token + telemetry consent). M6 Phase E added
+     * this gate before the [modelPresent] check, so a brand-new install
+     * lands on `OnboardingHost` rather than directly on the download
+     * screen.
      */
     val onboardingComplete: StateFlow<Boolean> = combine(
         onboardingPreferences.disclosureAcknowledgedFlow(),
         onboardingPreferences.braveKeyDecidedFlow(),
+        onboardingPreferences.hfAuthTokenDecidedFlow(),
         telemetryConsent.firstRunDecidedFlow(),
-    ) { disclosure, braveKey, telemetry ->
-        disclosure && braveKey && telemetry
+    ) { disclosure, braveKey, hfToken, telemetry ->
+        disclosure && braveKey && hfToken && telemetry
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         initialValue = onboardingPreferences.disclosureAcknowledged() &&
             onboardingPreferences.braveKeyDecided() &&
+            onboardingPreferences.hfAuthTokenDecided() &&
             telemetryConsent.firstRunDecided(),
     )
 

@@ -2,8 +2,8 @@ package com.contextsolutions.mobileagent.app.service
 
 import android.os.StatFs
 import android.util.Log
-import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.app.di.ModelDownloadHttp
+import com.contextsolutions.mobileagent.inference.HfAuthTokenProvider
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -45,6 +45,7 @@ import okhttp3.Request
 class ModelDownloader @Inject constructor(
     private val inventory: ModelInventory,
     @param:ModelDownloadHttp private val httpClient: OkHttpClient,
+    private val hfAuthTokenProvider: HfAuthTokenProvider,
 ) {
 
     /** Mutable for tests; defaults to IO. */
@@ -108,12 +109,13 @@ class ModelDownloader @Inject constructor(
         }
 
         val attemptResumeAt = if (partial.exists()) partial.length() else 0L
+        val hfToken = hfAuthTokenProvider.currentToken()
         val request = Request.Builder()
             .url(spec.downloadUrl)
             .apply {
                 if (attemptResumeAt > 0L) header("Range", "bytes=$attemptResumeAt-")
-                if (BuildConfig.HF_AUTH_TOKEN.isNotBlank()) {
-                    header("Authorization", "Bearer ${BuildConfig.HF_AUTH_TOKEN}")
+                if (!hfToken.isNullOrBlank()) {
+                    header("Authorization", "Bearer $hfToken")
                 }
             }
             .build()

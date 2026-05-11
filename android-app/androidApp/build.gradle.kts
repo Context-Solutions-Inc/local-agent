@@ -44,9 +44,12 @@ val devBraveKey: String = secrets.getProperty("BRAVE_DEV_KEY", "")
 // Gemma 4 download spec. URL is the HuggingFace direct-download form (see
 // secrets.properties.example). SHA-256 + size are the checksum-pinned values
 // committed alongside the URL; the worker fail-fast verifies both. HF gates the
-// repo, so HF_AUTH_TOKEN is forwarded as a Bearer Authorization header on
-// debug builds only — production must resolve the hosting story (PHASE1_PLAN
-// risk row "checksum-pinned URL under our control") before launch.
+// repo, so an HF_AUTH_TOKEN is forwarded as a Bearer Authorization header. On
+// debug builds the token from secrets.properties is baked in as a dev-default
+// fallback; on release the BuildConfig field stays empty and production users
+// supply their own token via the onboarding flow / Settings (resolved at runtime
+// by HfAuthTokenProvider — same BYOK pattern as Brave Search). Hosting story for
+// an ungated mirror is still tracked in PHASE1_PLAN.
 val modelDownloadUrl: String = secrets.getProperty(
     "MODEL_DOWNLOAD_URL",
     "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
@@ -100,9 +103,9 @@ android {
             // Production never uses the stub.
             buildConfigField("boolean", "USE_STUB_ENGINE", "false")
             // The URL/SHA/size go to release too — the model artifact is public-
-            // ish (gated, but fine for an installed app to fetch). HF token does
-            // NOT go to release; production must use a hosting path that doesn't
-            // require auth, or BYO-token UX (TBD before launch).
+            // ish (gated, but fine for an installed app to fetch). HF token is
+            // empty on release; production users provide one via onboarding /
+            // Settings and HfAuthTokenProvider reads it from SecureStorage.
             buildConfigField("String", "MODEL_DOWNLOAD_URL", "\"$modelDownloadUrl\"")
             buildConfigField("String", "MODEL_SHA256", "\"$modelSha256\"")
             buildConfigField("long", "MODEL_SIZE_BYTES", "${modelSizeBytes}L")

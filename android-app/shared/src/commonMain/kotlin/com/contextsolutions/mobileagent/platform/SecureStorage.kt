@@ -23,4 +23,11 @@ object SecureStorageKeys {
     const val TELEMETRY_OPT_IN = "telemetry_opt_in"
     /** "true"/"false". Default behavior when unset is enabled (search on). */
     const val SEARCH_ENABLED = "search_enabled"
+    /**
+     * HuggingFace API token used to authenticate the Gemma 4 weights download
+     * (the upstream repo is gated). Same BYOK pattern as [BRAVE_API_KEY] —
+     * user-supplied keys override the bundled internal-build dev value; release
+     * builds never bundle one. Resolved via [com.contextsolutions.mobileagent.inference.HfAuthTokenProvider].
+     */
+    const val HF_AUTH_TOKEN = "hf_auth_token"
 }

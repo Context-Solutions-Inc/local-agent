@@ -201,11 +201,6 @@ class ChatViewModel @Inject constructor(
         _ui.value = ChatUiState()
     }
 
-    /** Debug helper retained from M1; useful for manually exercising cold-load + reload. */
-    fun forceUnload() {
-        sessionManager.forceUnload()
-    }
-
     private fun onAgentEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.TokenChunk -> _ui.update {
