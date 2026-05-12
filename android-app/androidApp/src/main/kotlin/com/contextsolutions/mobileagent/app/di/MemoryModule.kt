@@ -22,8 +22,11 @@ import com.contextsolutions.mobileagent.memory.SharedPreferencesMemoryPreference
 import com.contextsolutions.mobileagent.memory.SqlDelightMemoryStore
 import com.contextsolutions.mobileagent.memory.TempContextDateParser
 import kotlinx.serialization.json.Json
+import com.contextsolutions.mobileagent.app.ui.memory.MemoryBackupController
+import com.contextsolutions.mobileagent.app.ui.memory.MemoryBackupOps
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -168,4 +171,19 @@ object MemoryModule {
         logger = { Log.i("MemoryExtractor", it) },
         counters = counters,
     )
+}
+
+/**
+ * `@Binds` half of the memory module — keeps the interface→impl
+ * mapping for [MemoryBackupOps] separate from the `object`-style
+ * providers above. `MemoryBackupController` has an `@Inject`
+ * constructor so Hilt resolves the impl automatically.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class MemoryBackupBindingModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindMemoryBackupOps(impl: MemoryBackupController): MemoryBackupOps
 }

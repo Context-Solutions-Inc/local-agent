@@ -6,6 +6,9 @@ import com.contextsolutions.mobileagent.memory.MemoryHit
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.platform.AgentClock
+import android.net.Uri
+import app.cash.turbine.test
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -40,7 +43,43 @@ class MemoryViewModelTest {
     // -- Initial load ----------------------------------------------------
 
     private fun buildViewModel(store: MemoryStore, prefs: MemoryPreferences = StubPrefs()): MemoryViewModel =
-        MemoryViewModel(store, prefs, AgentClock()).also { it.ioDispatcher = testDispatcher }
+        MemoryViewModel(store, prefs, AgentClock(), NoOpBackupOps)
+            .also { it.ioDispatcher = testDispatcher }
+
+    private object NoOpBackupOps : MemoryBackupOps {
+        override suspend fun export(destination: Uri): MemoryBackupController.ExportResult =
+            error("export should not be called in this test")
+        override suspend fun import(source: Uri): MemoryBackupController.ImportResult =
+            error("import should not be called in this test")
+    }
+
+    /** Captures the URIs handed to the controller; returns canned results. */
+    private class RecordingBackupOps(
+        private val exportResult: MemoryBackupController.ExportResult = MemoryBackupController.ExportResult(memoryCount = 0),
+        private val importResult: MemoryBackupController.ImportResult = MemoryBackupController.ImportResult(importedCount = 0, skippedCount = 0, replacedCount = 0),
+        private val exportThrows: MemoryBackupController.BackupException? = null,
+        private val importThrows: MemoryBackupController.BackupException? = null,
+    ) : MemoryBackupOps {
+        val exportedTo = mutableListOf<Uri>()
+        val importedFrom = mutableListOf<Uri>()
+        override suspend fun export(destination: Uri): MemoryBackupController.ExportResult {
+            exportedTo += destination
+            exportThrows?.let { throw it }
+            return exportResult
+        }
+        override suspend fun import(source: Uri): MemoryBackupController.ImportResult {
+            importedFrom += source
+            importThrows?.let { throw it }
+            return importResult
+        }
+    }
+
+    private fun buildViewModelWith(
+        store: MemoryStore,
+        ops: MemoryBackupOps,
+        prefs: MemoryPreferences = StubPrefs(),
+    ): MemoryViewModel = MemoryViewModel(store, prefs, AgentClock(), ops)
+        .also { it.ioDispatcher = testDispatcher }
 
     @Test
     fun refresh_loads_grouped_memories_and_creation_flag() = runTest {
@@ -221,6 +260,64 @@ class MemoryViewModelTest {
             lastAccessedCutoff: Long,
             limit: Int,
         ): List<String> = emptyList()
+    }
+
+    // -- Backup wiring ----------------------------------------------------
+
+    @Test
+    fun onExport_routes_through_backup_controller_and_emits_event() = runTest {
+        val ops = RecordingBackupOps(
+            exportResult = MemoryBackupController.ExportResult(memoryCount = 3),
+        )
+        val vm = buildViewModelWith(InMemoryStore(), ops)
+        val uri = mockk<Uri>(relaxed = true)
+
+        vm.backupEvents.test {
+            vm.onExport(uri)
+            val event = awaitItem()
+            assertTrue(event is BackupEvent.Exported)
+            assertEquals(3, (event as BackupEvent.Exported).count)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(listOf(uri), ops.exportedTo)
+        assertTrue(!vm.isBackupBusy.value)
+    }
+
+    @Test
+    fun onImport_refreshes_state_and_emits_imported_event() = runTest {
+        val store = InMemoryStore(initial = listOf(stub("old", MemoryCategory.PREFERENCE)))
+        val ops = RecordingBackupOps(
+            importResult = MemoryBackupController.ImportResult(importedCount = 5, skippedCount = 0, replacedCount = 1),
+        )
+        val vm = buildViewModelWith(store, ops)
+        vm.refresh()
+        advanceUntilIdle()
+
+        vm.backupEvents.test {
+            vm.onImport(mockk<Uri>(relaxed = true))
+            val event = awaitItem()
+            assertTrue(event is BackupEvent.Imported)
+            assertEquals(5, (event as BackupEvent.Imported).imported)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertTrue(!vm.isBackupBusy.value)
+    }
+
+    @Test
+    fun onExport_failure_emits_error_event_and_clears_busy() = runTest {
+        val ops = RecordingBackupOps(
+            exportThrows = MemoryBackupController.BackupException("Disk full"),
+        )
+        val vm = buildViewModelWith(InMemoryStore(), ops)
+
+        vm.backupEvents.test {
+            vm.onExport(mockk<Uri>(relaxed = true))
+            val event = awaitItem()
+            assertTrue(event is BackupEvent.Error)
+            assertEquals("Disk full", (event as BackupEvent.Error).message)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertTrue(!vm.isBackupBusy.value)
     }
 
     private fun stub(

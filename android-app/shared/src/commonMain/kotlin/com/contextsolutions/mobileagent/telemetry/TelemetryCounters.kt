@@ -128,6 +128,12 @@ object CounterNames {
 
     const val MEMORY_DEDUP_SKIPPED_TOTAL = "memory_dedup_skipped_total"
     const val MEMORY_FORGOTTEN_TOTAL = "memory_forgotten_total"
+
+    /** User tapped Export on the memory screen and the file was written. */
+    const val MEMORY_EXPORTED_TOTAL = "memory_exported_total"
+
+    /** User tapped Import and the override-and-restore completed (any row count, including 0). */
+    const val MEMORY_IMPORTED_TOTAL = "memory_imported_total"
     /** Tag values: `expired` | `stale` | `lru`. */
     const val MEMORY_EVICTED_TOTAL = "memory_evicted_total"
     const val MEMORY_RETRIEVED_TOTAL = "memory_retrieved_total"

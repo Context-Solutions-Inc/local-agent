@@ -1,6 +1,9 @@
 package com.contextsolutions.mobileagent.app.ui.memory
 
 import android.text.format.DateUtils
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +24,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,11 +46,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryCategory
+import java.time.LocalDate
 
 /**
  * M5 Phase E memory management surface (PRD §3.2.4 user-facing controls).
@@ -68,11 +74,46 @@ fun MemoryScreen(
     viewModel: MemoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val isBackupBusy by viewModel.isBackupBusy.collectAsState()
     var showOverflow by remember { mutableStateOf(false) }
     var clearAllConfirm by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Memory?>(null) }
+    var importConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) { viewModel.refresh() }
+
+    // SAF: write the export file to wherever the user picks. The MIME
+    // type filters to JSON; the suggested filename uses today's date in
+    // local time so multiple exports don't collide.
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) viewModel.onExport(uri)
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) viewModel.onImport(uri)
+    }
+
+    // Collect one-shot toast events from the ViewModel.
+    LaunchedEffect(Unit) {
+        viewModel.backupEvents.collect { event ->
+            val message = when (event) {
+                is BackupEvent.Exported -> "Exported ${event.count} memor${if (event.count == 1) "y" else "ies"}."
+                is BackupEvent.Imported -> {
+                    if (event.skipped == 0) {
+                        "Imported ${event.imported} memor${if (event.imported == 1) "y" else "ies"}."
+                    } else {
+                        "Imported ${event.imported}; skipped ${event.skipped} invalid row${if (event.skipped == 1) "" else "s"}."
+                    }
+                }
+                is BackupEvent.Error -> event.message
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -94,10 +135,34 @@ fun MemoryScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Clear all") },
-                                enabled = state.totalCount > 0,
+                                enabled = state.totalCount > 0 && !isBackupBusy,
                                 onClick = {
                                     showOverflow = false
                                     clearAllConfirm = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export…") },
+                                enabled = !isBackupBusy,
+                                onClick = {
+                                    showOverflow = false
+                                    if (state.totalCount == 0) {
+                                        Toast.makeText(
+                                            context,
+                                            "Nothing to export.",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } else {
+                                        exportLauncher.launch(defaultExportFilename())
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import…") },
+                                enabled = !isBackupBusy,
+                                onClick = {
+                                    showOverflow = false
+                                    importConfirm = true
                                 },
                             )
                         }
@@ -171,6 +236,57 @@ fun MemoryScreen(
             },
         )
     }
+
+    if (importConfirm) {
+        AlertDialog(
+            onDismissRequest = { importConfirm = false },
+            title = { Text("Replace all memories?") },
+            text = {
+                Text(
+                    "Importing will erase your current ${state.totalCount} memor" +
+                        "${if (state.totalCount == 1) "y" else "ies"} and replace " +
+                        "them with the contents of the chosen file. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    importConfirm = false
+                    importLauncher.launch(arrayOf("application/json"))
+                }) { Text("Choose file") }
+            },
+            dismissButton = {
+                TextButton(onClick = { importConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Modal busy indicator while export/import is running. Covers the
+    // re-embed loop on import (can take a few seconds for 100+ rows)
+    // and gives the user something visible to wait on. Tappable backdrop
+    // is intentionally absent — the operation is fire-and-forget once
+    // SAF returns the URI.
+    if (isBackupBusy) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+    }
+}
+
+/**
+ * Build a suggested export filename of the shape
+ * `mobile-agent-memories-YYYY-MM-DD.json`. SAF lets the user override
+ * this in the picker; we only suggest.
+ */
+private fun defaultExportFilename(): String {
+    val today: LocalDate = LocalDate.now()
+    val mm = today.monthValue.toString().padStart(2, '0')
+    val dd = today.dayOfMonth.toString().padStart(2, '0')
+    return "mobile-agent-memories-${today.year}-$mm-$dd.json"
 }
 
 @Composable

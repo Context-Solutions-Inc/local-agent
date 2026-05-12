@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.app.ui.memory
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contextsolutions.mobileagent.memory.Memory
@@ -11,9 +12,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +42,7 @@ class MemoryViewModel @Inject constructor(
     private val store: MemoryStore,
     private val preferences: MemoryPreferences,
     private val clock: AgentClock,
+    private val backupController: MemoryBackupOps,
 ) : ViewModel() {
 
     /**
@@ -64,6 +68,23 @@ class MemoryViewModel @Inject constructor(
     val conversationMemories: StateFlow<List<Memory>> = _conversationMemories.asStateFlow()
 
     private var currentConversationId: String? = null
+
+    /**
+     * One-shot user feedback channel for the export / import flows.
+     * Compose collects this as a Flow and renders toasts; capacity is
+     * conflated so a back-to-back failure doesn't overflow if the
+     * snackbar host isn't attached yet.
+     */
+    private val _backupEvents = Channel<BackupEvent>(capacity = Channel.CONFLATED)
+    val backupEvents = _backupEvents.receiveAsFlow()
+
+    /**
+     * `true` while an export or import is mid-flight (re-embedding can
+     * take ~4 s for 100 memories on Pixel 7 CPU). UI shows a progress
+     * indicator and disables the menu actions while this is true.
+     */
+    private val _isBackupBusy = MutableStateFlow(false)
+    val isBackupBusy: StateFlow<Boolean> = _isBackupBusy.asStateFlow()
 
     /**
      * Re-load the full inventory + creation toggle. Compose screens call
@@ -126,6 +147,51 @@ class MemoryViewModel @Inject constructor(
         val rows = withContext(ioDispatcher) { store.listForConversation(conversationId) }
         _conversationMemories.value = rows
     }
+
+    /**
+     * User tapped Export. The caller is expected to have checked
+     * [MemoryUiState.totalCount] > 0 and launched the SAF CreateDocument
+     * picker; [destination] is the resolved URI.
+     */
+    fun onExport(destination: Uri) {
+        viewModelScope.launch {
+            _isBackupBusy.value = true
+            try {
+                val result = withContext(ioDispatcher) { backupController.export(destination) }
+                _backupEvents.trySend(BackupEvent.Exported(result.memoryCount))
+            } catch (t: MemoryBackupController.BackupException) {
+                _backupEvents.trySend(BackupEvent.Error(t.message ?: "Export failed"))
+            } finally {
+                _isBackupBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * User tapped Import + confirmed the override dialog + picked a
+     * file. Wipes the store and re-embeds every entry.
+     */
+    fun onImport(source: Uri) {
+        viewModelScope.launch {
+            _isBackupBusy.value = true
+            try {
+                val result = withContext(ioDispatcher) { backupController.import(source) }
+                refresh()
+                _backupEvents.trySend(BackupEvent.Imported(result.importedCount, result.skippedCount))
+            } catch (t: MemoryBackupController.BackupException) {
+                _backupEvents.trySend(BackupEvent.Error(t.message ?: "Import failed"))
+            } finally {
+                _isBackupBusy.value = false
+            }
+        }
+    }
+}
+
+/** One-shot UI events for the backup flow. */
+sealed interface BackupEvent {
+    data class Exported(val count: Int) : BackupEvent
+    data class Imported(val imported: Int, val skipped: Int) : BackupEvent
+    data class Error(val message: String) : BackupEvent
 }
 
 /**
