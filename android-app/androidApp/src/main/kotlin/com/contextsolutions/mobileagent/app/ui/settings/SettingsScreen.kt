@@ -191,24 +191,16 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
-            SectionHeader("Web search")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Allow web search", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "When off, the model answers from training data only. " +
-                            "Tool calls return a 'search disabled' error to the model.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = state.searchEnabled,
-                    onCheckedChange = { viewModel.setSearchEnabled(it) },
-                )
-            }
+            SectionHeaderWithToggle(
+                title = "Web search",
+                checked = state.searchEnabled,
+                onCheckedChange = { viewModel.setSearchEnabled(it) },
+            )
+            Text(
+                "When off, the model answers from training data only. " +
+                    "Tool calls return a 'search disabled' error to the model.",
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -258,27 +250,19 @@ fun SettingsScreen(
             // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in
             // contract: default OFF, toggle is reachable from both first-run
             // onboarding (Phase E) and this Settings section.
-            SectionHeader("Anonymous telemetry")
+            SectionHeaderWithToggle(
+                title = "Anonymous telemetry",
+                checked = state.telemetryEnabled,
+                onCheckedChange = { viewModel.setTelemetryEnabled(it) },
+            )
             Text(
                 if (state.telemetryEnabled) {
-                    "Aggregate counters help us improve the assistant. Off uploads next cycle if you toggle this off."
+                    "Aggregate counters help us improve the assistant."
                 } else {
                     "Off. The app never sends usage data when this is off."
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Share anonymous counters", style = MaterialTheme.typography.bodyLarge)
-                Switch(
-                    checked = state.telemetryEnabled,
-                    onCheckedChange = { viewModel.setTelemetryEnabled(it) },
-                )
-            }
             Spacer(Modifier.height(8.dp))
             Text(
                 "What we send: counts per day — queries, search invocations, " +
@@ -345,6 +329,28 @@ private fun SectionHeader(text: String) {
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 4.dp),
     )
+}
+
+@Composable
+private fun SectionHeaderWithToggle(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 @Composable

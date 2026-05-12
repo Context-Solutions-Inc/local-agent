@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun MainScreen(
-    onOpenSpike: () -> Unit,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
     val modelPresent by viewModel.modelPresent.collectAsState()
@@ -89,7 +88,6 @@ fun MainScreen(
 
     when (val current = route) {
         MainRoute.Chat -> ChatScreen(
-            onOpenSpike = onOpenSpike,
             onOpenSettings = { route = MainRoute.Settings },
             onOpenConversationMemory = { conversationId ->
                 route = MainRoute.ConversationMemory(conversationId)

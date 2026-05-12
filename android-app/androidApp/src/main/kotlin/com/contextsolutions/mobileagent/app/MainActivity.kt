@@ -1,7 +1,6 @@
 package com.contextsolutions.mobileagent.app
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -9,10 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
-import com.contextsolutions.mobileagent.app.spike.SpikeActivity
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.ui.MainScreen
 import com.contextsolutions.mobileagent.app.ui.theme.MobileAgentTheme
+import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -22,9 +24,10 @@ import dagger.hilt.android.AndroidEntryPoint
  * tool calls. This activity exists to validate the WS-1 state machine
  * end-to-end on a real device.
  *
- * The Spike harness (M0 benchmark runner) is still launchable directly via
- * [SpikeActivity]; the chat top bar exposes a "Spike" action so we don't need
- * to relaunch via adb during M1 development.
+ * The Spike benchmark harness ([com.contextsolutions.mobileagent.app.spike.SpikeActivity])
+ * remains in the build and is launchable via
+ * `adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.spike.SpikeActivity`
+ * — production UI no longer exposes an entry point to it.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -47,10 +50,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ensureNotificationPermission()
         setContent {
-            MobileAgentTheme {
-                MainScreen(
-                    onOpenSpike = { startActivity(Intent(this, SpikeActivity::class.java)) },
-                )
+            val themeVm: ThemeModeViewModel = hiltViewModel()
+            val mode by themeVm.mode.collectAsState()
+            MobileAgentTheme(themeMode = mode) {
+                MainScreen()
             }
         }
     }

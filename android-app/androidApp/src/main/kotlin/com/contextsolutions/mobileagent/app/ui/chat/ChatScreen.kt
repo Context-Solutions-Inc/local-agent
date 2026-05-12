@@ -18,11 +18,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -43,13 +49,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
+import com.contextsolutions.mobileagent.app.ui.theme.ThemeMode
+import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.search.SearchSource
@@ -62,15 +69,16 @@ import com.contextsolutions.mobileagent.search.SearchSource
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    onOpenSpike: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenConversationMemory: (conversationId: String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
+    themeModeViewModel: ThemeModeViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
     val memoryCount by viewModel.memoryCount.collectAsState()
     val conversationId by viewModel.conversationId.collectAsState()
+    val themeMode by themeModeViewModel.mode.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -121,9 +129,12 @@ fun ChatScreen(
                             onClick = { onOpenConversationMemory(cid) },
                         )
                     }
+                    ThemeModeToggle(
+                        mode = themeMode,
+                        onCycle = { themeModeViewModel.cycle() },
+                    )
                     TextButton(onClick = onOpenSettings) { Text("Settings") }
                     TextButton(onClick = { viewModel.newConversation() }) { Text("New") }
-                    TextButton(onClick = onOpenSpike) { Text("Spike") }
                 },
             )
         },
@@ -212,13 +223,20 @@ fun ChatScreen(
             val thermal by viewModel.thermalStatus.collectAsState()
             ThermalBanner(thermal)
 
+            // Enter inserts a newline (multiline prompts). Only the Send
+            // button submits — KeyboardOptions intentionally omitted so the
+            // IME shows its default newline key. `ChatViewModel.send` trims
+            // leading/trailing whitespace; internal newlines are preserved
+            // and Gemma handles them natively (chat templating already
+            // expects multiline user turns).
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Ask anything…") },
                 enabled = !ui.isGenerating && !thermal.isBlocking,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                minLines = 1,
+                maxLines = 6,
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -252,7 +270,12 @@ private fun UserBubble(text: String) {
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Text(text, style = MaterialTheme.typography.bodyMedium)
+            // SelectionContainer enables long-press text selection; the
+            // platform shows its standard floating toolbar (Copy / Select
+            // all / Share) — no custom menu needed.
+            SelectionContainer {
+                Text(text, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
@@ -269,7 +292,9 @@ private fun AssistantBubble(text: String, citations: List<SearchSource>, fromCac
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Text(text, style = MaterialTheme.typography.bodyMedium)
+            SelectionContainer {
+                Text(text, style = MaterialTheme.typography.bodyMedium)
+            }
         }
         if (fromCache) {
             Text(
@@ -319,7 +344,9 @@ private fun StreamingAssistantBubble(
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text(partial, style = MaterialTheme.typography.bodyMedium)
+                SelectionContainer {
+                    Text(partial, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         } else if (isGenerating && searchStatus !is SearchStatus.Searching) {
             Text(
@@ -405,4 +432,16 @@ private fun SessionBanner(state: SessionState) {
         style = MaterialTheme.typography.labelSmall,
         color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
     )
+}
+
+@Composable
+private fun ThemeModeToggle(mode: ThemeMode, onCycle: () -> Unit) {
+    val (icon, label) = when (mode) {
+        ThemeMode.System -> Icons.Filled.BrightnessAuto to "Theme: follow system (tap for light)"
+        ThemeMode.Light -> Icons.Filled.BrightnessHigh to "Theme: light (tap for dark)"
+        ThemeMode.Dark -> Icons.Filled.Brightness4 to "Theme: dark (tap to follow system)"
+    }
+    IconButton(onClick = onCycle) {
+        Icon(imageVector = icon, contentDescription = label)
+    }
 }
