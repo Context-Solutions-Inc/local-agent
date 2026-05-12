@@ -1,7 +1,7 @@
 # M7 — Closed Beta → Play Store Launch: Implementation Plan
 
-**Document version:** 0.3 (Draft)
-**Status:** Pre-Phase A complete (4 PRs landed); Phase A kickoff pending
+**Document version:** 0.4 (Draft)
+**Status:** Pre-Phase A complete (5 PRs landed); Phase A kickoff pending
 **Last updated:** 2026-05-12
 **Companion to:** PRD.md §4.4 / §6 / §7, PHASE1_PLAN.md §5 M7, `docs/M6_M7_HANDOFF.md`
 
@@ -104,16 +104,18 @@ silent expansion of M7.
 
 ### Phase 0 — Pre-Phase A landings (shipped) — ✅ COMPLETE 2026-05-12
 
-**Goal:** Four PRs landed ahead of Phase A kickoff. Two are hard
+**Goal:** Five PRs landed ahead of Phase A kickoff. Two are hard
 release-blockers (#1 HF auth, #2 main-thread watchdog) — without them
 Phase A could not produce a viable `assembleRelease`. The remaining
-two (#3 UI polish, #4 memory three-band routing + recall-question
-fix) are a mix of polish, ergonomic improvement, and a real bug fix
-surfaced during local testing. Decision 10 (no new features, no
-architecture changes) interpreted strictly would have blocked #3 and
-parts of #4; Lawrence Ley signed off on each as pre-closed-beta
-quality work rather than feature additions, with the explicit
-understanding that the v1.x backlog absorbs any further scope creep.
+three (#3 UI polish, #4 memory three-band routing + recall-question
+fix, #5 memory export/import) are a mix of polish, ergonomic
+improvement, a real bug fix, and one user-portability feature.
+Decision 10 (no new features, no architecture changes) interpreted
+strictly would have blocked #3 / parts of #4 / all of #5; Lawrence
+Ley signed off on each as pre-closed-beta quality work rather than
+feature additions, with the explicit understanding that further
+scope creep is now off the table and the v1.x backlog absorbs any
+remaining polish.
 
 **PRs landed:**
 
@@ -214,8 +216,40 @@ understanding that the v1.x backlog absorbs any further scope creep.
    the no-features rule, with explicit acknowledgement this widens
    scope.
 
+5. **PR #5 — Memory export + import via Storage Access Framework**
+   (merged 2026-05-12, commit `3952d1f`). Single squash commit. Adds
+   **Export…** and **Import…** entries to the overflow menu on the
+   Memory screen (below Clear all). Backup format is JSON text-only —
+   the 384-float embedding is regenerated on import via the existing
+   MiniLM embedder, so the file is small (~250 B per memory) and
+   tolerates an embedder model swap at the cost of a one-shot embed
+   pass per row at import time (~40 ms per memory on Pixel 7 CPU).
+   New `MemoryExport` / `MemoryExportEntry` data classes + pure
+   `MemoryExportSerializer` in `:shared/commonMain`; new
+   `MemoryBackupOps` interface + `MemoryBackupController` impl in
+   `:androidApp` bridging SAF URIs through `ContentResolver` to the
+   serializer + store. `MemoryViewModel` gains a `Channel<BackupEvent>`
+   for one-shot toast events + `isBackupBusy: StateFlow<Boolean>`
+   for the modal progress overlay. Two new counters
+   (`memory_exported_total`, `memory_imported_total`) route to
+   `daily_memory` via the existing `memory_*` prefix. Confirm dialog
+   warns *"Importing will erase your current N memories and replace
+   them with the contents of the chosen file. This cannot be undone."*
+   before the SAF picker opens. Schema-version mismatch (file
+   `schema_version` > current) is rejected with a "newer version of
+   the app" toast, no best-effort migration. Empty-list export
+   shortcuts to a "Nothing to export" toast and skips the picker.
+   Adds `MemoryExportSerializerTest` (6 tests) + 3 new
+   `MemoryViewModelTest` cases (Turbine for `Flow` consumption +
+   mockk for `Uri` since host-JVM `android.net.Uri.parse` returns
+   null). **Decision 10 exception:** this is a clean feature add
+   surfaced as a closed-beta-tester portability concern ("how do I
+   move my memories to a new phone before launch"). Lawrence signed
+   off explicitly weighing the no-features rule against the closed-
+   beta UX. **No further pre-launch additions to be entertained.**
+
 **Combined test movement:** 318 (end of M6) → 332 (after PR #2) →
-**353** (after PR #4). 0 failures throughout.
+353 (after PR #4) → **362** (after PR #5). 0 failures throughout.
 
 **Impact on the plan ahead:**
 - §6 risk register gains an entry for the GPU-saturation soft reboot,
@@ -224,32 +258,44 @@ understanding that the v1.x backlog absorbs any further scope creep.
   keystore generation, store listing, Data Safety, etc. remain
   unaddressed and are still the gate.
 - Decision 10 ("no new features, no architecture changes") interpreted
-  strictly would have blocked all four PRs to varying degrees. #1 and
+  strictly would have blocked all five PRs to varying degrees. #1 and
   #2 are clear release-blockers (the build was incompatible with
   production without them). #3 is polish surfaced during local
   testing. #4 mixes bug fixes (recall question, argMax fallback) with
   a substantive behaviour change (three-band routing + user-consent
-  card). Lawrence signed off on each before merge with the
-  understanding that further pre-launch additions are now off the
-  table — any deferred polish or correctness work goes to v1.x.
-- The new telemetry counters from #4 (`memory_prompt_*`) are an
-  added signal source for closed-beta tuning of the `auto_save` and
-  `ask` thresholds. If telemetry shows users dismiss > 70% of middle-
-  band prompts, the `ask` threshold should be raised in a v1.0.x
-  patch (Decision 5 cadence allows this).
+  card). #5 is a clean feature add (memory portability) signed off
+  as a closed-beta tester need. Lawrence signed off on each before
+  merge with the explicit understanding that further pre-launch
+  additions are now off the table — any deferred polish or
+  correctness work goes to v1.x.
+- The new telemetry counters from #4 (`memory_prompt_*`) and #5
+  (`memory_exported_total`, `memory_imported_total`) are added
+  signal sources for closed-beta tuning. If telemetry shows users
+  dismiss > 70% of middle-band prompts, the `ask` threshold should
+  be raised in a v1.0.x patch (Decision 5 cadence allows this).
+  Export/import adoption is interesting as a leading indicator for
+  "users have something they want to preserve."
+- **Data Safety form update needed before Phase A files the
+  submission.** PR #5 adds a new explicit data-egress path: memory
+  text written to a user-chosen SAF destination. Telemetry counters
+  still don't carry text (inv. #27), but the Data Safety form must
+  reflect the export-file path as a user-initiated data transfer.
+  See `docs/DATA_SAFETY_NOTES.md` — Phase A deliverable §6.
 
 **Exit gate (achieved):**
-- All four PRs merged to `main`.
-- `./gradlew :androidApp:assembleDebug` clean; **353 unit tests / 0
+- All five PRs merged to `main`.
+- `./gradlew :androidApp:assembleDebug` clean; **362 unit tests / 0
   failures**.
 - Pixel 7 walkthrough confirmed: HF token onboarding lands on the new
   step, 60 s post-warmup idle unload fires, theme toggle cycles
   System → Light → Dark on the chat top bar, multiline input accepts
   Enter as newline, bubble long-press surfaces the system Copy
   toolbar, a high-confidence memory turn auto-saves, a middle-band
-  candidate shows the inline card, and `adb logcat -s
+  candidate shows the inline card, `adb logcat -s
   MemoryExtractor:I` shows `presence=skip-question` when the user
-  asks "what is my favorite sports team" after the fact was saved.
+  asks "what is my favorite sports team" after the fact was saved,
+  and Export/Import round-trips via SAF (Files → Drive → Files)
+  with the JSON file inspectable on disk.
 
 ---
 
