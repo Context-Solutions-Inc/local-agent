@@ -1,7 +1,7 @@
 # M7 — Closed Beta → Play Store Launch: Implementation Plan
 
-**Document version:** 0.2 (Draft)
-**Status:** Pre-Phase A complete; Phase A kickoff pending
+**Document version:** 0.3 (Draft)
+**Status:** Pre-Phase A complete (4 PRs landed); Phase A kickoff pending
 **Last updated:** 2026-05-12
 **Companion to:** PRD.md §4.4 / §6 / §7, PHASE1_PLAN.md §5 M7, `docs/M6_M7_HANDOFF.md`
 
@@ -102,13 +102,18 @@ silent expansion of M7.
 
 ## 4. Phase plan
 
-### Phase 0 — Pre-Phase A release-blockers (shipped) — ✅ COMPLETE 2026-05-12
+### Phase 0 — Pre-Phase A landings (shipped) — ✅ COMPLETE 2026-05-12
 
-**Goal:** Two release-blockers surfaced ahead of Phase A kickoff and
-needed to land before Phase A could produce a viable
-`assembleRelease`. Both fit the spirit of Decision 10 (no new
-features) — they make the production release path viable + remove a
-class of P0 closed-beta crash.
+**Goal:** Four PRs landed ahead of Phase A kickoff. Two are hard
+release-blockers (#1 HF auth, #2 main-thread watchdog) — without them
+Phase A could not produce a viable `assembleRelease`. The remaining
+two (#3 UI polish, #4 memory three-band routing + recall-question
+fix) are a mix of polish, ergonomic improvement, and a real bug fix
+surfaced during local testing. Decision 10 (no new features, no
+architecture changes) interpreted strictly would have blocked #3 and
+parts of #4; Lawrence Ley signed off on each as pre-closed-beta
+quality work rather than feature additions, with the explicit
+understanding that the v1.x backlog absorbs any further scope creep.
 
 **PRs landed:**
 
@@ -145,8 +150,72 @@ class of P0 closed-beta crash.
    watchdog this would surface in closed beta as anomalous "the phone
    restarted" tester reports with no Crashlytics signal pointing at us.
    Adds 6 unit tests (`MainThreadHeartbeatWatchdogTest`) + 3 new
-   `InferenceSessionManagerTest` cases. Test total moved from 318
-   (end of M6) to 332.
+   `InferenceSessionManagerTest` cases.
+
+3. **PR #3 — UI polish: MD3 light-green theme, dark/light toggle,
+   multiline input, copyable bubbles** (merged 2026-05-12, commit
+   `834d39e`). Six commits squashed. Re-enables Material You
+   `dynamicColor` as the default with a hand-tuned light + dark green
+   `ColorScheme` as the brand fallback (Android 11 and below — out of
+   scope at minSdk 36 but kept for hygiene — plus users who opt out
+   of dynamic colour). New `ThemeMode` (`System` / `Light` / `Dark`)
+   persisted via `SharedPreferencesThemePreferences`; chat top bar
+   gets a brightness IconButton that cycles the three modes. Fixes
+   the onboarding screens' edge-to-edge overlap with the status-bar
+   indicators + gesture-nav bar (`safeDrawingPadding()` on the
+   Surface-based screens; Scaffold-based screens were already
+   insetted). Settings page toggles moved up onto the same row as
+   their section headings (Web search + Anonymous telemetry); trimmed
+   redundant copy. Chat input: Enter inserts a newline, only Send
+   submits (`maxLines = 6` cap). Chat bubbles wrapped in
+   `SelectionContainer` so long-press surfaces the system Copy /
+   Select all / Share toolbar. Spike menu entry removed from the chat
+   top bar; `SpikeActivity` remains launchable via adb. **Decision 10
+   exception:** polish + accessibility + UX. Not a feature addition
+   in the PRD sense; closer to "build feels rough on first launch,
+   beta testers will fixate on it." Lawrence signed off as
+   pre-closed-beta-quality work.
+
+4. **PR #4 — Memory three-band routing with user Save/Dismiss prompt
+   + recall-question skip** (merged 2026-05-12, commit `2b2e0de`).
+   Four commits squashed. Replaces the binary argMax presence cutoff
+   with three-band routing mirroring `PreflightRouter`:
+   `p_has = softmax(presenceLogits)[HAS_EXTRACTION]` is now compared
+   to `auto_save (0.85)` / `ask (0.15)` thresholds defined in a new
+   `assets/memory_config.json`. High band → save automatically (as
+   before); middle band → inline `MemoryPromptCard` in the chat with
+   Save / Dismiss buttons + a new `MemoryPromptCandidate` carrying
+   the prebuilt embedding so accept is a single `store.insert`; low
+   band → silent skip. Auto-dismiss-previous-on-new-turn rule keeps
+   the chat focused on the latest decision. Six new counters route
+   to `daily_memory` via the existing `memory_*` prefix
+   (`memory_extracted_auto_total` / `_prompted_total`,
+   `memory_prompt_shown_total` / `_accepted_total` /
+   `_dismissed_total`). **Two robustness fixes shipped in the same
+   PR after on-device testing:** (a) argMax category fallback when
+   presence has crossed `ask` but no category crosses the sigmoid
+   threshold — was silently dropping `p_has=0.93 categories=0` turns;
+   (b) `QuestionDetector` runs after `RememberForgetDetector` and
+   before the classifier path to skip recall questions — fixes the
+   bug where "what is my favorite sports team" was being saved as a
+   memory after the assistant echoed the stored fact (classifier was
+   trained assuming USER provides the fact; couldn't distinguish a
+   recall from a new assertion). Every classifier-path turn now logs
+   `presence={skip,skip-question,ask,auto,dedup} p_has=X.XX ask=…
+   auto=…` to logcat — IDs and floats only, no memory text per inv.
+   #27. Adds `MemoryConfigTest` (4 tests), 8 new `MemoryExtractorTest`
+   cases, `QuestionDetectorTest` (7 tests). **Decision 10 exception:**
+   this is the closest call of the four. The recall-question skip and
+   argMax fallback are bug fixes (Decision 10 explicitly allows P0
+   fixes); the three-band routing + user-consent card is a behaviour
+   change touching the post-turn pipeline. Lawrence signed off
+   weighing closed-beta user-control needs ("the app silently
+   memorizes things from low-confidence classifier turns") against
+   the no-features rule, with explicit acknowledgement this widens
+   scope.
+
+**Combined test movement:** 318 (end of M6) → 332 (after PR #2) →
+**353** (after PR #4). 0 failures throughout.
 
 **Impact on the plan ahead:**
 - §6 risk register gains an entry for the GPU-saturation soft reboot,
@@ -155,17 +224,32 @@ class of P0 closed-beta crash.
   keystore generation, store listing, Data Safety, etc. remain
   unaddressed and are still the gate.
 - Decision 10 ("no new features, no architecture changes") interpreted
-  strictly would have blocked PR #1; both PRs are release-readiness
-  work surfaced during local testing, not feature additions. Lawrence
-  signed off on each before merge.
+  strictly would have blocked all four PRs to varying degrees. #1 and
+  #2 are clear release-blockers (the build was incompatible with
+  production without them). #3 is polish surfaced during local
+  testing. #4 mixes bug fixes (recall question, argMax fallback) with
+  a substantive behaviour change (three-band routing + user-consent
+  card). Lawrence signed off on each before merge with the
+  understanding that further pre-launch additions are now off the
+  table — any deferred polish or correctness work goes to v1.x.
+- The new telemetry counters from #4 (`memory_prompt_*`) are an
+  added signal source for closed-beta tuning of the `auto_save` and
+  `ask` thresholds. If telemetry shows users dismiss > 70% of middle-
+  band prompts, the `ask` threshold should be raised in a v1.0.x
+  patch (Decision 5 cadence allows this).
 
 **Exit gate (achieved):**
-- Both PRs merged to `main`.
-- `./gradlew :androidApp:assembleDebug` clean; 332 unit tests / 0
-  failures.
-- Pixel 7 walkthrough confirmed: HF token onboarding flow lands on the
-  new step, the 60 s post-warmup idle unload fires as expected, and
-  the 5-min post-generation timer is unchanged.
+- All four PRs merged to `main`.
+- `./gradlew :androidApp:assembleDebug` clean; **353 unit tests / 0
+  failures**.
+- Pixel 7 walkthrough confirmed: HF token onboarding lands on the new
+  step, 60 s post-warmup idle unload fires, theme toggle cycles
+  System → Light → Dark on the chat top bar, multiline input accepts
+  Enter as newline, bubble long-press surfaces the system Copy
+  toolbar, a high-confidence memory turn auto-saves, a middle-band
+  candidate shows the inline card, and `adb logcat -s
+  MemoryExtractor:I` shows `presence=skip-question` when the user
+  asks "what is my favorite sports team" after the fact was saved.
 
 ---
 
