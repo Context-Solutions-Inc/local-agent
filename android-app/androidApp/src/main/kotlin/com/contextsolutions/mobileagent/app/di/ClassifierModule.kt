@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.app.di
 import android.content.Context
 import android.util.Log
 import com.contextsolutions.mobileagent.agent.currentTimeContext
+import com.contextsolutions.mobileagent.app.service.ManagedClassifierEngine
 import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.classifier.LiteRtClassifierEngine
 import com.contextsolutions.mobileagent.classifier.PreflightConfig
@@ -10,9 +11,11 @@ import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.classifier.QueryRewriter
 import com.contextsolutions.mobileagent.classifier.Vocab
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
+import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
 import com.contextsolutions.mobileagent.search.SearchService
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -51,10 +54,24 @@ object ClassifierModule {
 
     private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    /**
+     * PR #8 — the engine is wrapped in [ManagedClassifierEngine] so the
+     * 67.7 MB `CompiledModel` gets the same lifecycle Gemma does
+     * (5-min idle unload, eager warm-up, `onTrimMemory` + watchdog
+     * `forceUnload`). Call sites still see a plain [ClassifierEngine]
+     * since the wrapper implements the interface.
+     */
     @Provides
     @Singleton
-    fun provideClassifierEngine(@ApplicationContext context: Context): ClassifierEngine =
-        LiteRtClassifierEngine(context)
+    fun provideClassifierEngine(
+        @ApplicationContext context: Context,
+        thermalStatusProvider: ThermalStatusProvider,
+        counters: TelemetryCounters,
+    ): ClassifierEngine = ManagedClassifierEngine(
+        delegate = LiteRtClassifierEngine(context),
+        thermalStatusProvider = thermalStatusProvider,
+        counters = counters,
+    )
 
     @Provides
     @Singleton

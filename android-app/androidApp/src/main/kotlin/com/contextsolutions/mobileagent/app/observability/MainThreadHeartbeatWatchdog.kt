@@ -1,6 +1,7 @@
 package com.contextsolutions.mobileagent.app.observability
 
 import android.util.Log
+import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
@@ -53,6 +54,7 @@ import javax.inject.Singleton
 @Singleton
 class MainThreadHeartbeatWatchdog @Inject constructor(
     private val sessionManager: InferenceSessionManager,
+    private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     private val crashReporter: SafeCrashReporter,
     private val counters: TelemetryCounters,
     private val probe: MainThreadProbe,
@@ -139,6 +141,10 @@ class MainThreadHeartbeatWatchdog @Inject constructor(
         counters.increment(CounterNames.MAIN_THREAD_WATCHDOG_TRIPPED_TOTAL)
         runCatching { sessionManager.forceUnload(UnloadReason.MainThreadWatchdog) }
             .onFailure { Log.e(TAG, "forceUnload threw from watchdog trip", it) }
+        // PR #8 — also drop the 91 MB aux models. They sit on the same
+        // GPU/CPU resources the watchdog is trying to free up.
+        runCatching { auxModelCoordinator.forceUnload(UnloadReason.MainThreadWatchdog) }
+            .onFailure { Log.e(TAG, "aux-model forceUnload threw from watchdog trip", it) }
         runCatching {
             crashReporter.recordException(MainThreadStallException(stallMs))
             crashReporter.flushPending()

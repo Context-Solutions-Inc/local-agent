@@ -161,9 +161,11 @@ class TelemetryPayloadBuilder(
 
         private fun bucketForName(name: String): MutableMap<String, Long> = when {
             name.startsWith("preflight_") -> daily_preflight
+            name.startsWith("classifier_") -> daily_preflight
             name.startsWith("inference_") -> daily_inference
             name.startsWith("search_") -> daily_search
             name.startsWith("memory_") -> daily_memory
+            name.startsWith("embedder_") -> daily_memory
             // Unknown counter — route into daily_inference as a safety net
             // (the alternative is dropping it, which would silently lose
             // data the v1.x might add).

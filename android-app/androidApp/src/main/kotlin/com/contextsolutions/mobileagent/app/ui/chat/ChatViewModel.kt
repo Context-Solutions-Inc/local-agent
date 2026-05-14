@@ -11,10 +11,8 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionAdapter
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
-import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
-import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryCategory
 import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryPromptCandidate
@@ -54,8 +52,6 @@ class ChatViewModel @Inject constructor(
     private val agentLoopFactory: AgentLoopFactory,
     private val sessionManager: InferenceSessionManager,
     private val inventory: ModelInventory,
-    private val classifierEngine: ClassifierEngine,
-    private val embedderEngine: EmbedderEngine,
     private val memoryExtractor: MemoryExtractor,
     private val memoryStore: MemoryStore,
     thermalStatusProvider: ThermalStatusProvider,
@@ -105,35 +101,10 @@ class ChatViewModel @Inject constructor(
 
     private var currentJob: Job? = null
 
-    init {
-        // M4 Phase B: warm the pre-flight classifier on the IO dispatcher as
-        // soon as the user enters the chat screen. The 100-500 ms load latency
-        // hides behind user typing time. Failure is logged but never surfaced
-        // to UI — PreflightRouter (Phase C) sees isLoaded=false and falls
-        // through to standard Gemma tool-calling per PRD §3.2.1.
-        viewModelScope.launch(Dispatchers.IO) {
-            val accelerator = classifierEngine.warmUp()
-            if (accelerator != null) {
-                Log.i(TAG, "pre-flight classifier ready on $accelerator")
-            } else {
-                Log.w(TAG, "pre-flight classifier unavailable; agent will fall through to Gemma")
-            }
-        }
-
-        // M5 Phase B: warm the embedder in parallel. Once loaded the
-        // memory subsystem (retrieval + extraction, Phases C/D) is ready.
-        // Failure is silent — MemoryRetriever / MemoryExtractor see
-        // isLoaded=false and degrade to no-op (PRD §3.2.4 graceful
-        // degradation).
-        viewModelScope.launch(Dispatchers.IO) {
-            val accelerator = embedderEngine.warmUp()
-            if (accelerator != null) {
-                Log.i(TAG, "memory embedder ready on $accelerator")
-            } else {
-                Log.w(TAG, "memory embedder unavailable; memory subsystem will be inert")
-            }
-        }
-    }
+    // PR #8 — aux-model warm-up moved to MainViewModel.warmUpEagerly so
+    // it shares the chat-screen RESUME hook with Gemma. Single source of
+    // truth, fires on every chat-screen entry AND on background→foreground
+    // bounce, and re-fires after a 5-min idle / onTrimMemory unload.
 
     fun send(prompt: String) {
         val trimmed = prompt.trim()

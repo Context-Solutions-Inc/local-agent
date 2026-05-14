@@ -1,7 +1,13 @@
 package com.contextsolutions.mobileagent.app.observability
 
+import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.ForegroundServiceController
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
+import com.contextsolutions.mobileagent.app.service.ManagedClassifierEngine
+import com.contextsolutions.mobileagent.app.service.ManagedEmbedderEngine
+import com.contextsolutions.mobileagent.classifier.ClassifierAccelerator
+import com.contextsolutions.mobileagent.classifier.ClassifierEngine
+import com.contextsolutions.mobileagent.classifier.ClassifierOutput
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.FinishReason
 import com.contextsolutions.mobileagent.inference.GenerationEvent
@@ -11,6 +17,9 @@ import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
+import com.contextsolutions.mobileagent.memory.EmbedderAccelerator
+import com.contextsolutions.mobileagent.memory.EmbedderEngine
+import com.contextsolutions.mobileagent.memory.EmbedderOutput
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
@@ -47,8 +56,27 @@ class MainThreadHeartbeatWatchdogTest {
         thermalStatusProvider = TestNoOpThermal,
         counters = counters,
     )
+    // Wrap the no-op aux engines so the watchdog → coordinator → wrapper
+    // forceUnload path exercises end-to-end. Asserting against the
+    // classifier/embedder counters is more representative than wrapping
+    // the coordinator in a fake.
+    private val managedClassifier = ManagedClassifierEngine(
+        delegate = TestNoOpClassifierEngine(),
+        thermalStatusProvider = TestNoOpThermal,
+        counters = counters,
+    )
+    private val managedEmbedder = ManagedEmbedderEngine(
+        delegate = TestNoOpEmbedderEngine(),
+        thermalStatusProvider = TestNoOpThermal,
+        counters = counters,
+    )
+    private val auxModelCoordinator = AuxModelLifecycleCoordinator(
+        classifierEngine = managedClassifier,
+        embedderEngine = managedEmbedder,
+    )
     private val watchdog = MainThreadHeartbeatWatchdog(
         sessionManager = sessionManager,
+        auxModelCoordinator = auxModelCoordinator,
         crashReporter = crash,
         counters = counters,
         probe = probe,
@@ -76,6 +104,9 @@ class MainThreadHeartbeatWatchdogTest {
 
         assertEquals(1L, counters.value(CounterNames.MAIN_THREAD_WATCHDOG_TRIPPED_TOTAL))
         assertEquals(1L, counters.value(CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL))
+        // PR #8 — the same trip must also drop the aux models.
+        assertEquals(1L, counters.value(CounterNames.CLASSIFIER_UNLOADED_WATCHDOG_TOTAL))
+        assertEquals(1L, counters.value(CounterNames.EMBEDDER_UNLOADED_WATCHDOG_TOTAL))
         assertEquals(1, crash.recordedExceptions.size)
         assertTrue(crash.recordedExceptions.first() is MainThreadStallException)
         assertEquals(1, crash.flushPendingCalls)
@@ -122,6 +153,7 @@ class MainThreadHeartbeatWatchdogTest {
         val throwingCrash = RecordingCrashReporter(recordExceptionThrows = true)
         val throwingWatchdog = MainThreadHeartbeatWatchdog(
             sessionManager = sessionManager,
+            auxModelCoordinator = auxModelCoordinator,
             crashReporter = throwingCrash,
             counters = counters,
             probe = probe,
@@ -174,6 +206,28 @@ private object TestNoOpThermal : ThermalStatusProvider {
     private val state = MutableStateFlow(ThermalStatus.NONE)
     override fun current(): ThermalStatus = ThermalStatus.NONE
     override fun statusFlow() = state.asStateFlow()
+}
+
+private class TestNoOpClassifierEngine : ClassifierEngine {
+    @Volatile private var loaded = false
+    override val isLoaded: Boolean get() = loaded
+    override suspend fun warmUp(): ClassifierAccelerator? {
+        loaded = true
+        return ClassifierAccelerator.CPU
+    }
+    override suspend fun classify(inputIds: LongArray, attentionMask: LongArray): ClassifierOutput? = null
+    override suspend fun unload() { loaded = false }
+}
+
+private class TestNoOpEmbedderEngine : EmbedderEngine {
+    @Volatile private var loaded = false
+    override val isLoaded: Boolean get() = loaded
+    override suspend fun warmUp(): EmbedderAccelerator? {
+        loaded = true
+        return EmbedderAccelerator.CPU
+    }
+    override suspend fun embed(text: String): EmbedderOutput? = null
+    override suspend fun unload() { loaded = false }
 }
 
 private class RecordingCrashReporter(

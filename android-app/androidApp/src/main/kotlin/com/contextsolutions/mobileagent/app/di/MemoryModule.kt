@@ -3,10 +3,12 @@ package com.contextsolutions.mobileagent.app.di
 import android.content.Context
 import android.util.Log
 import com.contextsolutions.mobileagent.agent.currentTimeContext
+import com.contextsolutions.mobileagent.app.service.ManagedEmbedderEngine
 import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.db.MemoriesQueries
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
+import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.LiteRtEmbedderEngine
@@ -68,12 +70,23 @@ object MemoryModule {
         MemoryConfig.DEFAULT
     }
 
+    /**
+     * PR #8 — the engine is wrapped in [ManagedEmbedderEngine] for the
+     * same lifecycle as the classifier (5-min idle unload,
+     * `onTrimMemory` + watchdog `forceUnload`, eager warm-up).
+     */
     @Provides
     @Singleton
     fun provideEmbedderEngine(
         @ApplicationContext context: Context,
         tokenizer: WordPieceTokenizer,
-    ): EmbedderEngine = LiteRtEmbedderEngine(context = context, tokenizer = tokenizer)
+        thermalStatusProvider: ThermalStatusProvider,
+        counters: TelemetryCounters,
+    ): EmbedderEngine = ManagedEmbedderEngine(
+        delegate = LiteRtEmbedderEngine(context = context, tokenizer = tokenizer),
+        thermalStatusProvider = thermalStatusProvider,
+        counters = counters,
+    )
 
     @Provides
     @Singleton

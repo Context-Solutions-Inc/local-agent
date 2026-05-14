@@ -6,6 +6,7 @@ import android.content.ComponentCallbacks2
 import android.os.Bundle
 import android.util.Log
 import com.contextsolutions.mobileagent.app.observability.MainThreadHeartbeatWatchdog
+import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
 import com.contextsolutions.mobileagent.app.service.UnloadReason
@@ -28,6 +29,9 @@ class MobileAgentApplication : Application() {
 
     @Inject
     lateinit var sessionManager: InferenceSessionManager
+
+    @Inject
+    lateinit var auxModelCoordinator: AuxModelLifecycleCoordinator
 
     @Inject
     lateinit var telemetryConsent: TelemetryConsentManager
@@ -179,6 +183,9 @@ class MobileAgentApplication : Application() {
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             Log.w(TAG, "onTrimMemory level=$level — requesting model unload.")
             sessionManager.forceUnload(reason = UnloadReason.TrimMemory)
+            // PR #8 — release the classifier (~68 MB) + embedder (~24 MB)
+            // alongside Gemma's 3.5 GB. Same trigger, same UnloadReason.
+            auxModelCoordinator.forceUnload(UnloadReason.TrimMemory)
         }
     }
 

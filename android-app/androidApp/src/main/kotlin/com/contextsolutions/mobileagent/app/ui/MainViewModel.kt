@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.app.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelDownloadController
 import com.contextsolutions.mobileagent.app.service.ModelInventory
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.stateIn
 class MainViewModel @Inject constructor(
     private val inventory: ModelInventory,
     private val sessionManager: InferenceSessionManager,
+    private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     onboardingPreferences: OnboardingPreferences,
     telemetryConsent: TelemetryConsentManager,
     controller: ModelDownloadController,
@@ -85,6 +87,13 @@ class MainViewModel @Inject constructor(
         val modelPath = inventory.localFile().absolutePath
         val outcome = sessionManager.warmUpIfPossible(modelPath)
         Log.i(TAG, "eager warm-up outcome: ${outcome.label()}")
+        // PR #8 — fan out the same RESUME hook to the aux engines so
+        // they load alongside Gemma after a 5-min idle unload /
+        // onTrimMemory release. Best-effort: a load failure here is
+        // surfaced by the engine's own log line, and the first
+        // classify/embed call will retry through the normal path.
+        runCatching { auxModelCoordinator.warmUpAll() }
+            .onFailure { Log.w(TAG, "aux-model warm-up threw; will retry on first use", it) }
         return outcome
     }
 

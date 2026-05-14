@@ -84,6 +84,19 @@ object CounterNames {
      */
     const val MAIN_THREAD_WATCHDOG_TRIPPED_TOTAL = "main_thread_watchdog_tripped_total"
 
+    // daily_preflight — classifier engine lifecycle (PR #8). Mirror the
+    // Gemma INFERENCE_* counters above. The classifier hosts the preflight
+    // head + memory presence + memory category heads in one .tflite, so
+    // these lifecycle counters live alongside the preflight band counters
+    // below rather than being split across daily_inference / daily_memory.
+    const val CLASSIFIER_WARMUP_LOADED_TOTAL = "classifier_warmup_loaded_total"
+    const val CLASSIFIER_WARMUP_ALREADY_LOADED_TOTAL = "classifier_warmup_already_loaded_total"
+    const val CLASSIFIER_WARMUP_SKIPPED_THERMAL_TOTAL = "classifier_warmup_skipped_thermal_total"
+    const val CLASSIFIER_WARMUP_FAILED_TOTAL = "classifier_warmup_failed_total"
+    const val CLASSIFIER_UNLOADED_IDLE_TOTAL = "classifier_unloaded_idle_total"
+    const val CLASSIFIER_UNLOADED_TRIM_MEMORY_TOTAL = "classifier_unloaded_trim_memory_total"
+    const val CLASSIFIER_UNLOADED_WATCHDOG_TOTAL = "classifier_unloaded_watchdog_total"
+
     // daily_preflight
     const val PREFLIGHT_HIGH_BAND_TOTAL = "preflight_high_band_total"
     const val PREFLIGHT_MIDDLE_BAND_TOTAL = "preflight_middle_band_total"
@@ -98,6 +111,17 @@ object CounterNames {
     const val SEARCH_ERROR_TOTAL = "search_error_total"
     const val SEARCH_DISABLED_TOTAL = "search_disabled_total"
     const val SEARCH_NO_KEY_TOTAL = "search_no_key_total"
+
+    // daily_memory — embedder engine lifecycle (PR #8). Same shape as the
+    // classifier counters above; the embedder only feeds the memory
+    // subsystem so it routes to daily_memory.
+    const val EMBEDDER_WARMUP_LOADED_TOTAL = "embedder_warmup_loaded_total"
+    const val EMBEDDER_WARMUP_ALREADY_LOADED_TOTAL = "embedder_warmup_already_loaded_total"
+    const val EMBEDDER_WARMUP_SKIPPED_THERMAL_TOTAL = "embedder_warmup_skipped_thermal_total"
+    const val EMBEDDER_WARMUP_FAILED_TOTAL = "embedder_warmup_failed_total"
+    const val EMBEDDER_UNLOADED_IDLE_TOTAL = "embedder_unloaded_idle_total"
+    const val EMBEDDER_UNLOADED_TRIM_MEMORY_TOTAL = "embedder_unloaded_trim_memory_total"
+    const val EMBEDDER_UNLOADED_WATCHDOG_TOTAL = "embedder_unloaded_watchdog_total"
 
     // daily_memory
     /**
