@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
@@ -399,6 +400,38 @@ fun ChatScreen(
         }
         if (alarmSheetOpen) {
             AlarmSheet(onDismiss = { alarmSheetOpen = false }, viewModel = clockViewModel)
+        }
+
+        // PR#13 — context-full warning. Fires once per conversation: the
+        // first time the user's pending send would push history past the
+        // 8K KV-cache budget. After they tap Continue, the conversation row
+        // records the acknowledgement and subsequent overflows truncate
+        // silently. Picking "Start new" discards the pending prompt and
+        // clears the chat.
+        val overflow by viewModel.overflowDecision.collectAsState()
+        overflow?.let { decision ->
+            AlertDialog(
+                onDismissRequest = { /* require explicit choice */ },
+                title = { Text("Conversation limit reached") },
+                text = {
+                    Text(
+                        "This conversation has reached the maximum context length. " +
+                            "Continue to send your message — the oldest message pair " +
+                            "will be permanently removed — or start a new conversation.\n\n" +
+                            "Your message:\n\"${decision.pendingPrompt}\"",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.continueAfterOverflow() }) {
+                        Text("Continue")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.dismissOverflowStartNew() }) {
+                        Text("Start new conversation")
+                    }
+                },
+            )
         }
     }
 }

@@ -7,12 +7,14 @@ import com.contextsolutions.mobileagent.agent.AgentEvent
 import com.contextsolutions.mobileagent.agent.AgentTurnInput
 import com.contextsolutions.mobileagent.agent.ChatMessage
 import com.contextsolutions.mobileagent.agent.ResponseFilter
+import com.contextsolutions.mobileagent.agent.TokenBudgetEstimator
 import com.contextsolutions.mobileagent.agent.TranslationIntentDetector
 import com.contextsolutions.mobileagent.app.di.AgentLoopFactory
 import com.contextsolutions.mobileagent.app.service.InferenceSessionAdapter
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -21,6 +23,8 @@ import com.contextsolutions.mobileagent.memory.MemoryExtractor
 import com.contextsolutions.mobileagent.memory.MemoryPromptCandidate
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.search.SearchOutcome
+import com.contextsolutions.mobileagent.telemetry.CounterNames
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import com.contextsolutions.mobileagent.search.SearchSource
@@ -43,11 +47,14 @@ import kotlinx.coroutines.launch
  * projects the resulting [AgentEvent] stream into UI state the Compose layer
  * can render directly.
  *
- * History is held in memory; a future polish pass will persist it through
- * `MobileAgentDatabase.conversations` + `messages`. The agent-side history
- * (including intermediate tool-call / tool-result messages) is tracked
- * separately from the user-visible bubble list so Gemma sees the full context
- * on follow-up turns while the UI shows a clean conversation.
+ * PR#13: conversations + messages are persisted through [ConversationRepository]
+ * so users can browse and resume prior chats from Settings. The 8K KV-cache
+ * budget is enforced via [TokenBudgetEstimator]: when the next send would
+ * exceed [TokenBudgetEstimator.SAFE_HISTORY_TOKENS] and the user has not
+ * already accepted the "oldest pair will be dropped" warning for this
+ * conversation, the send is paused and a modal is requested via
+ * [overflowDecision]. After acknowledgement, subsequent overflows in this
+ * conversation silently drop the oldest pair before each send.
  */
 @OptIn(ExperimentalUuidApi::class)
 @HiltViewModel
@@ -59,6 +66,8 @@ class ChatViewModel @Inject constructor(
     private val translationIntentDetector: TranslationIntentDetector,
     private val memoryExtractor: MemoryExtractor,
     private val memoryStore: MemoryStore,
+    private val conversationRepository: ConversationRepository,
+    private val telemetryCounters: TelemetryCounters,
     thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
@@ -90,8 +99,33 @@ class ChatViewModel @Inject constructor(
     private val _conversationId = MutableStateFlow<String?>(null)
     val conversationId: StateFlow<String?> = _conversationId.asStateFlow()
 
+    /**
+     * PR#13: non-null when the chat surface should render the overflow
+     * modal (context-limit-reached dialog). Cleared by [continueAfterOverflow]
+     * or [dismissOverflowStartNew].
+     */
+    private val _overflowDecision = MutableStateFlow<OverflowDecision?>(null)
+    val overflowDecision: StateFlow<OverflowDecision?> = _overflowDecision.asStateFlow()
+
     /** Internal full conversation as the agent sees it (includes tool_call/tool turns). */
     private var agentHistory: List<ChatMessage> = emptyList()
+
+    /**
+     * Mirrors the active conversation row's `truncation_acknowledged_at`
+     * column. Source of truth is the DB; this in-memory copy keeps the
+     * overflow check synchronous on the hot path. Reset on
+     * [newConversation], populated on [loadConversation], set true by
+     * [continueAfterOverflow].
+     */
+    private var truncationAcknowledged: Boolean = false
+
+    /**
+     * True when the active conversation row has been persisted (i.e.
+     * [ConversationRepository.create] has run for [_conversationId]).
+     * Distinguishes "first send for a new conversation" from "subsequent
+     * send for an existing conversation" so we only call create once.
+     */
+    private var conversationPersisted: Boolean = false
 
     /**
      * Middle-band memory candidates currently surfaced in the chat as
@@ -114,6 +148,15 @@ class ChatViewModel @Inject constructor(
     fun send(prompt: String) {
         val trimmed = prompt.trim()
         if (trimmed.isEmpty()) return
+
+        // PR#13 overflow guard. The check is synchronous (uses the in-memory
+        // ack mirror) so the UI can react in the same frame.
+        val projected = agentHistory + ChatMessage.User(trimmed)
+        if (TokenBudgetEstimator.wouldOverflow(projected) && !truncationAcknowledged) {
+            _overflowDecision.value = OverflowDecision(pendingPrompt = trimmed)
+            return
+        }
+
         currentJob?.cancel()
 
         // Generate a conversation ID lazily on the first send so memories
@@ -133,7 +176,6 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-        val historySnapshot = agentHistory
         // PR #10 — per-turn response language + character filter. The
         // filter is enforced for normal turns and relaxed (NoOp) when the
         // user's message looks like a translation request. Decisions are
@@ -144,6 +186,28 @@ class ChatViewModel @Inject constructor(
         val filter = if (isTranslation) ResponseFilter.NoOp else ResponseFilter.allowedScripts(language)
         currentJob = viewModelScope.launch {
             try {
+                val convId = _conversationId.value
+                    ?: throw IllegalStateException("conversationId vanished mid-send")
+
+                // PR#13 — silent truncate after the user has acknowledged the
+                // dialog once. Drop oldest pairs until the projected token
+                // count fits (or we hit the 1-pair floor).
+                if (truncationAcknowledged) {
+                    silentTruncateUntilFits(convId, trimmed)
+                }
+
+                // Ensure conversation row exists, then persist the user
+                // message. Both run in IO via the repo; ordering matters so
+                // we don't insert a message before the conversation row.
+                ensureConversationPersisted(convId, trimmed)
+                val now = System.currentTimeMillis()
+                conversationRepository.appendMessage(
+                    conversationId = convId,
+                    message = ChatMessage.User(trimmed),
+                    nowEpochMs = now,
+                )
+
+                val historySnapshot = agentHistory
                 val session = InferenceSessionAdapter(
                     sessionManager = sessionManager,
                     modelPath = inventory.localFile().absolutePath,
@@ -200,6 +264,123 @@ class ChatViewModel @Inject constructor(
         _conversationId.value = null
         _memoryCount.value = 0
         _ui.value = ChatUiState()
+        _overflowDecision.value = null
+        truncationAcknowledged = false
+        conversationPersisted = false
+    }
+
+    /**
+     * PR#13 — resume a prior conversation. Cancels any in-flight send, loads
+     * the persisted history, rebuilds the UI bubble list, and mirrors the
+     * row's `truncation_acknowledged_at` flag into [truncationAcknowledged].
+     * If [conversationId] doesn't exist (e.g., concurrently evicted) the
+     * call no-ops and leaves the chat in its current state.
+     */
+    fun loadConversation(conversationId: String) {
+        currentJob?.cancel()
+        viewModelScope.launch {
+            val record = conversationRepository.get(conversationId) ?: return@launch
+            val messages = conversationRepository.loadMessages(conversationId)
+
+            agentHistory = messages
+            _conversationId.value = record.id
+            truncationAcknowledged = record.truncationAcknowledgedAtEpochMs != null
+            conversationPersisted = true
+            pendingCandidates.clear()
+            _overflowDecision.value = null
+
+            val uiMessages = messages.mapNotNull { it.toUiMessage() }
+            _ui.value = ChatUiState(messages = uiMessages)
+
+            telemetryCounters.increment(CounterNames.CONVERSATIONS_RESUMED_TOTAL)
+            runCatching { _memoryCount.value = memoryStore.countForConversation(record.id) }
+        }
+    }
+
+    /**
+     * User tapped "Continue" on the overflow dialog. Persists the ack so
+     * future overflows truncate silently, drops oldest pair(s) inline,
+     * then re-invokes the original send.
+     */
+    fun continueAfterOverflow() {
+        val pending = _overflowDecision.value ?: return
+        _overflowDecision.value = null
+        truncationAcknowledged = true
+        val convId = _conversationId.value
+        if (convId != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    conversationRepository.acknowledgeTruncation(
+                        conversationId = convId,
+                        nowEpochMs = System.currentTimeMillis(),
+                    )
+                }
+            }
+        }
+        send(pending.pendingPrompt)
+    }
+
+    /** User tapped "Start new conversation" on the overflow dialog. */
+    fun dismissOverflowStartNew() {
+        _overflowDecision.value = null
+        newConversation()
+    }
+
+    /**
+     * Called by the conversation-history screen after the user deletes a
+     * conversation row. If the row they deleted is the one currently shown
+     * in the chat surface, reset to a fresh empty chat — otherwise the user
+     * sees ghost messages for a conversation that no longer exists in the
+     * DB, and the next send would try to append to a deleted parent row.
+     * No-op when the deleted id isn't the active one.
+     */
+    fun onConversationDeleted(deletedConversationId: String) {
+        if (_conversationId.value == deletedConversationId) {
+            newConversation()
+        }
+    }
+
+    private suspend fun ensureConversationPersisted(conversationId: String, firstUserMessage: String) {
+        if (conversationPersisted) return
+        val now = System.currentTimeMillis()
+        conversationRepository.create(
+            id = conversationId,
+            title = ConversationRepository.deriveTitle(firstUserMessage),
+            nowEpochMs = now,
+        )
+        conversationPersisted = true
+    }
+
+    private suspend fun silentTruncateUntilFits(conversationId: String, pendingUserMessage: String) {
+        var projected = agentHistory + ChatMessage.User(pendingUserMessage)
+        while (TokenBudgetEstimator.wouldOverflow(projected)) {
+            val dropped = conversationRepository.deleteOldestPair(conversationId)
+            if (dropped == 0) break // fewer than 2 user messages; can't pair-drop further
+            agentHistory = conversationRepository.loadMessages(conversationId)
+            _ui.update { state ->
+                state.copy(messages = agentHistory.mapNotNull { it.toUiMessage() })
+            }
+            projected = agentHistory + ChatMessage.User(pendingUserMessage)
+        }
+    }
+
+    private fun ChatMessage.toUiMessage(): UiMessage? = when (this) {
+        is ChatMessage.User -> UiMessage.User(text)
+        is ChatMessage.Assistant -> {
+            // Skip intermediate tool-call turns. The fresh-conversation path
+            // surfaces only the FINAL Assistant on Done (the one with the
+            // user-visible reply text and `toolCall == null`); rebuilding
+            // history from persistence has to mirror that or we end up
+            // rendering an empty leading bubble before each real response.
+            if (toolCall != null) null
+            else UiMessage.Assistant(
+                text = text,
+                citations = citations,
+                fromCache = false,
+            )
+        }
+        is ChatMessage.Tool -> null // tool turns aren't shown in the UI bubble list
+        is ChatMessage.System -> null
     }
 
     private fun onAgentEvent(event: AgentEvent) {
@@ -228,6 +409,7 @@ class ChatViewModel @Inject constructor(
                         isGenerating = false,
                     )
                 }
+                persistAgentTurnMessages(event.turnMessages)
                 runMemoryExtraction(event)
             }
             is AgentEvent.Error -> _ui.update {
@@ -237,6 +419,29 @@ class ChatViewModel @Inject constructor(
                     searchStatus = SearchStatus.None,
                     isGenerating = false,
                 )
+            }
+        }
+    }
+
+    /**
+     * Persist everything the loop appended this turn EXCEPT the leading
+     * user message (already persisted at send time so it survives a mid-turn
+     * crash). Tool and assistant turns land in chronological order.
+     */
+    private fun persistAgentTurnMessages(turnMessages: List<ChatMessage>) {
+        val convId = _conversationId.value ?: return
+        val toPersist = turnMessages.dropWhile { it is ChatMessage.User }
+        if (toPersist.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            for (msg in toPersist) {
+                runCatching {
+                    conversationRepository.appendMessage(
+                        conversationId = convId,
+                        message = msg,
+                        nowEpochMs = now,
+                    )
+                }.onFailure { Log.w(TAG, "persist turn message failed", it) }
             }
         }
     }
@@ -426,3 +631,12 @@ sealed interface SearchStatus {
     data object CompletedFromCache : SearchStatus
     data class Failed(val kind: String, val message: String) : SearchStatus
 }
+
+/**
+ * PR#13: payload for the overflow modal. [pendingPrompt] is the user's
+ * unsent message, surfaced in the dialog body and resent when they pick
+ * Continue.
+ */
+data class OverflowDecision(
+    val pendingPrompt: String,
+)

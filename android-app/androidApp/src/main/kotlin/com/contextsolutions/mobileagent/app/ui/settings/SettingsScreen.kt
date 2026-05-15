@@ -55,6 +55,7 @@ import com.contextsolutions.mobileagent.app.BuildConfig
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenConversationHistory: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
     memoryViewModel: com.contextsolutions.mobileagent.app.ui.memory.MemoryViewModel = hiltViewModel(),
 ) {
@@ -252,6 +253,21 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            // PR#13 — conversation history list, accessible from Settings
+            // (NOT the chat top bar) to keep the chat surface focused on
+            // the active conversation. Sits next to Memory because both
+            // are "manage prior data" affordances.
+            SectionHeader("Conversations")
+            Text(
+                "Browse, resume, or delete prior chats. The most recent 50 are kept; " +
+                    "older conversations are removed automatically.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenConversationHistory) { Text("Manage conversations") }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 

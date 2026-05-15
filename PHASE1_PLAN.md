@@ -313,6 +313,30 @@ schemas, empty-payload gotchas. Revisit when telemetry shows a measurable
 answer-quality gap on `markets_current` / `weather` / `sports_recent`
 queries.
 
+### M2.2 — Persisted multi-conversation history + 8K budget enforcement ✅ COMPLETE 2026-05-15
+
+PR #13 wires the M0-scaffolded `conversations` + `messages` SQLDelight schema
+into a live `ConversationRepository`. ChatViewModel now persists each turn,
+exposes a "Manage conversations" list under Settings, and supports resuming
+a prior thread. Schema bumped v3 → v4 via `3.sqm` (adds
+`truncation_acknowledged_at`).
+
+Closes the long-standing PRD §4.2 gap: `TokenBudgetEstimator` (char-based
+heuristic, 4 chars/token, 200-token safety margin) checks every send against
+a 6,500-token history budget. The first time a conversation would overflow,
+a modal dialog asks the user to **Continue** (oldest user/assistant turn-pair
+hard-deleted from DB) or **Start new conversation**. Continue persists the
+ack so subsequent overflows in that conversation truncate silently. Store
+capacity is bounded at 50 conversations (oldest evicted on each `create()`).
+
+Memory rows tagged with a conversation_id survive when that conversation is
+deleted — per design, they're user-level facts and outlive their source.
+New telemetry counters live in `daily_inference` via the fallthrough route
+(no `TelemetryPayloadBuilder` change needed):
+`conversations_created_total`, `conversations_resumed_total`,
+`conversations_deleted_total:explicit|capacity`,
+`conversation_overflow_warned_total`, `conversation_turnpairs_dropped_total`.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

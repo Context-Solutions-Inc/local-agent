@@ -11,7 +11,9 @@ import androidx.compose.runtime.setValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.contextsolutions.mobileagent.app.ui.chat.ChatScreen
+import com.contextsolutions.mobileagent.app.ui.chat.ChatViewModel
 import com.contextsolutions.mobileagent.app.ui.download.DownloadScreen
+import com.contextsolutions.mobileagent.app.ui.history.ConversationHistoryScreen
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryListScreen
 import com.contextsolutions.mobileagent.app.ui.memory.MemoryScreen
 import com.contextsolutions.mobileagent.app.ui.onboarding.OnboardingHost
@@ -86,23 +88,46 @@ fun MainScreen(
         onPauseOrDispose { warmUpJob?.cancel() }
     }
 
+    // PR#13 — hoist ChatViewModel so the conversation-history screen can
+    // ask it to load a different conversation without spinning up a second
+    // instance. Reaching the chat ViewModel from sibling routes is
+    // necessary because the no-Nav-Compose setup doesn't expose a shared
+    // back-stack scope.
+    val chatViewModel: ChatViewModel = hiltViewModel()
     when (val current = route) {
         MainRoute.Chat -> ChatScreen(
             onOpenSettings = { route = MainRoute.Settings },
             onOpenConversationMemory = { conversationId ->
                 route = MainRoute.ConversationMemory(conversationId)
             },
+            viewModel = chatViewModel,
         )
         MainRoute.Settings -> {
             BackHandler { route = MainRoute.Chat }
             SettingsScreen(
                 onBack = { route = MainRoute.Chat },
                 onOpenMemoryManagement = { route = MainRoute.MemoryManagement },
+                onOpenConversationHistory = { route = MainRoute.ConversationHistory },
             )
         }
         MainRoute.MemoryManagement -> {
             BackHandler { route = MainRoute.Settings }
             MemoryScreen(onBack = { route = MainRoute.Settings })
+        }
+        MainRoute.ConversationHistory -> {
+            BackHandler { route = MainRoute.Settings }
+            ConversationHistoryScreen(
+                onBack = { route = MainRoute.Settings },
+                onResume = { conversationId ->
+                    chatViewModel.loadConversation(conversationId)
+                    route = MainRoute.Chat
+                },
+                // If the user deletes the conversation that's currently
+                // showing in the chat surface, clear the chat so they
+                // don't return to ghost messages for a row that no longer
+                // exists in the DB. No-op for other ids.
+                onDeleted = chatViewModel::onConversationDeleted,
+            )
         }
         is MainRoute.ConversationMemory -> {
             BackHandler { route = MainRoute.Chat }
@@ -129,6 +154,7 @@ private sealed interface MainRoute {
     data object Chat : MainRoute
     data object Settings : MainRoute
     data object MemoryManagement : MainRoute
+    data object ConversationHistory : MainRoute
     data class ConversationMemory(val conversationId: String) : MainRoute
 
     companion object {
@@ -145,6 +171,7 @@ private sealed interface MainRoute {
                         Chat -> "chat"
                         Settings -> "settings"
                         MemoryManagement -> "mem"
+                        ConversationHistory -> "history"
                         is ConversationMemory -> "cmem:${it.conversationId}"
                     }
                 },
@@ -153,6 +180,7 @@ private sealed interface MainRoute {
                         encoded == "chat" -> Chat
                         encoded == "settings" -> Settings
                         encoded == "mem" -> MemoryManagement
+                        encoded == "history" -> ConversationHistory
                         encoded.startsWith("cmem:") -> ConversationMemory(encoded.substringAfter("cmem:"))
                         else -> Chat
                     }

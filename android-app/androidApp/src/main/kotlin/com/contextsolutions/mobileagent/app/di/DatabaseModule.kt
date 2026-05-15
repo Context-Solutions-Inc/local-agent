@@ -2,9 +2,13 @@ package com.contextsolutions.mobileagent.app.di
 
 import android.content.Context
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
+import com.contextsolutions.mobileagent.conversation.ConversationRepository
+import com.contextsolutions.mobileagent.conversation.SqlDelightConversationRepository
+import com.contextsolutions.mobileagent.db.ConversationsQueries
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
 import com.contextsolutions.mobileagent.db.SearchCacheQueries
 import com.contextsolutions.mobileagent.db.TelemetryAggregateQueries
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -52,4 +56,22 @@ object DatabaseModule {
     @Singleton
     fun provideTelemetryAggregateQueries(database: MobileAgentDatabase): TelemetryAggregateQueries =
         database.telemetryAggregateQueries
+
+    @Provides
+    @Singleton
+    fun provideConversationsQueries(database: MobileAgentDatabase): ConversationsQueries =
+        database.conversationsQueries
+
+    /**
+     * PR#13 — wired up here so the conversation persistence + 8K-budget
+     * enforcement gets the same DB instance as the rest of the persistence
+     * layer. Per CLAUDE.md invariant #21 the constructor's ioDispatcher
+     * default fires for production callers; tests can substitute.
+     */
+    @Provides
+    @Singleton
+    fun provideConversationRepository(
+        queries: ConversationsQueries,
+        counters: TelemetryCounters,
+    ): ConversationRepository = SqlDelightConversationRepository(queries, counters)
 }

@@ -1,12 +1,17 @@
 -- Conversations and messages.
 -- Schema is intentionally minimal in M0; M1 (chat MVP) extends with indexes and
 -- additional columns (token counts, model metadata, etc.).
+--
+-- truncation_acknowledged_at added in 3.sqm (PR#13). NULL until the user
+-- confirms the "oldest pair will be dropped" warning for this conversation;
+-- non-null thereafter so subsequent overflows truncate silently.
 
 CREATE TABLE conversations (
     id TEXT NOT NULL PRIMARY KEY,
     title TEXT NOT NULL,
     created_at_epoch_ms INTEGER NOT NULL,
-    updated_at_epoch_ms INTEGER NOT NULL
+    updated_at_epoch_ms INTEGER NOT NULL,
+    truncation_acknowledged_at INTEGER
 );
 
 CREATE TABLE messages (
@@ -23,17 +28,32 @@ CREATE TABLE messages (
 CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);
 
 insertConversation:
-INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms)
-VALUES (?, ?, ?, ?);
+INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms, truncation_acknowledged_at)
+VALUES (?, ?, ?, ?, NULL);
 
 selectAllConversations:
 SELECT * FROM conversations ORDER BY updated_at_epoch_ms DESC;
 
+selectRecentConversations:
+SELECT * FROM conversations ORDER BY updated_at_epoch_ms DESC LIMIT :limit;
+
 selectConversationById:
 SELECT * FROM conversations WHERE id = ?;
 
+countConversations:
+SELECT COUNT(*) FROM conversations;
+
+selectOldestConversationIds:
+SELECT id FROM conversations ORDER BY updated_at_epoch_ms ASC LIMIT :limit;
+
 deleteConversation:
 DELETE FROM conversations WHERE id = ?;
+
+touchUpdatedAt:
+UPDATE conversations SET updated_at_epoch_ms = :nowEpochMs WHERE id = :id;
+
+acknowledgeTruncation:
+UPDATE conversations SET truncation_acknowledged_at = :nowEpochMs WHERE id = :id;
 
 insertMessage:
 INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index)
@@ -41,3 +61,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessagesByConversation:
 SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_index ASC;
+
+deleteMessagesBelowSequence:
+DELETE FROM messages
+WHERE conversation_id = :conversationId AND sequence_index < :cutoffSequenceIndex;
+
+selectLastMessagePreview:
+SELECT content FROM messages
+WHERE conversation_id = :conversationId AND role IN ('user', 'assistant')
+ORDER BY sequence_index DESC
+LIMIT 1;

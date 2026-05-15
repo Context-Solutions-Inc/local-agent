@@ -46,10 +46,12 @@ class MemoriesMigrationTest {
     @Test
     fun schema_version_reflects_all_sqm_migrations() {
         // SQLDelight derives Schema.version from the highest .sqm filename + 1.
-        // After M6 Phase A added 1.sqm and Phase C added 2.sqm, version must
-        // be 3. If this fails after a new schema change, either the SQLDelight
-        // build didn't regenerate the schema or the new .sqm is misnamed.
-        assertEquals(3L, MobileAgentDatabase.Schema.version)
+        // M6 Phase A added 1.sqm (memories.access_count), Phase C added 2.sqm
+        // (telemetry tables), and PR#13 added 3.sqm (conversations.truncation_
+        // acknowledged_at) — current version must be 4. If this fails after a
+        // new schema change, either the SQLDelight build didn't regenerate the
+        // schema or the new .sqm is misnamed.
+        assertEquals(4L, MobileAgentDatabase.Schema.version)
     }
 
     @Test
@@ -136,8 +138,8 @@ class MemoriesMigrationTest {
         MobileAgentDatabase.Schema.create(driver)
         val noOp = MobileAgentDatabase.Schema.migrate(
             driver = driver,
-            oldVersion = 3,
-            newVersion = 3,
+            oldVersion = 4,
+            newVersion = 4,
         )
         assertEquals(QueryResult.Unit, noOp)
     }

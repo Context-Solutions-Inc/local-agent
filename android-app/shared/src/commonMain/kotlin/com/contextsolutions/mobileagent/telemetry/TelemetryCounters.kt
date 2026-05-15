@@ -159,6 +159,17 @@ object CounterNames {
     const val MEMORY_DEDUP_SKIPPED_TOTAL = "memory_dedup_skipped_total"
     const val MEMORY_FORGOTTEN_TOTAL = "memory_forgotten_total"
 
+    // daily_conversation — PR#13. Conversation-lifecycle counters: created,
+    // resumed (user tapped a row in the history list), deleted (tagged
+    // `explicit` for user-initiated, `capacity` for the 50-conversation cap),
+    // and the two overflow signals (warned-once-per-conv + turn-pair drop).
+    const val CONVERSATIONS_CREATED_TOTAL = "conversations_created_total"
+    const val CONVERSATIONS_RESUMED_TOTAL = "conversations_resumed_total"
+    /** Tag values: `explicit` | `capacity`. */
+    const val CONVERSATIONS_DELETED_TOTAL = "conversations_deleted_total"
+    const val CONVERSATION_OVERFLOW_WARNED_TOTAL = "conversation_overflow_warned_total"
+    const val CONVERSATION_TURNPAIRS_DROPPED_TOTAL = "conversation_turnpairs_dropped_total"
+
     /** User tapped Export on the memory screen and the file was written. */
     const val MEMORY_EXPORTED_TOTAL = "memory_exported_total"
 

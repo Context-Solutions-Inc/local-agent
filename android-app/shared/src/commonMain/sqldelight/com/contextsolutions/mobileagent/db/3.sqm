@@ -1,0 +1,12 @@
+-- Migration v3 → v4 (PR#13, conversation history + 8K budget enforcement).
+--
+-- Adds a nullable per-conversation flag that records the moment the user
+-- acknowledged the "context full, oldest pair will be dropped" warning.
+-- NULL means the dialog has not fired yet for this conversation; a non-null
+-- value means subsequent overflows in this conversation should silently drop
+-- the oldest turn-pair without re-prompting.
+--
+-- Appended at the END of the conversations table per CLAUDE.md invariant #20
+-- so verifyMigrations doesn't flag column-order drift.
+
+ALTER TABLE conversations ADD COLUMN truncation_acknowledged_at INTEGER;
