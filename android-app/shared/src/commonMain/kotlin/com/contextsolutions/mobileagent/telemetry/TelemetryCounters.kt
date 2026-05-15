@@ -65,6 +65,13 @@ object CounterNames {
     const val INFERENCE_WARMUP_ALREADY_LOADED_TOTAL = "inference_warmup_already_loaded_total"
     const val INFERENCE_WARMUP_ALREADY_LOADING_TOTAL = "inference_warmup_already_loading_total"
     const val INFERENCE_WARMUP_SKIPPED_THERMAL_TOTAL = "inference_warmup_skipped_thermal_total"
+    /**
+     * PR #16 — eager warm-up refused to load because free system RAM was
+     * below [com.contextsolutions.mobileagent.app.service.InferenceSessionManager.EAGER_WARMUP_MIN_FREE_BYTES].
+     * Complementary to [INFERENCE_UNLOADED_LOW_MEMORY_TOTAL] (which fires
+     * AFTER a load); this one fires INSTEAD of a load.
+     */
+    const val INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL = "inference_warmup_skipped_memory_total"
     const val INFERENCE_WARMUP_FAILED_TOTAL = "inference_warmup_failed_total"
     const val INFERENCE_UNLOADED_IDLE_TOTAL = "inference_unloaded_idle_total"
     const val INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL = "inference_unloaded_trim_memory_total"
@@ -77,6 +84,13 @@ object CounterNames {
      * model wasn't actually loaded" cases (forceUnload no-ops).
      */
     const val INFERENCE_UNLOADED_WATCHDOG_TOTAL = "inference_unloaded_watchdog_total"
+    /**
+     * Fires when [com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog]
+     * observes `availMem` below the proactive threshold (1 GiB) and unloads
+     * Gemma before another app's allocation pressure pushes the device into
+     * LMK / system_server reclaim. PR #16.
+     */
+    const val INFERENCE_UNLOADED_LOW_MEMORY_TOTAL = "inference_unloaded_low_memory_total"
     /**
      * Standalone counter for the watchdog firing, independent of whether a
      * model was actually loaded at the time. Diagnostic for "how often is

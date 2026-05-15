@@ -7,6 +7,7 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
+import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
@@ -375,6 +376,118 @@ class InferenceSessionManagerTest {
         )
     }
 
+    @Test
+    fun `warmUpIfPossible skips load and increments counter when free memory is below threshold`() = runTest {
+        // PR #16 — eager warm-up memory gate. The repro from on-device
+        // testing: 8 GB Pixel 7 with other apps consuming RAM, eager
+        // warm-up always proceeded and then got immediately undone by the
+        // watchdog. Wasteful and confusing. This test locks the gate.
+        val counters = RecordingCounters()
+        val engine = FakeInferenceEngine()
+        val tightProvider = MemoryHeadroomProvider { 800L * 1024 * 1024 } // 800 MB
+        val manager = newManagerWith(
+            engine,
+            FakeForegroundServiceController(),
+            counters = counters,
+            memoryHeadroomProvider = tightProvider,
+        )
+
+        val outcome = manager.warmUpIfPossible(MODEL_PATH)
+        advanceUntilIdle()
+
+        assertTrue(
+            "expected SkippedMemory outcome, got $outcome",
+            outcome is WarmUpOutcome.SkippedMemory,
+        )
+        assertEquals(0, engine.loadCount.get())
+        assertEquals(1L, counters.value(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL))
+        assertEquals(0L, counters.value(CounterNames.INFERENCE_WARMUP_LOADED_TOTAL))
+    }
+
+    @Test
+    fun `warmUpIfPossible loads when free memory is above threshold`() = runTest {
+        val counters = RecordingCounters()
+        val engine = FakeInferenceEngine()
+        val plentyProvider = MemoryHeadroomProvider { 4_000L * 1024 * 1024 } // 4 GB
+        val manager = newManagerWith(
+            engine,
+            FakeForegroundServiceController(),
+            counters = counters,
+            memoryHeadroomProvider = plentyProvider,
+        )
+
+        val outcome = manager.warmUpIfPossible(MODEL_PATH)
+        advanceUntilIdle()
+
+        assertTrue("expected Loaded outcome, got $outcome", outcome is WarmUpOutcome.Loaded)
+        assertEquals(1, engine.loadCount.get())
+        assertEquals(1L, counters.value(CounterNames.INFERENCE_WARMUP_LOADED_TOTAL))
+        assertEquals(0L, counters.value(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL))
+    }
+
+    @Test
+    fun `forceUnload with LowMemory increments only the LowMemory counter`() = runTest {
+        // PR #16 — the MemoryPressureWatchdog needs its own counter so we
+        // can separate "OS told us to free memory" (TrimMemory) from "we
+        // pre-emptively unloaded based on our own headroom poll" (LowMemory)
+        // in the telemetry dashboards.
+        val counters = RecordingCounters()
+        val manager = newManagerWith(
+            FakeInferenceEngine(),
+            FakeForegroundServiceController(),
+            counters = counters,
+        )
+        manager.acquire(MODEL_PATH)
+
+        manager.forceUnload(UnloadReason.LowMemory)
+        advanceUntilIdle()
+
+        assertEquals(
+            1L,
+            counters.value(CounterNames.INFERENCE_UNLOADED_LOW_MEMORY_TOTAL),
+        )
+        assertEquals(
+            0L,
+            counters.value(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL),
+        )
+        assertEquals(
+            0L,
+            counters.value(CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL),
+        )
+    }
+
+    @Test
+    fun `forceUnload with LowMemory during generation defers unload until generation ends`() = runTest {
+        // PR #16 — matches the existing defer-mid-generation contract. The
+        // watchdog firing on a 1 GiB threshold must not abort a turn the
+        // user is actively waiting on; the unload happens when the active
+        // generation count drops to 0.
+        val gate = CompletableDeferred<Unit>()
+        val engine = FakeInferenceEngine(generateOverride = { _, _ ->
+            flow {
+                emit(GenerationEvent.TokenChunk("x", 0))
+                gate.await()
+                emit(GenerationEvent.Done(1, FinishReason.END_OF_TURN))
+            }
+        })
+        val fgs = FakeForegroundServiceController()
+        val manager = newManagerWith(engine, fgs)
+
+        val collectJob = launch {
+            manager.generate(MODEL_PATH, REQUEST).collect { /* drain */ }
+        }
+        advanceUntilIdle()
+
+        manager.forceUnload(UnloadReason.LowMemory)
+        advanceUntilIdle()
+        assertEquals("must not unload mid-generation", 0, engine.unloadCount.get())
+
+        gate.complete(Unit)
+        collectJob.join()
+        advanceUntilIdle()
+        assertEquals(1, engine.unloadCount.get())
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────
 
     private fun TestScope.newManager(): Triple<InferenceSessionManager, FakeInferenceEngine, FakeForegroundServiceController> {
@@ -388,9 +501,16 @@ class InferenceSessionManagerTest {
         fgs: FakeForegroundServiceController,
         thermal: ThermalStatusProvider = FakeThermalStatusProvider(),
         counters: TelemetryCounters = com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters,
+        memoryHeadroomProvider: MemoryHeadroomProvider = MemoryHeadroomProvider { Long.MAX_VALUE },
     ): InferenceSessionManager {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val manager = InferenceSessionManager(engine, fgs, thermal, counters)
+        val manager = InferenceSessionManager(
+            engine = engine,
+            foregroundServiceController = fgs,
+            thermalStatusProvider = thermal,
+            counters = counters,
+            memoryHeadroomProvider = memoryHeadroomProvider,
+        )
         manager.idleTimeout = IDLE_TIMEOUT
         manager.ioDispatcher = dispatcher
         manager.scope = CoroutineScope(SupervisorJob() + dispatcher)

@@ -101,6 +101,9 @@ class MainViewModel @Inject constructor(
         WarmUpOutcome.AlreadyLoaded -> "already_loaded"
         WarmUpOutcome.AlreadyLoading -> "already_loading"
         is WarmUpOutcome.SkippedThermal -> "skipped_thermal(${status.name})"
+        is WarmUpOutcome.SkippedMemory ->
+            "skipped_memory(avail=${availableBytes / 1024 / 1024}MB, " +
+                "required=${requiredBytes / 1024 / 1024}MB)"
         is WarmUpOutcome.Loaded -> "loaded(${accelerator.name})"
         is WarmUpOutcome.Failed -> "failed(${cause::class.simpleName})"
     }

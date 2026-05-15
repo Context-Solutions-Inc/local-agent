@@ -5,6 +5,7 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
+import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
@@ -64,6 +65,11 @@ class InferenceSessionManager @Inject constructor(
     private val foregroundServiceController: ForegroundServiceController,
     private val thermalStatusProvider: ThermalStatusProvider,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
+    // PR #16 — gates eager warm-up when free RAM is below the cold-load
+    // budget. Default is permissive so existing tests that construct the
+    // manager directly don't have to plumb a fake; production Hilt graph
+    // wires AndroidMemoryHeadroomProvider via InferenceModule.
+    private val memoryHeadroomProvider: MemoryHeadroomProvider = MemoryHeadroomProvider { Long.MAX_VALUE },
 ) {
 
     /**
@@ -164,6 +170,21 @@ class InferenceSessionManager @Inject constructor(
             return WarmUpOutcome.SkippedThermal(thermal)
         }
 
+        // PR #16 — eager warm-up memory gate. Without this check, the
+        // watchdog still catches the case (we'll unload moments after the
+        // load completes), but we'd waste a full GPU init + 2.58 GB I/O
+        // for nothing on memory-tight devices. Threshold matches the
+        // cold-load gate in ChatViewModel so warm-up and send share one
+        // floor. If we'd refuse a send anyway, refuse the warm-up too.
+        val avail = memoryHeadroomProvider.availableBytes()
+        if (avail < EAGER_WARMUP_MIN_FREE_BYTES) {
+            counters.increment(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL)
+            return WarmUpOutcome.SkippedMemory(
+                availableBytes = avail,
+                requiredBytes = EAGER_WARMUP_MIN_FREE_BYTES,
+            )
+        }
+
         return try {
             val outcome = mutex.withLock {
                 // Re-check inside the lock: another caller may have completed
@@ -252,6 +273,8 @@ class InferenceSessionManager @Inject constructor(
                 counters.increment(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL)
             UnloadReason.MainThreadWatchdog ->
                 counters.increment(CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL)
+            UnloadReason.LowMemory ->
+                counters.increment(CounterNames.INFERENCE_UNLOADED_LOW_MEMORY_TOTAL)
             UnloadReason.Manual -> Unit
         }
         scope.launch {
@@ -337,6 +360,18 @@ class InferenceSessionManager @Inject constructor(
     }
 
     companion object {
+        /**
+         * PR #16 — minimum free system RAM required before we attempt the
+         * eager warm-up cold load. 2.0 GiB tuned after on-device testing:
+         * the file is ~2.58 GB on disk but the load path mmaps weight
+         * pages lazily, so a 2.0 GiB free window is enough headroom to
+         * succeed in practice on Pixel 7. Held here so the warm-up gate
+         * and the send-time cold-load gate in
+         * [com.contextsolutions.mobileagent.app.ui.chat.ChatViewModel]
+         * share one threshold definition.
+         */
+        const val EAGER_WARMUP_MIN_FREE_BYTES: Long = 2L * 1024 * 1024 * 1024 // 2.0 GiB
+
         val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
         val DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP: Duration = 60.seconds
     }
@@ -363,6 +398,16 @@ enum class UnloadReason {
      * Increments [com.contextsolutions.mobileagent.telemetry.CounterNames.INFERENCE_UNLOADED_WATCHDOG_TOTAL].
      */
     MainThreadWatchdog,
+
+    /**
+     * Fired by [com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog]
+     * when free system memory drops below ~1 GiB while Gemma is loaded.
+     * Pre-emptive release before another app's allocation pressure pushes
+     * the device into LMK / system_server reclaim — at which point an
+     * uncontrolled kill is the OS's choice, not ours. PR #16.
+     * Increments [com.contextsolutions.mobileagent.telemetry.CounterNames.INFERENCE_UNLOADED_LOW_MEMORY_TOTAL].
+     */
+    LowMemory,
 }
 
 /**
@@ -393,6 +438,14 @@ sealed interface WarmUpOutcome {
 
     /** Thermal state ≥ SEVERE; skipped to avoid worsening throttle. */
     data class SkippedThermal(val status: ThermalStatus) : WarmUpOutcome
+
+    /**
+     * PR #16 — free system RAM was below
+     * [InferenceSessionManager.EAGER_WARMUP_MIN_FREE_BYTES] at warm-up
+     * time. Skipping the load saves a wasted GPU init + 2.58 GB I/O on a
+     * device the watchdog would unload moments later anyway.
+     */
+    data class SkippedMemory(val availableBytes: Long, val requiredBytes: Long) : WarmUpOutcome
 
     /** This call performed the load. [accelerator] is what the engine actually got. */
     data class Loaded(val accelerator: Accelerator) : WarmUpOutcome

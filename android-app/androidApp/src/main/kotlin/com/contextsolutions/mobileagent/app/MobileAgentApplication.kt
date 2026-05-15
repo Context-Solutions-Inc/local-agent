@@ -6,6 +6,7 @@ import android.content.ComponentCallbacks2
 import android.os.Bundle
 import android.util.Log
 import com.contextsolutions.mobileagent.app.observability.MainThreadHeartbeatWatchdog
+import com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog
 import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
@@ -44,6 +45,9 @@ class MobileAgentApplication : Application() {
 
     @Inject
     lateinit var mainThreadWatchdog: MainThreadHeartbeatWatchdog
+
+    @Inject
+    lateinit var memoryPressureWatchdog: MemoryPressureWatchdog
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -94,6 +98,14 @@ class MobileAgentApplication : Application() {
         // activity-lifecycle callbacks below so we don't fire false
         // positives while the OS parks the main thread in background.
         registerActivityLifecycleCallbacks(WatchdogForegroundGate())
+
+        // (e) PR #16 — memory-pressure watchdog. Runs for the process
+        // lifetime (no foreground gate): pressure can build while we're
+        // backgrounded too, and the OS is more aggressive about reclaiming
+        // a backgrounded app holding 3 GB resident. The watchdog only
+        // does work while [SessionState.Loaded] — flips to Unloaded cancel
+        // its inner polling loop via collectLatest semantics.
+        memoryPressureWatchdog.start()
     }
 
     /**

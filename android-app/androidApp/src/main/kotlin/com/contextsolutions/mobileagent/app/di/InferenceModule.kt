@@ -5,11 +5,13 @@ import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.app.observability.HandlerMainThreadProbe
 import com.contextsolutions.mobileagent.app.observability.MainThreadProbe
 import com.contextsolutions.mobileagent.app.spike.StubInferenceEngine
+import com.contextsolutions.mobileagent.inference.AndroidMemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
 import com.contextsolutions.mobileagent.inference.DefaultHfAuthTokenProvider
 import com.contextsolutions.mobileagent.inference.HfAuthTokenProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.LiteRtInferenceEngineFactory
+import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import dagger.Binds
@@ -54,6 +56,19 @@ object InferenceModule {
     @Singleton
     fun provideThermalStatusProvider(@ApplicationContext context: Context): ThermalStatusProvider =
         AndroidThermalStatusProvider(context)
+
+    /**
+     * Free-RAM source for the PR #16 memory-pressure surfaces:
+     *  - [com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog]
+     *    polls this every 15 s while the model is loaded and proactively
+     *    unloads at <1 GiB.
+     *  - The chat send-time gate refuses a fresh cold load when free RAM is
+     *    below the model's working-set requirement (~2.5 GiB).
+     */
+    @Provides
+    @Singleton
+    fun provideMemoryHeadroomProvider(@ApplicationContext context: Context): MemoryHeadroomProvider =
+        AndroidMemoryHeadroomProvider(context)
 
     /**
      * Resolves the HuggingFace token used by `ModelDownloader` to authenticate

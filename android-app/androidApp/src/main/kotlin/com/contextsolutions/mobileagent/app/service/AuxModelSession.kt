@@ -168,6 +168,12 @@ internal class AuxModelSession(
                 counters.increment(counterNames.unloadedTrimMemoryTotal)
             UnloadReason.MainThreadWatchdog ->
                 counters.increment(counterNames.unloadedWatchdogTotal)
+            // PR #16 — aux models don't have a dedicated low-memory counter
+            // (they're 92 MB combined; the Gemma signal dominates). Roll into
+            // the trim-memory counter for telemetry — both are "OS or our
+            // proactive watcher said free RAM now."
+            UnloadReason.LowMemory ->
+                counters.increment(counterNames.unloadedTrimMemoryTotal)
             UnloadReason.Manual -> Unit
         }
         scope.launch {
