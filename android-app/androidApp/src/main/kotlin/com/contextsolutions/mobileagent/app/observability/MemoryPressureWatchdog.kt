@@ -122,7 +122,14 @@ class MemoryPressureWatchdog @Inject constructor(
          */
         const val DEFAULT_POLL_INTERVAL_MS: Long = 5_000L
 
-        /** 1 GiB — user-specified threshold below which the OS starts reclaiming aggressively. */
-        const val DEFAULT_UNLOAD_THRESHOLD_BYTES: Long = 1L * 1024 * 1024 * 1024
+        /**
+         * 800 MB. Tuned down from the initial 1 GiB after on-device
+         * validation showed the 1 GiB floor was firing too eagerly under
+         * normal multi-app use on Pixel 7. The OS still has its own LMK
+         * cushion below this; we want to react before that fires but not
+         * so far ahead that we churn the model load/unload on every
+         * background-app spike.
+         */
+        const val DEFAULT_UNLOAD_THRESHOLD_BYTES: Long = 800L * 1024 * 1024
     }
 }
