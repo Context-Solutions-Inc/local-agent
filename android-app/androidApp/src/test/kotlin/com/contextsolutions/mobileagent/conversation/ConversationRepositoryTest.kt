@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.contextsolutions.mobileagent.agent.ChatMessage
 import com.contextsolutions.mobileagent.agent.ToolCall
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
+import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -240,5 +241,47 @@ class ConversationRepositoryTest {
         repo.create("c1", "t", 100L)
         repo.create("c2", "t", 200L)
         assertEquals(0, repo.evictToCap(maxConversations = 50))
+    }
+
+    @Test
+    fun loadMessages_round_trips_assistant_citations() = runTest {
+        repo.create("c1", "title", 100L)
+        val sources = listOf(
+            SearchSource(
+                title = "Toronto weather",
+                url = "https://weather.example.com/toronto",
+                snippet = "sunny, 18°C",
+            ),
+            SearchSource(
+                title = "Breaking news",
+                url = "https://news.example.com/x",
+                snippet = "developing story",
+                age = "10 minutes ago",
+                breaking = true,
+            ),
+        )
+        repo.appendMessage("c1", ChatMessage.User("what's the weather?"), 101L)
+        repo.appendMessage(
+            "c1",
+            ChatMessage.Assistant(text = "It's sunny.", citations = sources),
+            102L,
+        )
+
+        val loaded = repo.loadMessages("c1")
+        val asst = loaded.filterIsInstance<ChatMessage.Assistant>().single()
+        assertEquals(2, asst.citations.size)
+        assertEquals(sources, asst.citations)
+    }
+
+    @Test
+    fun loadMessages_returns_empty_citations_for_pre_pr13_rows() = runTest {
+        // Simulates a row written before citations persistence shipped:
+        // tool_result_json is NULL on an assistant row, which used to be the
+        // norm. Round-trip must yield an empty list (not an error).
+        repo.create("c1", "title", 100L)
+        repo.appendMessage("c1", ChatMessage.Assistant(text = "plain reply"), 101L)
+
+        val loaded = repo.loadMessages("c1").single() as ChatMessage.Assistant
+        assertTrue(loaded.citations.isEmpty())
     }
 }

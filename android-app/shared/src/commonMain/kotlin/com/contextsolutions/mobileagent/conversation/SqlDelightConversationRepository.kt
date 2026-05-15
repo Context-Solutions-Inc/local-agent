@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.conversation
 import com.contextsolutions.mobileagent.agent.ChatMessage
 import com.contextsolutions.mobileagent.agent.ToolCall
 import com.contextsolutions.mobileagent.db.ConversationsQueries
+import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlin.uuid.ExperimentalUuidApi
@@ -182,7 +183,18 @@ class SqlDelightConversationRepository(
             val callJson = message.toolCall?.let {
                 json.encodeToString(PersistedToolCall.serializer(), PersistedToolCall.from(it))
             }
-            MessageColumns(ROLE_ASSISTANT, message.text, callJson, null)
+            // Reuse the existing tool_result_json column for the final
+            // assistant's citation list. Assistant rows never carry a tool
+            // *result* (those land on tool rows), so the column is free here.
+            // The role discriminator keeps the two payload shapes from
+            // colliding at deserialise time.
+            val citationsJson = message.citations.takeIf { it.isNotEmpty() }?.let { list ->
+                json.encodeToString(
+                    PersistedCitations.serializer(),
+                    PersistedCitations(sources = list),
+                )
+            }
+            MessageColumns(ROLE_ASSISTANT, message.text, callJson, citationsJson)
         }
         is ChatMessage.Tool -> {
             val resultJson = json.encodeToString(
@@ -212,7 +224,15 @@ class SqlDelightConversationRepository(
                     .getOrNull()
                     ?.toToolCall()
             }
-            ChatMessage.Assistant(text = content, toolCall = call)
+            // Rows written before PR#13's citations-persistence fix have
+            // tool_result_json == NULL on assistant rows; decode fails fall
+            // back to an empty citation list so the UI just hides the chips.
+            val citations = toolResultJson?.let { raw ->
+                runCatching { json.decodeFromString(PersistedCitations.serializer(), raw) }
+                    .getOrNull()
+                    ?.sources
+            }.orEmpty()
+            ChatMessage.Assistant(text = content, toolCall = call, citations = citations)
         }
         ROLE_TOOL -> {
             // tool_call_json holds the toolName; tool_result_json holds metadata.
@@ -251,6 +271,16 @@ class SqlDelightConversationRepository(
     private data class PersistedToolResult(
         @SerialName("call_id") val callId: String,
         @SerialName("is_error") val isError: Boolean = false,
+    )
+
+    /**
+     * Envelope for the final assistant turn's citation list. Shares the
+     * `tool_result_json` column with [PersistedToolResult]; the row's `role`
+     * column tells the deserialiser which shape to expect.
+     */
+    @Serializable
+    private data class PersistedCitations(
+        val sources: List<SearchSource>,
     )
 
     private data class MessageColumns(
