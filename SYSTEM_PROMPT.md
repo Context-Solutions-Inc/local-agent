@@ -192,7 +192,7 @@ requires current or specialized information beyond your training data.
 ```json
 {
   "name": "web_search",
-  "description": "Search the web for current information. Use for questions about recent events, current scores, market prices, weather, news, product availability, or any topic where information may have changed recently. Do NOT use for general knowledge, settled history, definitions, or reasoning questions you can answer from training.",
+  "description": "Search the web for current information. Use for questions about recent events, current scores, market prices, weather, news, product availability, or any topic where information may have changed recently. Do NOT use for general knowledge, settled history, definitions, or reasoning questions you can answer from training. Results carry title, url, and snippet; news items may also include 'age' (e.g. '6 hours ago') and 'breaking: true' — prefer breaking and fresh news sources when the question is time-sensitive.",
   "parameters": {
     "type": "object",
     "properties": {

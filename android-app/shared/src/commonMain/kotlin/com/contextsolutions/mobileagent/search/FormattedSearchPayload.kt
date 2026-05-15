@@ -16,9 +16,18 @@ data class FormattedSearchPayload(
     val sources: List<SearchSource>,
 )
 
+/**
+ * [age] and [breaking] are populated only for hits drawn from Brave's
+ * `news.results[]` block; standard web hits omit both fields. The post-
+ * processor's `Json` serializer is configured with `encodeDefaults = false`,
+ * so the JSON shape stays identical to today's `{title, url, snippet}` for
+ * non-news payloads — old cache rows still deserialize cleanly.
+ */
 @Serializable
 data class SearchSource(
     val title: String,
     val url: String,
     val snippet: String,
+    val age: String? = null,
+    val breaking: Boolean? = null,
 )

@@ -71,6 +71,155 @@ class SearchPostProcessorTest {
         assertNotNull(out.json) // still a valid (empty array) JSON string
     }
 
+    @Test
+    fun `news-shaped query interleaves news ahead of web`() {
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(
+                    results = listOf(
+                        result(title = "Web 1", url = "https://w1"),
+                        result(title = "Web 2", url = "https://w2"),
+                        result(title = "Web 3", url = "https://w3"),
+                    ),
+                ),
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "N1", url = "https://n1", pageAge = "2026-05-14T18:00:00"),
+                        news(title = "N2", url = "https://n2", pageAge = "2026-05-14T12:00:00"),
+                        news(title = "N3", url = "https://n3", pageAge = "2026-05-13T09:00:00"),
+                    ),
+                ),
+            ),
+        )
+        // 2 news (most recent first) + 1 web
+        assertEquals(listOf("N1", "N2", "Web 1"), out.sources.map { it.title })
+        assertEquals(listOf<Boolean?>(null, null), out.sources.take(2).map { it.breaking })
+    }
+
+    @Test
+    fun `breaking news beats fresher non-breaking news`() {
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(results = listOf(result(title = "W", url = "https://w"))),
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "Old breaking", url = "https://b", pageAge = "2026-05-10T00:00:00", breaking = true),
+                        news(title = "Fresh normal", url = "https://f", pageAge = "2026-05-14T18:00:00"),
+                        news(title = "Stale normal", url = "https://s", pageAge = "2026-05-13T00:00:00"),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(listOf("Old breaking", "Fresh normal", "W"), out.sources.map { it.title })
+        assertEquals(true, out.sources.first().breaking)
+        // Non-breaking source omits the field entirely (encodeDefaults=false).
+        val breakingCount = "\"breaking\":true".toRegex().findAll(out.json).count()
+        assertEquals("only the one breaking source should emit the field", 1, breakingCount)
+    }
+
+    @Test
+    fun `news fields appear in the JSON payload`() {
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "A", url = "https://a", age = "5 hours ago", breaking = true),
+                        news(title = "B", url = "https://b", age = "1 day ago"),
+                        news(title = "C", url = "https://c", age = "2 days ago"),
+                    ),
+                ),
+            ),
+        )
+        assertTrue("age should be serialized", out.json.contains("\"age\":\"5 hours ago\""))
+        assertTrue("breaking=true should be serialized", out.json.contains("\"breaking\":true"))
+    }
+
+    @Test
+    fun `under-threshold news block falls back to web-only behavior`() {
+        // 2 news entries does NOT trip the news-shaped threshold of 3.
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(
+                    results = listOf(
+                        result(title = "Web 1", url = "https://w1"),
+                        result(title = "Web 2", url = "https://w2"),
+                        result(title = "Web 3", url = "https://w3"),
+                    ),
+                ),
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "N1", url = "https://n1", breaking = true),
+                        news(title = "N2", url = "https://n2"),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(listOf("Web 1", "Web 2", "Web 3"), out.sources.map { it.title })
+        assertFalse("age field should not appear in web-only payload", out.json.contains("\"age\""))
+        assertFalse("breaking field should not appear", out.json.contains("\"breaking\""))
+    }
+
+    @Test
+    fun `dedup prevents the same article appearing in both blocks`() {
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(
+                    results = listOf(
+                        result(title = "Web dup", url = "https://shared"),
+                        result(title = "Web only", url = "https://web-only"),
+                    ),
+                ),
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "News A", url = "https://shared"),
+                        news(title = "News B", url = "https://b"),
+                        news(title = "News C", url = "https://c"),
+                    ),
+                ),
+            ),
+        )
+        // News A wins the shared URL; web fill skips it and picks "Web only".
+        assertEquals(listOf("News A", "News B", "Web only"), out.sources.map { it.title })
+    }
+
+    @Test
+    fun `news-only response fills all three slots from news`() {
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "N1", url = "https://n1"),
+                        news(title = "N2", url = "https://n2"),
+                        news(title = "N3", url = "https://n3"),
+                        news(title = "N4", url = "https://n4"),
+                    ),
+                ),
+            ),
+        )
+        // 2 news up front + 1 from the leftover news pool since web is empty.
+        assertEquals(3, out.sources.size)
+        assertEquals(setOf("N1", "N2", "N3"), out.sources.map { it.title }.toSet())
+    }
+
+    @Test
+    fun `byte cap honored when news titles and snippets are long`() {
+        val long = "lorem ipsum ".repeat(500)
+        val out = SearchPostProcessor.format(
+            BraveSearchResponse(
+                news = BraveNewsResults(
+                    results = listOf(
+                        news(title = "A", url = "https://a", description = long, age = "5 hours ago", breaking = true),
+                        news(title = "B", url = "https://b", description = long, age = "1 day ago"),
+                        news(title = "C", url = "https://c", description = long, age = "2 days ago"),
+                    ),
+                ),
+            ),
+        )
+        val bytes = out.json.encodeToByteArray().size
+        assertTrue("payload $bytes bytes should be ≤2048", bytes <= 2 * 1024)
+        assertFalse(out.sources.isEmpty())
+    }
+
     private fun brave(vararg results: BraveResult) =
         BraveSearchResponse(web = BraveWebResults(results = results.toList()))
 
@@ -79,4 +228,20 @@ class SearchPostProcessorTest {
         url: String = "https://example.org",
         description: String = "snippet",
     ) = BraveResult(title = title, url = url, description = description)
+
+    private fun news(
+        title: String = "title",
+        url: String = "https://example.org",
+        description: String = "snippet",
+        age: String? = null,
+        pageAge: String? = null,
+        breaking: Boolean = false,
+    ) = BraveNewsResult(
+        title = title,
+        url = url,
+        description = description,
+        age = age,
+        pageAge = pageAge,
+        breaking = breaking,
+    )
 }
