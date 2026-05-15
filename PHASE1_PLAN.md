@@ -288,6 +288,31 @@ multi-round bugfix sequence to get the LiteRT-LM tool-calling integration
 right (the architecture had to shift from text-marker parsing to LiteRT-LM's
 structured tool API; one `Conversation` per turn rather than per generate).
 
+### M2.1 — Brave `news.results` enhancement ✅ COMPLETE 2026-05-14 — see `docs/BRAVE_SPIKE.md`
+
+PR #12 wires Brave's `news.results[]` block alongside the existing
+`web.results[]` parsing. For news-shaped responses (≥3 usable news entries),
+`SearchPostProcessor` places up to 2 news hits — ranked by `breaking` then
+ISO `page_age` desc — ahead of web hits in the top-3 sources sent to Gemma.
+`SearchSource` gained optional `age` and `breaking` fields; the `web_search`
+tool description now tells the model to prefer breaking and fresh news on
+time-sensitive questions. No new HTTP calls — `news.results` is on every
+`/web/search` response we already pay for. Non-news queries (e.g.
+`NVDA stock price` returns 0 news hits) render identically to pre-M2.1
+output; payload bytes are unchanged.
+
+Partially closes the M2 known limitation: news-shaped queries (breaking
+news, election results, war updates) now reach Gemma with explicit
+freshness + breaking signals. The residual gap — queries that need a
+*structured number* (current weather temp, live stock quote) — is **not**
+addressed here; Brave's snippets for those queries still describe the
+landing page without the number. The fix is Brave's `/web/rich` callback
+flow (vertical hint + second HTTP call), documented in `docs/BRAVE_SPIKE.md`
+§4. **Deferred** — two-step request shape, undocumented billing, per-vertical
+schemas, empty-payload gotchas. Revisit when telemetry shows a measurable
+answer-quality gap on `markets_current` / `weather` / `sports_recent`
+queries.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
