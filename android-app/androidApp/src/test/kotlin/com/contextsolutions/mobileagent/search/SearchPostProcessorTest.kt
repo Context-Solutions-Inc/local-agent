@@ -9,16 +9,18 @@ import org.junit.Test
 class SearchPostProcessorTest {
 
     @Test
-    fun `keeps top three organic results`() {
+    fun `keeps top five organic results`() {
         val response = brave(
             result(title = "1", url = "https://a"),
             result(title = "2", url = "https://b"),
             result(title = "3", url = "https://c"),
             result(title = "4", url = "https://d"),
+            result(title = "5", url = "https://e"),
+            result(title = "6", url = "https://f"),
         )
         val out = SearchPostProcessor.format(response)
-        assertEquals(3, out.sources.size)
-        assertEquals(listOf("1", "2", "3"), out.sources.map { it.title })
+        assertEquals(5, out.sources.size)
+        assertEquals(listOf("1", "2", "3", "4", "5"), out.sources.map { it.title })
     }
 
     @Test
@@ -51,16 +53,18 @@ class SearchPostProcessorTest {
     }
 
     @Test
-    fun `formatted json fits within 2KB even with very long snippets`() {
+    fun `formatted json fits within 4KB even with very long snippets`() {
         val long = "lorem ipsum ".repeat(500) // ≈6 KB raw per result
         val response = brave(
             result(title = "Title 1", url = "https://example.org/1", description = long),
             result(title = "Title 2", url = "https://example.org/2", description = long),
             result(title = "Title 3", url = "https://example.org/3", description = long),
+            result(title = "Title 4", url = "https://example.org/4", description = long),
+            result(title = "Title 5", url = "https://example.org/5", description = long),
         )
         val out = SearchPostProcessor.format(response)
         val bytes = out.json.encodeToByteArray().size
-        assertTrue("payload $bytes bytes should be ≤2048", bytes <= 2 * 1024)
+        assertTrue("payload $bytes bytes should be ≤4096", bytes <= 4 * 1024)
         assertFalse("at least one source should survive the cap", out.sources.isEmpty())
     }
 
@@ -72,7 +76,7 @@ class SearchPostProcessorTest {
     }
 
     @Test
-    fun `news-shaped query interleaves news ahead of web`() {
+    fun `news-shaped query places all news ahead of web`() {
         val out = SearchPostProcessor.format(
             BraveSearchResponse(
                 web = BraveWebResults(
@@ -91,9 +95,9 @@ class SearchPostProcessorTest {
                 ),
             ),
         )
-        // 2 news (most recent first) + 1 web
-        assertEquals(listOf("N1", "N2", "Web 1"), out.sources.map { it.title })
-        assertEquals(listOf<Boolean?>(null, null), out.sources.take(2).map { it.breaking })
+        // All 3 news (most recent first) + 2 web fill the top 5.
+        assertEquals(listOf("N1", "N2", "N3", "Web 1", "Web 2"), out.sources.map { it.title })
+        assertEquals(listOf<Boolean?>(null, null, null), out.sources.take(3).map { it.breaking })
     }
 
     @Test
@@ -110,7 +114,8 @@ class SearchPostProcessorTest {
                 ),
             ),
         )
-        assertEquals(listOf("Old breaking", "Fresh normal", "W"), out.sources.map { it.title })
+        // All 3 news first (breaking → fresher non-breaking → stale), then the lone web fills slot 4.
+        assertEquals(listOf("Old breaking", "Fresh normal", "Stale normal", "W"), out.sources.map { it.title })
         assertEquals(true, out.sources.first().breaking)
         // Non-breaking source omits the field entirely (encodeDefaults=false).
         val breakingCount = "\"breaking\":true".toRegex().findAll(out.json).count()
@@ -178,12 +183,13 @@ class SearchPostProcessorTest {
                 ),
             ),
         )
-        // News A wins the shared URL; web fill skips it and picks "Web only".
-        assertEquals(listOf("News A", "News B", "Web only"), out.sources.map { it.title })
+        // News A wins the shared URL; all 3 news come first, then web fill skips the
+        // dup and picks "Web only". Total: 4 (fewer than TOP_N=5 because no further inputs).
+        assertEquals(listOf("News A", "News B", "News C", "Web only"), out.sources.map { it.title })
     }
 
     @Test
-    fun `news-only response fills all three slots from news`() {
+    fun `news-only response fills all five slots from news`() {
         val out = SearchPostProcessor.format(
             BraveSearchResponse(
                 news = BraveNewsResults(
@@ -192,13 +198,15 @@ class SearchPostProcessorTest {
                         news(title = "N2", url = "https://n2"),
                         news(title = "N3", url = "https://n3"),
                         news(title = "N4", url = "https://n4"),
+                        news(title = "N5", url = "https://n5"),
+                        news(title = "N6", url = "https://n6"),
                     ),
                 ),
             ),
         )
-        // 2 news up front + 1 from the leftover news pool since web is empty.
-        assertEquals(3, out.sources.size)
-        assertEquals(setOf("N1", "N2", "N3"), out.sources.map { it.title }.toSet())
+        // All 5 slots filled from news; web is empty so the leftover-news fallback isn't exercised.
+        assertEquals(5, out.sources.size)
+        assertEquals(setOf("N1", "N2", "N3", "N4", "N5"), out.sources.map { it.title }.toSet())
     }
 
     @Test
@@ -216,7 +224,7 @@ class SearchPostProcessorTest {
             ),
         )
         val bytes = out.json.encodeToByteArray().size
-        assertTrue("payload $bytes bytes should be ≤2048", bytes <= 2 * 1024)
+        assertTrue("payload $bytes bytes should be ≤4096", bytes <= 4 * 1024)
         assertFalse(out.sources.isEmpty())
     }
 

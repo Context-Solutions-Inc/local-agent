@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-PR #8 shipped the `web_search` tool wired to Brave's `/web/search` endpoint, parsing only `web.results[]` into top-3 `{title, url, snippet}` source records (`SearchPostProcessor.kt:13-50`). The spike asked two questions that have come up repeatedly since:
+PR #8 shipped the `web_search` tool wired to Brave's `/web/search` endpoint, parsing only `web.results[]` into top-5 `{title, url, snippet}` source records (`SearchPostProcessor.kt:13-50`). PR #20 later raised the cap from top-3 to top-5 (`MAX_PAYLOAD_BYTES` 2KB→4KB). The spike asked two questions that have come up repeatedly since:
 
 1. **Does Brave expose structured cards** for the queries the classifier already labels as `markets_current`, `sports_recent`, `sports_upcoming`, `weather` (`CLASSIFIER_DATASETS.md:90-100`)? If so, what does the payload look like and what does it cost?
 2. **Are we leaving useful data on the floor** by ignoring the other top-level blocks in the standard `/web/search` response — specifically `news.results[]`?

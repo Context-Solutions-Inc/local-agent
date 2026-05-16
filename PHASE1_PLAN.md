@@ -245,7 +245,7 @@ rolled into the M2 PR sequence).
   + LRU eviction query for the 500-entry cap (PRD §3.4); `messages.tool_call_json` /
   `tool_result_json` columns already present from M0.
 - ✅ **WS-4:** Brave Search client over Ktor (`KtorBraveSearchClient`),
-  post-processing per PRD §3.3 (top-3 organic, ≤200 char snippets, ≤2KB total
+  post-processing per PRD §3.3 (top-5 organic, ≤200 char snippets, ≤4KB total
   with progressive shrink). `SearchCacheDao` with category-based TTL +
   expired-row sweep on store + LRU evict; cache-hit indicator threaded through
   `SearchOutcome.fromCache`. `BraveKeyProvider` resolves user-key (BYOK) ahead
@@ -293,7 +293,7 @@ structured tool API; one `Conversation` per turn rather than per generate).
 PR #12 wires Brave's `news.results[]` block alongside the existing
 `web.results[]` parsing. For news-shaped responses (≥3 usable news entries),
 `SearchPostProcessor` places up to 2 news hits — ranked by `breaking` then
-ISO `page_age` desc — ahead of web hits in the top-3 sources sent to Gemma.
+ISO `page_age` desc — ahead of web hits in the top-5 sources sent to Gemma.
 `SearchSource` gained optional `age` and `breaking` fields; the `web_search`
 tool description now tells the model to prefer breaking and fresh news on
 time-sensitive questions. No new HTTP calls — `news.results` is on every
@@ -535,6 +535,29 @@ Tests: 3 new `AgentLoopMemoryCommandTest` cases lock the contract that
 `engine.generate` is **never** invoked on remember/forget turns,
 mirroring `AgentLoopTodoTest`'s no-LLM-fallback assertion. 636 unit
 tests at end of M2.7.
+
+### M2.8 — Top-5 search results ✅ COMPLETE 2026-05-16
+
+PR #20 raises the per-search payload sent to Gemma from 3 results to 5.
+In production the agent frequently ran out of context to synthesize a
+good answer with only 3 hits — particularly on multi-faceted factual
+queries where the relevant detail sat at result #4 or #5. Bumping
+`SearchPostProcessor.TOP_N` 3→5 is paired with `MAX_PAYLOAD_BYTES`
+2KB→4KB so 5 full-length snippets fit without the existing progressive
+shrinker hitting the 40-char floor on every query. PRD §3.3 amended in
+the same PR — the spec is no longer "top three / ≤2KB".
+
+News-shaped queries now fill all 5 slots from `news.results[]` when
+available (`MAX_NEWS_IN_TOP_N` 2→5). When news < 5, web tops up the
+remaining slots; when news < `NEWS_SHAPED_THRESHOLD` (still 3), the
+query falls through to web-only — non-news behaviour is unchanged.
+
+Test deltas: 4 of 11 `SearchPostProcessorTest` cases re-baselined for
+the new cap (size assertions, ordering, byte budget). The 4KB byte-cap
+guard tests are now the load-bearing safeguard against snippet
+truncation — they pass with 5 × ≈200-char snippets landing under 4096
+bytes. Cache rows from existing devices (capped at 2KB at insert) still
+deserialize cleanly; new rows can grow to 4KB.
 
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 

@@ -200,7 +200,7 @@ Memory must never be uploaded, synced, or transmitted off-device in v1. Even opt
 
 Web searches are made via the Brave Search API using the standard endpoint. The API key must be stored securely (iOS Keychain, Android EncryptedSharedPreferences) and never logged. Each search request must include a 10-second timeout. Failures (network error, rate limit, invalid response) must be returned to the model as a tool result containing an error message rather than crashing the agent loop, allowing the model to either retry with a different query or inform the user.
 
-Search results are post-processed before being fed back to the model. The agent extracts the top three organic results, retains only title, URL, and snippet (truncated to 200 characters per snippet), and formats them as a compact JSON array. Raw HTML, ads, and supplementary widgets are discarded. The total tool result payload must not exceed 2KB to preserve context budget.
+Search results are post-processed before being fed back to the model. The agent extracts the top five organic results, retains only title, URL, and snippet (truncated to 200 characters per snippet), and formats them as a compact JSON array. Raw HTML, ads, and supplementary widgets are discarded. The total tool result payload must not exceed 4KB to preserve context budget.
 
 ### 3.4 Local search cache
 
