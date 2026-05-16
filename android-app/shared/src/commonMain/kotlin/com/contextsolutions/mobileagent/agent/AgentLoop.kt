@@ -10,6 +10,7 @@ import com.contextsolutions.mobileagent.inference.ToolDispatcher
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
+import com.contextsolutions.mobileagent.memory.RememberForgetDetector
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
@@ -67,6 +68,7 @@ class AgentLoop(
     private val todoIntentDetector: TodoIntentDetector = TodoIntentDetector(),
     private val todoCommandParser: TodoCommandParser = TodoCommandParser(),
     private val todoResponseFormatter: TodoResponseFormatter = TodoResponseFormatter(),
+    private val rememberForgetDetector: RememberForgetDetector = RememberForgetDetector(),
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -140,6 +142,24 @@ class AgentLoop(
                 emitTodoGuidance(input.userMessage)
                 return@channelFlow
             }
+        }
+
+        // Explicit memory-command short-circuit. Mirrors the clock/todo
+        // pattern above: when the user prefixes a turn with "remember …"
+        // or "forget …", dispatch a deterministic acknowledgement and
+        // skip the LLM. Without this, Gemma sees "remember" + the
+        // add_todo tool description and reliably calls add_todo with
+        // the post-prefix payload as the title — wrong tool, plus the
+        // model emits no follow-up text and the user gets an empty
+        // assistant bubble. The actual memory write still happens
+        // downstream in `MemoryExtractor.extract()` (called from
+        // ChatViewModel after Done) via the same `RememberForgetDetector`
+        // we're consulting here, so we don't duplicate save logic.
+        val memoryCommand = rememberForgetDetector.classify(input.userMessage)
+        if (memoryCommand !is RememberForgetDetector.Command.None) {
+            logger("[turn] explicit memory command: ${memoryCommand::class.simpleName}")
+            emitMemoryCommandAck(input.userMessage, memoryCommand)
+            return@channelFlow
         }
 
         // Treat the inbound user message as the trailing turn in history.
@@ -803,6 +823,36 @@ class AgentLoop(
         logger(
             "[turn] done via deterministic todo path tool=$toolName " +
                 "finalTextLen=${rendered.length}",
+        )
+    }
+
+    /**
+     * Deterministic ack for explicit "remember …" / "forget …" turns.
+     * Same pattern as [emitClockGuidance] / [emitTodoGuidance]: short
+     * fixed text, no LLM, no tool call. `skipMemoryExtraction = false`
+     * is load-bearing — the actual memory write lives in
+     * `MemoryExtractor.extract()` downstream and consults the same
+     * `RememberForgetDetector` to force-create/delete; we MUST let that
+     * run so the user-visible effect (saved/forgotten) actually happens.
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitMemoryCommandAck(
+        userMessageText: String,
+        command: RememberForgetDetector.Command,
+    ) {
+        val message = when (command) {
+            is RememberForgetDetector.Command.Remember -> "OK, I'll remember that."
+            is RememberForgetDetector.Command.Forget -> "OK, I'll forget that."
+            RememberForgetDetector.Command.None -> return
+        }
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = message)
+        send(AgentEvent.TokenChunk(message))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = false,
+            ),
         )
     }
 
