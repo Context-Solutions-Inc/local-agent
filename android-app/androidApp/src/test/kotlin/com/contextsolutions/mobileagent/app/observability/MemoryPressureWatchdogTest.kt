@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -73,7 +74,7 @@ class MemoryPressureWatchdogTest {
 
     @Test
     fun `unloads on first sub-threshold reading after Loaded transition`() = runTest {
-        provider.value = 2_000L * 1024 * 1024 // 2 GB — above the 1 GiB threshold
+        provider.value = 2_000L * 1024 * 1024 // 2 GB — above the 800 MB watchdog floor
         every { sessionManager.state } returns state.asStateFlow()
         every { sessionManager.forceUnload(any()) } just Runs
         every { auxCoordinator.forceUnload(any()) } just Runs
@@ -90,7 +91,7 @@ class MemoryPressureWatchdogTest {
         verify(exactly = 0) { sessionManager.forceUnload(UnloadReason.LowMemory) }
 
         // Pressure builds. The next poll cycle picks it up.
-        provider.value = 500L * 1024 * 1024 // 500 MB — well below 1 GiB
+        provider.value = 500L * 1024 * 1024 // 500 MB — well below 800 MB floor
         advanceTimeBy(20L)
         advanceUntilIdle()
 
@@ -134,6 +135,7 @@ class MemoryPressureWatchdogTest {
             sessionManager = sessionManager,
             auxModelCoordinator = auxCoordinator,
             provider = provider,
+            thresholds = SystemMemoryThresholds.DEFAULT,
         ).apply {
             pollIntervalMs = 10L
             scope = CoroutineScope(SupervisorJob() + dispatcher)

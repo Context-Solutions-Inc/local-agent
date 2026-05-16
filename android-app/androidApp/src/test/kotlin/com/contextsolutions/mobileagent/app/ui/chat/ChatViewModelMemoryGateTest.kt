@@ -185,6 +185,7 @@ class ChatViewModelMemoryGateTest {
         conversationRepository = conversationRepository,
         telemetryCounters = NoOpTelemetryCounters,
         memoryHeadroomProvider = provider,
+        systemMemoryThresholds = com.contextsolutions.mobileagent.inference.SystemMemoryThresholds.DEFAULT,
         thermalStatusProvider = thermalProvider,
     )
 }

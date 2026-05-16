@@ -43,10 +43,8 @@ import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryCategory
 
 /**
- * Per-conversation memory list (M5 Phase E). Reached by tapping the
- * [ConversationMemoryBadge] in the chat top bar. Shares
- * [MemoryViewModel] with [MemoryScreen] so a delete here is reflected
- * everywhere.
+ * Per-conversation memory list (M5 Phase E). Shares [MemoryViewModel]
+ * with [MemoryScreen] so a delete here is reflected everywhere.
  *
  * Flat list (no category grouping) since per-conversation lists are
  * naturally short. Each row carries a category chip so the user can

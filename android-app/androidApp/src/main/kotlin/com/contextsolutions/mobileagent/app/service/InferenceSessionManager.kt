@@ -7,6 +7,7 @@ import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ModelHandle
+import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.telemetry.CounterNames
@@ -70,6 +71,11 @@ class InferenceSessionManager @Inject constructor(
     // manager directly don't have to plumb a fake; production Hilt graph
     // wires AndroidMemoryHeadroomProvider via InferenceModule.
     private val memoryHeadroomProvider: MemoryHeadroomProvider = MemoryHeadroomProvider { Long.MAX_VALUE },
+    // PR #18 — single source of truth for the cold-load floor. Defaults to
+    // [SystemMemoryThresholds.DEFAULT] for the same test-friendliness
+    // reason as `memoryHeadroomProvider`; production wires the shared
+    // singleton from `MemoryModule.provideSystemMemoryThresholds`.
+    private val systemMemoryThresholds: SystemMemoryThresholds = SystemMemoryThresholds.DEFAULT,
 ) {
 
     /**
@@ -177,11 +183,12 @@ class InferenceSessionManager @Inject constructor(
         // cold-load gate in ChatViewModel so warm-up and send share one
         // floor. If we'd refuse a send anyway, refuse the warm-up too.
         val avail = memoryHeadroomProvider.availableBytes()
-        if (avail < EAGER_WARMUP_MIN_FREE_BYTES) {
+        val coldLoadFloor = systemMemoryThresholds.coldLoadMinBytes
+        if (avail < coldLoadFloor) {
             counters.increment(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL)
             return WarmUpOutcome.SkippedMemory(
                 availableBytes = avail,
-                requiredBytes = EAGER_WARMUP_MIN_FREE_BYTES,
+                requiredBytes = coldLoadFloor,
             )
         }
 
@@ -360,18 +367,6 @@ class InferenceSessionManager @Inject constructor(
     }
 
     companion object {
-        /**
-         * PR #16 — minimum free system RAM required before we attempt the
-         * eager warm-up cold load. 2.0 GiB tuned after on-device testing:
-         * the file is ~2.58 GB on disk but the load path mmaps weight
-         * pages lazily, so a 2.0 GiB free window is enough headroom to
-         * succeed in practice on Pixel 7. Held here so the warm-up gate
-         * and the send-time cold-load gate in
-         * [com.contextsolutions.mobileagent.app.ui.chat.ChatViewModel]
-         * share one threshold definition.
-         */
-        const val EAGER_WARMUP_MIN_FREE_BYTES: Long = 2L * 1024 * 1024 * 1024 // 2.0 GiB
-
         val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
         val DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP: Duration = 60.seconds
     }
@@ -441,9 +436,9 @@ sealed interface WarmUpOutcome {
 
     /**
      * PR #16 — free system RAM was below
-     * [InferenceSessionManager.EAGER_WARMUP_MIN_FREE_BYTES] at warm-up
-     * time. Skipping the load saves a wasted GPU init + 2.58 GB I/O on a
-     * device the watchdog would unload moments later anyway.
+     * [SystemMemoryThresholds.coldLoadMinBytes] at warm-up time. Skipping
+     * the load saves a wasted GPU init + 2.58 GB I/O on a device the
+     * watchdog would unload moments later anyway.
      */
     data class SkippedMemory(val availableBytes: Long, val requiredBytes: Long) : WarmUpOutcome
 

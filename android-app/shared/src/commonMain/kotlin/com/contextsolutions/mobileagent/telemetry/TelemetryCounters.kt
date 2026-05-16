@@ -67,7 +67,7 @@ object CounterNames {
     const val INFERENCE_WARMUP_SKIPPED_THERMAL_TOTAL = "inference_warmup_skipped_thermal_total"
     /**
      * PR #16 — eager warm-up refused to load because free system RAM was
-     * below [com.contextsolutions.mobileagent.app.service.InferenceSessionManager.EAGER_WARMUP_MIN_FREE_BYTES].
+     * below [com.contextsolutions.mobileagent.inference.SystemMemoryThresholds.coldLoadMinBytes].
      * Complementary to [INFERENCE_UNLOADED_LOW_MEMORY_TOTAL] (which fires
      * AFTER a load); this one fires INSTEAD of a load.
      */

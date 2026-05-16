@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -34,8 +35,8 @@ import kotlinx.coroutines.launch
  *  - Subscribes to [InferenceSessionManager.state]. While state is
  *    [SessionState.Loaded], polls every [pollIntervalMs]. On any non-Loaded
  *    state, `collectLatest` cancels the polling block automatically.
- *  - When `availableBytes()` drops below [unloadThresholdBytes], calls
- *    `forceUnload(UnloadReason.LowMemory)` and stops polling — the next
+ *  - When `availableBytes()` drops below [SystemMemoryThresholds.watchdogUnloadBytes],
+ *    calls `forceUnload(UnloadReason.LowMemory)` and stops polling — the next
  *    `Loaded` transition (a subsequent send triggered a fresh load) will
  *    re-arm.
  *  - Does NOT abort mid-generation. `forceUnload()` already defers when
@@ -55,11 +56,11 @@ class MemoryPressureWatchdog @Inject constructor(
     private val sessionManager: InferenceSessionManager,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     private val provider: MemoryHeadroomProvider,
+    private val thresholds: SystemMemoryThresholds,
 ) {
 
     /** Mutable for tests; not part of the public API. */
     internal var pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS
-    internal var unloadThresholdBytes: Long = DEFAULT_UNLOAD_THRESHOLD_BYTES
 
     /** Mutable for tests so a TestDispatcher can drive the polling loop. */
     internal var scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -76,6 +77,7 @@ class MemoryPressureWatchdog @Inject constructor(
                 Log.i(TAG, "watchdog armed: model loaded; polling every ${pollIntervalMs}ms")
                 while (isActive) {
                     val avail = provider.availableBytes()
+                    val unloadThresholdBytes = thresholds.watchdogUnloadBytes
                     if (avail < unloadThresholdBytes) {
                         val mb = avail / 1024 / 1024
                         val thresholdMb = unloadThresholdBytes / 1024 / 1024
@@ -121,15 +123,5 @@ class MemoryPressureWatchdog @Inject constructor(
          * negligible battery impact.
          */
         const val DEFAULT_POLL_INTERVAL_MS: Long = 5_000L
-
-        /**
-         * 800 MB. Tuned down from the initial 1 GiB after on-device
-         * validation showed the 1 GiB floor was firing too eagerly under
-         * normal multi-app use on Pixel 7. The OS still has its own LMK
-         * cushion below this; we want to react before that fires but not
-         * so far ahead that we churn the model load/unload on every
-         * background-app spike.
-         */
-        const val DEFAULT_UNLOAD_THRESHOLD_BYTES: Long = 800L * 1024 * 1024
     }
 }

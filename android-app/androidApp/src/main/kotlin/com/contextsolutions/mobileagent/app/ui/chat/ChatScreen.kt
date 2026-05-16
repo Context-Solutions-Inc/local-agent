@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
@@ -25,11 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessAlarm
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -63,6 +68,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -70,11 +76,12 @@ import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.ui.clock.ClockViewModel
-import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryBadge
+import com.contextsolutions.mobileagent.app.ui.observability.SystemMemoryStatusViewModel
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.app.ui.todo.TodoViewModel
 import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
 import com.contextsolutions.mobileagent.inference.Accelerator
+import com.contextsolutions.mobileagent.inference.MemoryStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.search.SearchSource
 
@@ -98,8 +105,6 @@ fun ChatScreen(
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
-    val memoryCount by viewModel.memoryCount.collectAsState()
-    val conversationId by viewModel.conversationId.collectAsState()
     val themeMode by themeModeViewModel.mode.collectAsState()
     val timers by clockViewModel.timers.collectAsState()
     val alarms by clockViewModel.alarms.collectAsState()
@@ -195,26 +200,25 @@ fun ChatScreen(
         lastSeenSize = ui.messages.size
     }
 
-    // Re-query the badge count whenever the chat screen comes back into
-    // the composition — handles the "delete a memory in MemoryScreen
-    // and return to chat" path where the in-flight count is otherwise
-    // stuck at the pre-delete value.
-    LaunchedEffect(Unit) {
-        viewModel.refreshMemoryCount()
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chat") },
+                navigationIcon = {
+                    // PR #18 — placeholder app brand. Decorative-only: no tap
+                    // target until we have an About surface to route to.
+                    Icon(
+                        imageVector = Icons.Filled.SmartToy,
+                        contentDescription = "Mobile Agent",
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                },
+                title = {},
                 actions = {
-                    val cid = conversationId
-                    if (cid != null) {
-                        ConversationMemoryBadge(
-                            count = memoryCount,
-                            onClick = { onOpenConversationMemory(cid) },
-                        )
-                    }
+                    // PR #18 — system-memory status dot. Green/yellow/red bands
+                    // mirror the watchdog + send-time gate thresholds in
+                    // SystemMemoryThresholds, so the dot the user sees can't
+                    // drift out of sync with what actually gates inference.
+                    SystemMemoryStatusIndicator()
                     // PR #15 — TODO entry point. Sits immediately to the
                     // LEFT of the timer icon. Badge mirrors the clock
                     // pattern, surfacing the count of OPEN (not-completed)
@@ -244,8 +248,18 @@ fun ChatScreen(
                         mode = themeMode,
                         onCycle = { themeModeViewModel.cycle() },
                     )
-                    TextButton(onClick = onOpenSettings) { Text("Settings") }
-                    TextButton(onClick = { viewModel.newConversation() }) { Text("New") }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                        )
+                    }
+                    IconButton(onClick = { viewModel.newConversation() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "New chat",
+                        )
+                    }
                 },
             )
         },
@@ -665,6 +679,31 @@ private fun SessionBanner(state: SessionState) {
         text = text,
         style = MaterialTheme.typography.labelSmall,
         color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+    )
+}
+
+@Composable
+private fun SystemMemoryStatusIndicator(
+    viewModel: SystemMemoryStatusViewModel = hiltViewModel(),
+) {
+    val status by viewModel.status.collectAsState()
+    // All three bands use fixed Material colors rather than theme slots —
+    // `colorScheme.primary` adapts to wallpaper under Material You (so
+    // "green" can render blue/purple) and `colorScheme.error` desaturates
+    // to pink on dark surfaces. A status dot needs to stay semantically
+    // red/yellow/green regardless of theme.
+    val (color, desc) = when (status) {
+        MemoryStatus.Green -> Color(0xFF43A047) to "System memory: healthy"
+        MemoryStatus.Yellow -> Color(0xFFFFA000) to "System memory: caution"
+        MemoryStatus.Red -> Color(0xFFE53935) to "System memory: low"
+    }
+    Icon(
+        imageVector = Icons.Filled.Circle,
+        contentDescription = desc,
+        tint = color,
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .size(12.dp),
     )
 }
 

@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import com.contextsolutions.mobileagent.app.observability.MainThreadHeartbeatWatchdog
 import com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog
+import com.contextsolutions.mobileagent.app.observability.SystemMemoryMonitor
 import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
@@ -48,6 +49,9 @@ class MobileAgentApplication : Application() {
 
     @Inject
     lateinit var memoryPressureWatchdog: MemoryPressureWatchdog
+
+    @Inject
+    lateinit var systemMemoryMonitor: SystemMemoryMonitor
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -106,6 +110,11 @@ class MobileAgentApplication : Application() {
         // does work while [SessionState.Loaded] — flips to Unloaded cancel
         // its inner polling loop via collectLatest semantics.
         memoryPressureWatchdog.start()
+
+        // (f) PR #18 — system-memory status monitor. Same MemoryHeadroomProvider
+        // as the watchdog but polls unconditionally so the chat-header status
+        // dot reflects device state regardless of whether Gemma is resident.
+        systemMemoryMonitor.start()
     }
 
     /**

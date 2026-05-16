@@ -8,6 +8,7 @@ import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
 import com.contextsolutions.mobileagent.db.MemoriesQueries
 import com.contextsolutions.mobileagent.db.MobileAgentDatabase
+import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
@@ -54,6 +55,7 @@ object MemoryModule {
 
     private const val TAG = "MemoryModule"
     private const val MEMORY_CONFIG_ASSET_PATH = "memory_config.json"
+    private const val SYSTEM_MEMORY_CONFIG_ASSET_PATH = "system_memory_config.json"
     private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
     @Provides
@@ -68,6 +70,31 @@ object MemoryModule {
             "Failed to load $MEMORY_CONFIG_ASSET_PATH; using DEFAULT thresholds (${t.message})",
         )
         MemoryConfig.DEFAULT
+    }
+
+    /**
+     * Shared system-RAM thresholds (PR #18). Consumed by
+     * [com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog],
+     * [com.contextsolutions.mobileagent.app.observability.SystemMemoryMonitor],
+     * [com.contextsolutions.mobileagent.app.ui.chat.ChatViewModel], and
+     * [com.contextsolutions.mobileagent.app.service.InferenceSessionManager].
+     * Same JSON-asset → kotlinx.serialization → fall-back pattern as
+     * [provideMemoryConfig] so post-launch tuning can ship via app update.
+     */
+    @Provides
+    @Singleton
+    fun provideSystemMemoryThresholds(
+        @ApplicationContext context: Context,
+    ): SystemMemoryThresholds = try {
+        val raw = context.assets.open(SYSTEM_MEMORY_CONFIG_ASSET_PATH)
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        configJson.decodeFromString(SystemMemoryThresholds.serializer(), raw)
+    } catch (t: Throwable) {
+        Log.w(
+            TAG,
+            "Failed to load $SYSTEM_MEMORY_CONFIG_ASSET_PATH; using DEFAULT thresholds (${t.message})",
+        )
+        SystemMemoryThresholds.DEFAULT
     }
 
     /**

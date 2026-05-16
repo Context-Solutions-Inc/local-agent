@@ -16,6 +16,7 @@ import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -70,6 +71,7 @@ class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val telemetryCounters: TelemetryCounters,
     private val memoryHeadroomProvider: MemoryHeadroomProvider,
+    private val systemMemoryThresholds: SystemMemoryThresholds,
     thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
@@ -111,7 +113,8 @@ class ChatViewModel @Inject constructor(
 
     /**
      * PR #16 — non-null when [send] refused to start a cold model load
-     * because system free RAM is below [MIN_BYTES_FOR_FRESH_LOAD]. The
+     * because system free RAM is below
+     * [SystemMemoryThresholds.coldLoadMinBytes]. The
      * chat screen renders a modal asking the user to close other apps;
      * the original prompt is preserved in [MemoryWarning.pendingPrompt]
      * so [retryAfterMemoryWarning] can re-attempt the send once memory
@@ -173,19 +176,24 @@ class ChatViewModel @Inject constructor(
         // PR #16 — send-time memory gate. Two thresholds, both checked:
         //
         //  - Cold load (state Unloaded / Failed → generate() will run
-        //    ensureLoadedLocked → engine.loadModel): need MIN_BYTES_FOR_FRESH_LOAD
-        //    (~2.5 GiB) for the load itself + working set.
+        //    ensureLoadedLocked → engine.loadModel): need
+        //    `SystemMemoryThresholds.coldLoadMinBytes` (~2 GiB) for the
+        //    load itself + working set.
         //  - Hot path (state Loaded / Loading → weights already resident):
-        //    need MIN_BYTES_FOR_HOT_PATH (~1.5 GiB) so the watchdog floor
-        //    (1 GiB) isn't crossed by KV-cache growth + activations
-        //    mid-turn. On-device repro showed that without this hot-path
-        //    check, the watchdog fires the moment generate() reloads the
-        //    model, the unload is deferred while we run, and the user gets
-        //    a blank assistant reply because inference produced nothing
-        //    usable under the crunch.
+        //    need `SystemMemoryThresholds.hotPathMinBytes` (~1 GiB) so the
+        //    watchdog floor (800 MB) isn't crossed by KV-cache growth +
+        //    activations mid-turn. On-device repro showed that without
+        //    this hot-path check, the watchdog fires the moment generate()
+        //    reloads the model, the unload is deferred while we run, and
+        //    the user gets a blank assistant reply because inference
+        //    produced nothing usable under the crunch.
         val currentState = sessionState.value
         val modelIsReady = currentState is SessionState.Loaded || currentState is SessionState.Loading
-        val threshold = if (modelIsReady) MIN_BYTES_FOR_HOT_PATH else MIN_BYTES_FOR_FRESH_LOAD
+        val threshold = if (modelIsReady) {
+            systemMemoryThresholds.hotPathMinBytes
+        } else {
+            systemMemoryThresholds.coldLoadMinBytes
+        }
         val avail = memoryHeadroomProvider.availableBytes()
         if (avail < threshold) {
             _memoryWarning.value = MemoryWarning(
@@ -714,26 +722,3 @@ data class MemoryWarning(
     val modelAlreadyLoaded: Boolean,
 )
 
-/**
- * Minimum free system RAM to attempt a Gemma cold load. Tuned to 2.0 GiB
- * after on-device validation showed the more conservative 2.5 GiB
- * refused sends in conditions where the load would have succeeded on
- * Pixel 7. Below this we surface the low-memory dialog rather than risk
- * the load OOM-ing the process. Kept in lock-step with
- * [com.contextsolutions.mobileagent.app.service.InferenceSessionManager.EAGER_WARMUP_MIN_FREE_BYTES]
- * so the warm-up path and the send-time cold-load path share one floor.
- */
-internal const val MIN_BYTES_FOR_FRESH_LOAD: Long = 2L * 1024 * 1024 * 1024 // 2.0 GiB
-
-/**
- * Minimum free system RAM to safely run a turn when the model is already
- * resident. 1.0 GiB matches the
- * [com.contextsolutions.mobileagent.app.observability.MemoryPressureWatchdog]
- * floor: below this we refuse the send rather than start a turn the
- * watchdog will unload during. Note: at this threshold there is no
- * additional buffer above the watchdog floor, so a transient dip during
- * inference can still trip the watchdog. `forceUnload` defers until
- * `activeGenerationCount` drops to zero, so the turn finishes before
- * unload; the next send pays a cold load via the agent loop's lazy path.
- */
-internal const val MIN_BYTES_FOR_HOT_PATH: Long = 1L * 1024 * 1024 * 1024 // 1.0 GiB
