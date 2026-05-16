@@ -67,6 +67,8 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 | M6 Polish, eval, telemetry | ✅ Complete 2026-05-11. Schema v1→v2→v3 with `verifyMigrations` build gate; eager Gemma warm-up via `LifecycleResumeEffect` (first-token 1–3 s on cold-open-then-send); opt-in (default OFF) Firebase Analytics pipeline — 4 themed daily events, memory-exclusion canary test; Firebase Crashlytics behind `SafeCrashReporter` + `ContentRedactor`; 3-screen first-run onboarding; `ThermalBanner` at MODERATE/SEVERE + full block at CRITICAL; accessibility audit; 2 hosted-CI workflows (`regression-gate.yml`, `prompt-eval-gate.yml`). **318 unit tests.** See `docs/M6_PLAN.md` + `docs/M6_M7_HANDOFF.md`. |
 | M7 Closed beta → public launch | Not started. See `docs/M7_PLAN.md`. |
 
+Post-M6 increments tracked as M2.1–M2.7 in [PHASE1_PLAN.md](PHASE1_PLAN.md) §5: news.results enhancements, persisted multi-conversation history, on-device TODO list, proactive memory-pressure handling, icon-only header with system-RAM status indicator, and an explicit `remember`/`forget` short-circuit in the agent loop. **636 unit tests as of M2.7.**
+
 ## Building
 
 ### Prerequisites

@@ -452,6 +452,90 @@ lets the turn finish before unload; the next send pays a cold load via
 the agent loop's lazy path. Worth revisiting if telemetry shows
 mid-turn unloads becoming common or if dialog-fire rates spike.
 
+**Superseded by M2.6**: the four threshold constants above were
+consolidated into a JSON-driven `SystemMemoryThresholds` config so all
+consumers (watchdog, gates, the new status indicator) read from one
+source. The shipped JSON values on main are currently
+**300 MB / 500 MB / 800 MB** for on-device experimentation — see M2.6
+for the rationale + how to retune via `system_memory_config.json`.
+
+### M2.6 — Header redesign + system memory status indicator ✅ COMPLETE 2026-05-16
+
+PR #18 replaces the chat header's text actions (`Chat` / `Settings` /
+`New`) with icons, drops the auto-extraction memory badge (memories
+now save only on explicit user request, so the badge has lost its
+purpose), and inserts a green / yellow / red **system-RAM status dot**
+between the placeholder app icon and the clock cluster. New header
+order left → right: app brand · status dot · TODO · Timer · Alarm ·
+theme toggle · Settings cog · `+` (new chat). All dots use pinned
+Material colors (Green 600 / Amber 700 / Red 600) instead of theme
+slots — `colorScheme.primary` adapts to Material You wallpaper (so
+"green" can render blue/purple) and `colorScheme.error` desaturates
+to pink on dark surfaces, both of which lose the semantic signal a
+status dot needs.
+
+The four memory-pressure thresholds inlined across `MemoryPressureWatchdog`,
+`ChatViewModel`, and `InferenceSessionManager` (per M2.5) were
+consolidated into a single `SystemMemoryThresholds` data class in
+`:shared/inference/`, JSON-asset-backed at
+`androidApp/src/main/assets/system_memory_config.json`, parsed at
+app start through `MemoryModule.provideSystemMemoryThresholds` and
+injected into every consumer. The same `thresholds.classify()` helper
+drives the status dot's bands so the indicator and the gating logic
+**cannot drift out of sync**. JSON values on main:
+**300 MB watchdog / 500 MB hot-path / 800 MB cold-load** (also feeds
+the eager warm-up gate via `coldLoadMinBytes`). DEFAULT values in code
+remain at the conservative 800 MB / 1 GiB / 2 GiB so a parse-failure
+fallback doesn't silently regress.
+
+A new `SystemMemoryMonitor` (singleton, started from
+`MobileAgentApplication.onCreate`) polls `availMem` every 5 seconds
+unconditionally — sibling of `MemoryPressureWatchdog` but no gating
+on `SessionState`, since the indicator should reflect device state
+regardless of whether the model is resident. Logs once on arm
+(thresholds + initial status) and once per band transition with the
+avail bytes that triggered it — diagnostic filter
+`adb logcat -s SystemMemoryMonitor:I MemoryPressureWatchdog:I`.
+
+Status-dot bands derived from the JSON: **Red `<watchdogUnloadBytes`**,
+**Yellow `watchdogUnloadBytes` … `coldLoadMinBytes`**, **Green
+`≥coldLoadMinBytes`**. Hot-path threshold (`hotPathMinBytes`) is not
+surfaced in the indicator — it stays as a fourth gate inside the
+send-time check.
+
+Tests: 8 new `SystemMemoryThresholdsTest` (band boundaries + invariant
+rejection), 4 new `SystemMemoryMonitorTest` (StateFlow transitions
+under TestDispatcher — a hard-learned subtlety here is the monitor's
+`while (isActive) { delay() }` loop has no exit, so calling
+`advanceUntilIdle()` infinite-loops the scheduler; tests use
+bounded `advanceTimeBy + runCurrent` and `monitor.stop()` inside the
+test body before `runTest` exits). 633 unit tests at end of M2.6.
+
+### M2.7 — Explicit remember/forget short-circuit ✅ COMPLETE 2026-05-16
+
+PR #19 closes a bug where `remember my favorite color is blue` produced
+**two wrong outcomes**: (a) the post-prefix payload was added as a TODO
+(Gemma's training prior associates "remember" with task creation; with
+`add_todo` registered as a tool, the model reliably called it), and
+(b) the assistant emitted an empty response bubble after the spurious
+tool call (the model considered its work done and produced no
+follow-up text). The actual memory save was unaffected — `MemoryExtractor`
+runs `RememberForgetDetector` downstream and force-creates the memory
+regardless of what the LLM did.
+
+Fix mirrors the M2.4 todo + M2-era clock deterministic short-circuit
+pattern. `RememberForgetDetector` is now consulted in `AgentLoop.run`
+**before** the LLM dispatch, right after the todo block. On a match,
+the agent emits a fixed `OK, I'll remember that.` (or
+`OK, I'll forget that.`) and returns; `skipMemoryExtraction = false`
+on the emitted `Done` is load-bearing so the downstream save still
+happens — no save logic duplicated in `AgentLoop`.
+
+Tests: 3 new `AgentLoopMemoryCommandTest` cases lock the contract that
+`engine.generate` is **never** invoked on remember/forget turns,
+mirroring `AgentLoopTodoTest`'s no-LLM-fallback assertion. 636 unit
+tests at end of M2.7.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
