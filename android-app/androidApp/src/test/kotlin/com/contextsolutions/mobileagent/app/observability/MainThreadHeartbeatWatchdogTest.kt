@@ -53,7 +53,6 @@ class MainThreadHeartbeatWatchdogTest {
     private val sessionManager = InferenceSessionManager(
         engine = TestNoOpEngine,
         foregroundServiceController = TestNoOpFgs,
-        thermalStatusProvider = TestNoOpThermal,
         counters = counters,
     )
     // Wrap the no-op aux engines so the watchdog → coordinator → wrapper

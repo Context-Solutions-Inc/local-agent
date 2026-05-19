@@ -5,11 +5,7 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
-import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ModelHandle
-import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
-import com.contextsolutions.mobileagent.inference.ThermalStatus
-import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
@@ -17,7 +13,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,18 +59,7 @@ import kotlinx.coroutines.withContext
 class InferenceSessionManager @Inject constructor(
     private val engine: InferenceEngine,
     private val foregroundServiceController: ForegroundServiceController,
-    private val thermalStatusProvider: ThermalStatusProvider,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
-    // PR #16 — gates eager warm-up when free RAM is below the cold-load
-    // budget. Default is permissive so existing tests that construct the
-    // manager directly don't have to plumb a fake; production Hilt graph
-    // wires AndroidMemoryHeadroomProvider via InferenceModule.
-    private val memoryHeadroomProvider: MemoryHeadroomProvider = MemoryHeadroomProvider { Long.MAX_VALUE },
-    // PR #18 — single source of truth for the cold-load floor. Defaults to
-    // [SystemMemoryThresholds.DEFAULT] for the same test-friendliness
-    // reason as `memoryHeadroomProvider`; production wires the shared
-    // singleton from `MemoryModule.provideSystemMemoryThresholds`.
-    private val systemMemoryThresholds: SystemMemoryThresholds = SystemMemoryThresholds.DEFAULT,
 ) {
 
     /**
@@ -83,15 +67,6 @@ class InferenceSessionManager @Inject constructor(
      * (TestDispatcher / shorter timeout). Not part of the public API.
      */
     internal var idleTimeout: Duration = DEFAULT_IDLE_TIMEOUT
-
-    /**
-     * Idle timeout used after a successful [warmUpIfPossible] load. Shorter than
-     * [idleTimeout] because the post-warm-up state means the user is on the chat
-     * surface but hasn't actually committed to a turn — if they don't engage
-     * within this window, release the GPU rather than holding it indefinitely.
-     * The eager warm-up will reload on the next Chat-screen entry (1–3 s on Pixel 7).
-     */
-    internal var idleTimeoutAfterWarmUp: Duration = DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP
 
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
@@ -116,116 +91,6 @@ class InferenceSessionManager @Inject constructor(
         config: InferenceConfig = InferenceConfig(),
     ): ModelHandle = mutex.withLock {
         ensureLoadedLocked(modelPath, config)
-    }
-
-    /**
-     * M6 Phase B — eager warm-up entry point used by `MainScreen`'s
-     * `LaunchedEffect(currentRoute is Chat)`. Idempotent and side-effect free
-     * (no FGS start, no generation count increment): just makes sure the model
-     * is loaded so the first `send()` doesn't pay the 4–8 s cold-load tax in
-     * the foreground.
-     *
-     * Behavior:
-     * - State is already `Loaded` with the same `modelPath` → returns
-     *   [WarmUpOutcome.AlreadyLoaded] without touching the mutex.
-     * - State is `Loading` → returns [WarmUpOutcome.AlreadyLoading] without
-     *   waiting. The other loader (typically [generate]) will reach `Loaded`
-     *   on its own; this method's contract is "don't duplicate work", not
-     *   "guarantee a Loaded state by return".
-     * - Thermal state ≥ [ThermalStatus.SEVERE] → returns
-     *   [WarmUpOutcome.SkippedThermal]. The device is already throttling;
-     *   spinning up Gemma would worsen the user-visible experience. The first
-     *   `send()` still pays the cold load, but by then the user has chosen to
-     *   accept the latency.
-     * - Otherwise → acquires the mutex and runs the same `ensureLoadedLocked`
-     *   path `acquire` uses, returning [WarmUpOutcome.Loaded] on success or
-     *   [WarmUpOutcome.Failed] on throw. Never propagates the throw — the
-     *   caller (`MainScreen` LaunchedEffect) shouldn't fail the UI on a
-     *   warm-up miss; first-`send()` will retry through the normal path.
-     *
-     * Concurrency: safe to call from multiple coroutines in parallel. The
-     * mutex serialises the load; subsequent callers see `Loaded` in the
-     * fast-path and return [WarmUpOutcome.AlreadyLoaded] without blocking.
-     */
-    suspend fun warmUpIfPossible(
-        modelPath: String,
-        config: InferenceConfig = InferenceConfig(),
-    ): WarmUpOutcome {
-        // Fast path: skip the mutex when state is already terminal. _state is
-        // updated atomically inside the lock, so a Loaded reading here is
-        // guaranteed-correct. Loading is advisory — re-checked under the lock.
-        when (val snapshot = _state.value) {
-            is SessionState.Loaded -> {
-                // Loaded with a (potentially different) model. Caller passed a
-                // specific path — only declare AlreadyLoaded if it matches.
-                if (handle?.modelId == modelPath) {
-                    counters.increment(CounterNames.INFERENCE_WARMUP_ALREADY_LOADED_TOTAL)
-                    return WarmUpOutcome.AlreadyLoaded
-                }
-            }
-            SessionState.Loading -> {
-                counters.increment(CounterNames.INFERENCE_WARMUP_ALREADY_LOADING_TOTAL)
-                return WarmUpOutcome.AlreadyLoading
-            }
-            else -> Unit // Unloaded / Failed → fall through and try to load
-        }
-
-        val thermal = thermalStatusProvider.current()
-        if (thermal.isThrottling) {
-            counters.increment(CounterNames.INFERENCE_WARMUP_SKIPPED_THERMAL_TOTAL)
-            return WarmUpOutcome.SkippedThermal(thermal)
-        }
-
-        // PR #16 — eager warm-up memory gate. Without this check, the
-        // watchdog still catches the case (we'll unload moments after the
-        // load completes), but we'd waste a full GPU init + 2.58 GB I/O
-        // for nothing on memory-tight devices. Threshold matches the
-        // cold-load gate in ChatViewModel so warm-up and send share one
-        // floor. If we'd refuse a send anyway, refuse the warm-up too.
-        val avail = memoryHeadroomProvider.availableBytes()
-        val coldLoadFloor = systemMemoryThresholds.coldLoadMinBytes
-        if (avail < coldLoadFloor) {
-            counters.increment(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL)
-            return WarmUpOutcome.SkippedMemory(
-                availableBytes = avail,
-                requiredBytes = coldLoadFloor,
-            )
-        }
-
-        return try {
-            val outcome = mutex.withLock {
-                // Re-check inside the lock: another caller may have completed
-                // the load while we were waiting on the mutex.
-                if (handle?.modelId == modelPath && _state.value is SessionState.Loaded) {
-                    WarmUpOutcome.AlreadyLoaded
-                } else {
-                    val loaded = ensureLoadedLocked(modelPath, config)
-                    // Bound how long a warmed-up-but-unused model stays
-                    // resident. Pre-watchdog the warm-up path didn't schedule
-                    // any idle unload, so the model stayed loaded until the
-                    // OS reaped the process or onTrimMemory fired — and on
-                    // a GPU build this contributed to the system_server
-                    // soft-reboot failure mode by holding the GPU
-                    // indefinitely while the user wasn't actually generating.
-                    // The post-generation timeout (5 min) still applies once
-                    // a real turn happens; this shorter post-warmup window
-                    // only fires when the user warmed up and walked away.
-                    if (activeGenerationCount == 0) {
-                        scheduleIdleUnloadLocked(idleTimeoutAfterWarmUp)
-                    }
-                    WarmUpOutcome.Loaded(loaded.activeAccelerator)
-                }
-            }
-            when (outcome) {
-                is WarmUpOutcome.Loaded -> counters.increment(CounterNames.INFERENCE_WARMUP_LOADED_TOTAL)
-                WarmUpOutcome.AlreadyLoaded -> counters.increment(CounterNames.INFERENCE_WARMUP_ALREADY_LOADED_TOTAL)
-                else -> Unit // unreachable from this branch
-            }
-            outcome
-        } catch (t: Throwable) {
-            counters.increment(CounterNames.INFERENCE_WARMUP_FAILED_TOTAL)
-            WarmUpOutcome.Failed(t)
-        }
     }
 
     /**
@@ -338,10 +203,10 @@ class InferenceSessionManager @Inject constructor(
         idleUnloadJob = null
     }
 
-    private fun scheduleIdleUnloadLocked(timeout: Duration = idleTimeout) {
+    private fun scheduleIdleUnloadLocked() {
         cancelIdleUnloadLocked()
         idleUnloadJob = scope.launch {
-            delay(timeout)
+            delay(idleTimeout)
             mutex.withLock {
                 // Re-check: a new generation may have started while we waited.
                 if (activeGenerationCount == 0) {
@@ -368,7 +233,6 @@ class InferenceSessionManager @Inject constructor(
 
     companion object {
         val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
-        val DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP: Duration = 60.seconds
     }
 }
 
@@ -417,34 +281,3 @@ sealed interface SessionState {
     data class Failed(val message: String, val cause: Throwable?) : SessionState
 }
 
-/**
- * Outcome of [InferenceSessionManager.warmUpIfPossible]. Drives the M6 Phase B
- * eager-load logging (and, post-Phase C, the matching telemetry counters
- * `inference_warmup_eager_total`, `inference_warmup_skipped_thermal_total`,
- * etc.). Never surfaced to UI — observers should read [InferenceSessionManager.state]
- * instead.
- */
-sealed interface WarmUpOutcome {
-    /** Model with the requested path was already resident — nothing to do. */
-    data object AlreadyLoaded : WarmUpOutcome
-
-    /** A load is in progress on another coroutine — let it finish; we don't duplicate work. */
-    data object AlreadyLoading : WarmUpOutcome
-
-    /** Thermal state ≥ SEVERE; skipped to avoid worsening throttle. */
-    data class SkippedThermal(val status: ThermalStatus) : WarmUpOutcome
-
-    /**
-     * PR #16 — free system RAM was below
-     * [SystemMemoryThresholds.coldLoadMinBytes] at warm-up time. Skipping
-     * the load saves a wasted GPU init + 2.58 GB I/O on a device the
-     * watchdog would unload moments later anyway.
-     */
-    data class SkippedMemory(val availableBytes: Long, val requiredBytes: Long) : WarmUpOutcome
-
-    /** This call performed the load. [accelerator] is what the engine actually got. */
-    data class Loaded(val accelerator: Accelerator) : WarmUpOutcome
-
-    /** Load attempted and threw; first `send()` will retry through the normal path. */
-    data class Failed(val cause: Throwable) : WarmUpOutcome
-}

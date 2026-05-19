@@ -5,6 +5,17 @@
 **Last updated:** 2026-05-10
 **Companion to:** PRD.md §3.2.1 / §4.3 / §4.4 / §6 / §7, PHASE1_PLAN.md §5 M6 (WS-11 / WS-13 / WS-14 / WS-15 + M5 carry-overs), `docs/M5_M6_HANDOFF.md`, `docs/M6_KICKOFF.md`, SYSTEM_PROMPT.md §11
 
+> **2026-05-19 — PR #25 reversal.** Eager Gemma load (Phase B) was disabled.
+> Regex tools (clock/todo/memory) and classifier-routed verticals (weather)
+> don't need the LLM at all; for fall-through queries the user accepts the
+> first-send cold-load. `InferenceSessionManager.warmUpIfPossible`,
+> `WarmUpOutcome`, the `INFERENCE_WARMUP_*` counters, the thermal/memory
+> gates on warm-up, and `idleTimeoutAfterWarmUp` were all removed. Aux
+> engines (classifier + embedder) still warm eagerly on Chat RESUME via
+> `MainViewModel.warmUpAuxEngines`. The thermal gating + first-token
+> targets below are historical context for the warm-up path; the steady-
+> state generate() path is unchanged.
+
 ---
 
 ## 1. Goal

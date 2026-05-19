@@ -4,10 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
-import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelDownloadController
 import com.contextsolutions.mobileagent.app.service.ModelInventory
-import com.contextsolutions.mobileagent.app.service.WarmUpOutcome
 import com.contextsolutions.mobileagent.onboarding.OnboardingPreferences
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,7 +28,6 @@ import kotlinx.coroutines.flow.stateIn
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val inventory: ModelInventory,
-    private val sessionManager: InferenceSessionManager,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     onboardingPreferences: OnboardingPreferences,
     telemetryConsent: TelemetryConsentManager,
@@ -65,47 +62,33 @@ class MainViewModel @Inject constructor(
     )
 
     /**
-     * M6 Phase B — eager Gemma warm-up triggered when the user lands on the
-     * Chat surface. Returns the outcome so the caller (MainScreen
-     * `LaunchedEffect`) can log it. Suspend so the Compose scope owns
-     * cancellation: a route change away from Chat while the load is in flight
-     * cancels the call cleanly without leaving a dangling coroutine.
+     * Eager warm-up of the aux (classifier + embedder) engines when the user
+     * lands on the Chat surface. Gemma is NOT warmed eagerly (PR #25): it
+     * loads on the first `InferenceSessionManager.generate()` call, which
+     * happens only on fall-through queries — regex tools (clock/todo/memory)
+     * and classifier-routed verticals like weather never touch the LLM.
      *
-     * The 300 ms debounce + still-on-Chat re-check live in the caller, not
-     * here, so the ViewModel doesn't have to model navigation state. This
-     * method is a pure side-effect: "if you can, please load the model now".
+     * The classifier (~113 ms warm-up, 67 MB) and embedder (~41 ms, 23 MB)
+     * run on every non-regex turn for pre-flight + memory retrieval, so they
+     * stay on the same RESUME hook that fires when (a) the route flips to
+     * Chat from a sibling screen or (b) the activity returns from background
+     * after a 5-min idle unload / onTrimMemory.
+     *
+     * The 300 ms debounce + still-on-Chat re-check live in the caller. This
+     * method is a pure side-effect: "if you can, warm the aux engines now".
      */
-    suspend fun warmUpEagerly(): WarmUpOutcome {
+    suspend fun warmUpAuxEngines() {
         // Defensive: routes flip to Chat only when modelPresent is true (see
         // MainScreen), but a race between WorkManager completion and the user
         // navigating into Chat could in theory call this before the file lands.
-        // Return a benign outcome instead of trying to load a missing path.
+        // Aux engines don't depend on the Gemma artifact, but we keep the
+        // gate so the chat surface is the only entry point that warms them.
         if (!inventory.isPresent()) {
-            Log.i(TAG, "eager warm-up skipped: model not present")
-            return WarmUpOutcome.Failed(IllegalStateException("model not present"))
+            Log.i(TAG, "aux warm-up skipped: model not present")
+            return
         }
-        val modelPath = inventory.localFile().absolutePath
-        val outcome = sessionManager.warmUpIfPossible(modelPath)
-        Log.i(TAG, "eager warm-up outcome: ${outcome.label()}")
-        // PR #8 — fan out the same RESUME hook to the aux engines so
-        // they load alongside Gemma after a 5-min idle unload /
-        // onTrimMemory release. Best-effort: a load failure here is
-        // surfaced by the engine's own log line, and the first
-        // classify/embed call will retry through the normal path.
         runCatching { auxModelCoordinator.warmUpAll() }
             .onFailure { Log.w(TAG, "aux-model warm-up threw; will retry on first use", it) }
-        return outcome
-    }
-
-    private fun WarmUpOutcome.label(): String = when (this) {
-        WarmUpOutcome.AlreadyLoaded -> "already_loaded"
-        WarmUpOutcome.AlreadyLoading -> "already_loading"
-        is WarmUpOutcome.SkippedThermal -> "skipped_thermal(${status.name})"
-        is WarmUpOutcome.SkippedMemory ->
-            "skipped_memory(avail=${availableBytes / 1024 / 1024}MB, " +
-                "required=${requiredBytes / 1024 / 1024}MB)"
-        is WarmUpOutcome.Loaded -> "loaded(${accelerator.name})"
-        is WarmUpOutcome.Failed -> "failed(${cause::class.simpleName})"
     }
 
     private companion object {

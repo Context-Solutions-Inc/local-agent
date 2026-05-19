@@ -61,21 +61,24 @@ fun MainScreen(
         return
     }
 
-    // M6 Phase B — eager Gemma warm-up.
+    // Eager aux (classifier + embedder) warm-up. Gemma is NOT warmed here
+    // (PR #25): it loads on the first generate() call, which happens only on
+    // fall-through queries — regex tools (clock/todo/memory) and classifier-
+    // routed verticals like weather never touch the LLM.
     //
     // Fires when the Chat surface becomes visible AND the Activity is in the
     // RESUMED state. Two triggers, one effect:
     //   1. User navigates to Chat from Settings / Memory → route changes,
     //      effect re-keys, runs.
     //   2. User backgrounds the app and returns → ON_PAUSE then ON_RESUME,
-    //      LifecycleResumeEffect re-runs its body. Important: 5-min idle
-    //      unload (M0 Decision 5) or onTrimMemory may have unloaded the model
-    //      while we were backgrounded — we'd otherwise pay the cold-load on
-    //      the next send().
+    //      LifecycleResumeEffect re-runs its body. Important: a 5-min idle
+    //      unload (M0 Decision 5) or onTrimMemory may have unloaded the aux
+    //      engines while we were backgrounded — re-warming on resume keeps
+    //      the next pre-flight + memory retrieval sub-200 ms.
     //
     // 300 ms debounce catches short Settings → Chat flips and short
     // background bounces (notification glance, quick app-switcher peek) so
-    // the model load isn't kicked off for trivial visits. Compose's
+    // the load isn't kicked off for trivial visits. Compose's
     // LifecycleResumeEffect cancels the launched coroutine via
     // onPauseOrDispose when ON_PAUSE fires or the route changes, so an
     // in-flight warm-up that becomes irrelevant gets cleaned up without
@@ -86,7 +89,7 @@ fun MainScreen(
         if (route is MainRoute.Chat) {
             warmUpJob = warmUpScope.launch {
                 delay(EAGER_WARMUP_DEBOUNCE_MS)
-                viewModel.warmUpEagerly()
+                viewModel.warmUpAuxEngines()
             }
         }
         onPauseOrDispose { warmUpJob?.cancel() }
@@ -164,13 +167,11 @@ fun MainScreen(
 }
 
 /**
- * Debounce window between landing on Chat and kicking off the Gemma warm-up.
- * 300 ms catches Settings → Chat → Settings flips (warm-up is cancelled
- * before any work happens) without delaying intentional Chat entry
+ * Debounce window between landing on Chat and kicking off the aux-engine
+ * warm-up. 300 ms catches Settings → Chat → Settings flips (warm-up is
+ * cancelled before any work happens) without delaying intentional Chat entry
  * noticeably. Empirically the Chat screen's first frame composes in well
- * under 200 ms on Pixel 7, so the debounce is safe; bump to 500 ms if
- * Phase B's manual test shows the load attempt frequently kicks off during
- * Chat-screen draw work.
+ * under 200 ms on Pixel 7, so the debounce is safe.
  */
 private const val EAGER_WARMUP_DEBOUNCE_MS = 300L
 

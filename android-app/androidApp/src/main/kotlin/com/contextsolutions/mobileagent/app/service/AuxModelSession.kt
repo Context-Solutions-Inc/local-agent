@@ -103,8 +103,8 @@ internal class AuxModelSession(
     }
 
     /**
-     * Eager warm-up entry. Mirrors
-     * [InferenceSessionManager.warmUpIfPossible] semantics:
+     * Eager warm-up entry called from `MainViewModel.warmUpAuxEngines` on
+     * Chat-screen RESUME:
      *  - Already loaded → [AuxWarmUpOutcome.AlreadyLoaded].
      *  - Thermal ≥ SEVERE → [AuxWarmUpOutcome.SkippedThermal].
      *  - Otherwise → load under the mutex, schedule a 60 s post-warm-up
@@ -133,10 +133,9 @@ internal class AuxModelSession(
                     val ok = ensureLoadedLocked()
                     if (ok) {
                         // Bound how long a warmed-up-but-unused engine
-                        // stays resident. Same pattern as
-                        // InferenceSessionManager.warmUpIfPossible:
-                        // post-warmup window only fires when the user
-                        // warmed up the engine and walked away.
+                        // stays resident. The post-warmup window only
+                        // fires when the user warmed up the engine and
+                        // walked away.
                         if (activeUseCount == 0) {
                             scheduleIdleUnloadLocked(idleTimeoutAfterWarmUp)
                         }
@@ -254,21 +253,18 @@ internal class AuxModelSession(
     )
 
     companion object {
-        /** Same as [InferenceSessionManager.DEFAULT_IDLE_TIMEOUT]. */
+        /** Idle timeout after the last classify/embed before unloading. */
         val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
-        /** Same as [InferenceSessionManager.DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP]. */
+        /** Shorter idle window applied after a warm-up that didn't lead to a use. */
         val DEFAULT_IDLE_TIMEOUT_AFTER_WARMUP: Duration = 60.seconds
     }
 }
 
 /**
- * Outcome of [AuxModelSession.warmUpIfPossible]. Mirrors
- * [WarmUpOutcome] (Gemma) but without an accelerator field — the aux
- * models don't surface their accelerator to UI and the per-engine
- * `Log.i` line already records it. No `AlreadyLoading` state because
- * the aux engines load in ~100–500 ms; the simpler mutex-wait suffices
- * and the additional state isn't worth its complexity at that
- * timescale.
+ * Outcome of [AuxModelSession.warmUpIfPossible]. No `AlreadyLoading`
+ * state because the aux engines load in ~100–500 ms; the simpler
+ * mutex-wait suffices and the additional state isn't worth its
+ * complexity at that timescale.
  */
 internal sealed interface AuxWarmUpOutcome {
     data object AlreadyLoaded : AuxWarmUpOutcome

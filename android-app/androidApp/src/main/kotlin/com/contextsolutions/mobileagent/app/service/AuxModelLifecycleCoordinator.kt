@@ -8,7 +8,7 @@ import javax.inject.Singleton
 /**
  * Single fan-out handle for aux-model lifecycle commands. Lets the
  * `Application.onTrimMemory`, `MainThreadHeartbeatWatchdog`, and
- * `MainViewModel.warmUpEagerly` call sites pass through one dependency
+ * `MainViewModel.warmUpAuxEngines` call sites pass through one dependency
  * instead of holding separate references to the classifier and
  * embedder engines.
  *

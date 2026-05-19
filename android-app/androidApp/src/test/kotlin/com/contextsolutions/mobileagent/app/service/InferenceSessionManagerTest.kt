@@ -7,19 +7,13 @@ import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
-import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.ModelHandle
-import com.contextsolutions.mobileagent.inference.ThermalStatus
-import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -187,170 +181,7 @@ class InferenceSessionManagerTest {
         assertEquals(1, engine.unloadCount.get())
     }
 
-    // ─── M6 Phase B: warmUpIfPossible ─────────────────────────────────────
-
-    @Test
-    fun `warmUpIfPossible loads the model and returns Loaded`() = runTest {
-        val (manager, engine, fgs) = newManager()
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        assertTrue("expected Loaded, got $outcome", outcome is WarmUpOutcome.Loaded)
-        assertEquals(Accelerator.GPU, (outcome as WarmUpOutcome.Loaded).accelerator)
-        assertEquals(1, engine.loadCount.get())
-        // Warm-up must NOT start the foreground service — only an actual
-        // generation does. Confirms the path doesn't trip FGS state.
-        assertEquals(0, fgs.startCount.get())
-        assertEquals(SessionState.Loaded(Accelerator.GPU), manager.state.value)
-    }
-
-    @Test
-    fun `warmUpIfPossible returns AlreadyLoaded when model already loaded`() = runTest {
-        val (manager, engine, _) = newManager()
-        manager.acquire(MODEL_PATH)
-        assertEquals(1, engine.loadCount.get())
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        assertEquals(WarmUpOutcome.AlreadyLoaded, outcome)
-        // Critically: no second load attempt — the fast path short-circuits.
-        assertEquals(1, engine.loadCount.get())
-    }
-
-    @Test
-    fun `warmUpIfPossible returns SkippedThermal at SEVERE`() = runTest {
-        val engine = FakeInferenceEngine()
-        val fgs = FakeForegroundServiceController()
-        val thermal = FakeThermalStatusProvider(initial = ThermalStatus.SEVERE)
-        val manager = newManagerWith(engine, fgs, thermal)
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        assertTrue("expected SkippedThermal, got $outcome", outcome is WarmUpOutcome.SkippedThermal)
-        assertEquals(ThermalStatus.SEVERE, (outcome as WarmUpOutcome.SkippedThermal).status)
-        assertEquals(0, engine.loadCount.get())
-        assertEquals(SessionState.Unloaded, manager.state.value)
-    }
-
-    @Test
-    fun `warmUpIfPossible returns SkippedThermal at CRITICAL`() = runTest {
-        val engine = FakeInferenceEngine()
-        val fgs = FakeForegroundServiceController()
-        val thermal = FakeThermalStatusProvider(initial = ThermalStatus.CRITICAL)
-        val manager = newManagerWith(engine, fgs, thermal)
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        assertTrue("expected SkippedThermal, got $outcome", outcome is WarmUpOutcome.SkippedThermal)
-        assertEquals(0, engine.loadCount.get())
-    }
-
-    @Test
-    fun `warmUpIfPossible proceeds at MODERATE thermal`() = runTest {
-        val engine = FakeInferenceEngine()
-        val fgs = FakeForegroundServiceController()
-        val thermal = FakeThermalStatusProvider(initial = ThermalStatus.MODERATE)
-        val manager = newManagerWith(engine, fgs, thermal)
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        // MODERATE is below the SEVERE throttle threshold — load proceeds.
-        assertTrue("expected Loaded at MODERATE, got $outcome", outcome is WarmUpOutcome.Loaded)
-        assertEquals(1, engine.loadCount.get())
-    }
-
-    @Test
-    fun `warmUpIfPossible returns Failed and does not throw when engine throws`() = runTest {
-        val throwingEngine = object : InferenceEngine {
-            override suspend fun loadModel(modelPath: String, config: InferenceConfig): ModelHandle {
-                throw IllegalStateException("simulated cold-load failure")
-            }
-            override fun unload(handle: ModelHandle) = Unit
-            override fun generate(
-                handle: ModelHandle,
-                request: GenerationRequest,
-                toolDispatcher: com.contextsolutions.mobileagent.inference.ToolDispatcher?,
-            ): Flow<GenerationEvent> = flow { }
-        }
-        val fgs = FakeForegroundServiceController()
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val manager = InferenceSessionManager(throwingEngine, fgs, FakeThermalStatusProvider())
-        manager.idleTimeout = IDLE_TIMEOUT
-        manager.ioDispatcher = dispatcher
-        manager.scope = CoroutineScope(SupervisorJob() + dispatcher)
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-
-        // Caller (MainScreen LaunchedEffect) must not see a throw — would crash
-        // the UI. Failure is surfaced via the outcome instead.
-        assertTrue("expected Failed, got $outcome", outcome is WarmUpOutcome.Failed)
-        assertTrue((outcome as WarmUpOutcome.Failed).cause is IllegalStateException)
-        // Manager state still reflects the failure for any observer.
-        assertTrue(manager.state.value is SessionState.Failed)
-    }
-
-    @Test
-    fun `warmUpIfPossible is idempotent under concurrent calls`() = runTest {
-        val (manager, engine, _) = newManager()
-
-        // Fire 3 calls concurrently — only one underlying load should happen.
-        val jobs = (1..3).map {
-            launch { manager.warmUpIfPossible(MODEL_PATH) }
-        }
-        jobs.forEach { it.join() }
-
-        assertEquals(1, engine.loadCount.get())
-        assertEquals(SessionState.Loaded(Accelerator.GPU), manager.state.value)
-    }
-
-    // ─── M7 watchdog PR: post-warmup idle + new UnloadReason ──────────────
-
-    @Test
-    fun `warmUpIfPossible schedules idle unload after the shorter post-warmup timeout`() = runTest {
-        val (manager, engine, _) = newManager()
-        manager.idleTimeoutAfterWarmUp = POST_WARMUP_IDLE_TIMEOUT
-
-        manager.warmUpIfPossible(MODEL_PATH)
-        // runCurrent() drains immediately-pending tasks (the scheduling itself)
-        // without advancing virtual time, so we can observe the
-        // "loaded but timer not yet fired" intermediate state.
-        runCurrent()
-        assertEquals(0, engine.unloadCount.get())
-
-        // Just before the shorter post-warmup timeout: still loaded.
-        advanceTimeBy(POST_WARMUP_IDLE_TIMEOUT.inWholeMilliseconds - 1)
-        runCurrent()
-        assertEquals(0, engine.unloadCount.get())
-
-        // After the timeout: unloaded.
-        advanceTimeBy(2)
-        runCurrent()
-        assertEquals(1, engine.unloadCount.get())
-        assertEquals(SessionState.Unloaded, manager.state.value)
-    }
-
-    @Test
-    fun `generate after warm-up resets idle timer to post-generation timeout`() = runTest {
-        val (manager, engine, _) = newManager()
-        manager.idleTimeoutAfterWarmUp = POST_WARMUP_IDLE_TIMEOUT
-
-        manager.warmUpIfPossible(MODEL_PATH)
-        manager.generate(MODEL_PATH, REQUEST).collect { /* drain */ }
-        runCurrent()
-
-        // Wait past the post-warmup window — should NOT unload, because the
-        // generation should have switched us to the longer post-generation
-        // timer (cancelIdleUnloadLocked inside generate).
-        advanceTimeBy(POST_WARMUP_IDLE_TIMEOUT.inWholeMilliseconds + 100)
-        runCurrent()
-        assertEquals(0, engine.unloadCount.get())
-
-        // The post-generation timer is the IDLE_TIMEOUT (1.minute in tests,
-        // 5.minutes in prod). Advance past it.
-        advanceTimeBy(IDLE_TIMEOUT.inWholeMilliseconds + 1)
-        runCurrent()
-        assertEquals(1, engine.unloadCount.get())
-    }
+    // ─── M7 watchdog PR: UnloadReason counters ────────────────────────────
 
     @Test
     fun `forceUnload with MainThreadWatchdog increments the dedicated counter`() = runTest {
@@ -374,55 +205,6 @@ class InferenceSessionManagerTest {
             0L,
             counters.value(CounterNames.INFERENCE_UNLOADED_TRIM_MEMORY_TOTAL),
         )
-    }
-
-    @Test
-    fun `warmUpIfPossible skips load and increments counter when free memory is below threshold`() = runTest {
-        // PR #16 — eager warm-up memory gate. The repro from on-device
-        // testing: 8 GB Pixel 7 with other apps consuming RAM, eager
-        // warm-up always proceeded and then got immediately undone by the
-        // watchdog. Wasteful and confusing. This test locks the gate.
-        val counters = RecordingCounters()
-        val engine = FakeInferenceEngine()
-        val tightProvider = MemoryHeadroomProvider { 800L * 1024 * 1024 } // 800 MB
-        val manager = newManagerWith(
-            engine,
-            FakeForegroundServiceController(),
-            counters = counters,
-            memoryHeadroomProvider = tightProvider,
-        )
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-        advanceUntilIdle()
-
-        assertTrue(
-            "expected SkippedMemory outcome, got $outcome",
-            outcome is WarmUpOutcome.SkippedMemory,
-        )
-        assertEquals(0, engine.loadCount.get())
-        assertEquals(1L, counters.value(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL))
-        assertEquals(0L, counters.value(CounterNames.INFERENCE_WARMUP_LOADED_TOTAL))
-    }
-
-    @Test
-    fun `warmUpIfPossible loads when free memory is above threshold`() = runTest {
-        val counters = RecordingCounters()
-        val engine = FakeInferenceEngine()
-        val plentyProvider = MemoryHeadroomProvider { 4_000L * 1024 * 1024 } // 4 GB
-        val manager = newManagerWith(
-            engine,
-            FakeForegroundServiceController(),
-            counters = counters,
-            memoryHeadroomProvider = plentyProvider,
-        )
-
-        val outcome = manager.warmUpIfPossible(MODEL_PATH)
-        advanceUntilIdle()
-
-        assertTrue("expected Loaded outcome, got $outcome", outcome is WarmUpOutcome.Loaded)
-        assertEquals(1, engine.loadCount.get())
-        assertEquals(1L, counters.value(CounterNames.INFERENCE_WARMUP_LOADED_TOTAL))
-        assertEquals(0L, counters.value(CounterNames.INFERENCE_WARMUP_SKIPPED_MEMORY_TOTAL))
     }
 
     @Test
@@ -499,17 +281,13 @@ class InferenceSessionManagerTest {
     private fun TestScope.newManagerWith(
         engine: FakeInferenceEngine,
         fgs: FakeForegroundServiceController,
-        thermal: ThermalStatusProvider = FakeThermalStatusProvider(),
         counters: TelemetryCounters = com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters,
-        memoryHeadroomProvider: MemoryHeadroomProvider = MemoryHeadroomProvider { Long.MAX_VALUE },
     ): InferenceSessionManager {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val manager = InferenceSessionManager(
             engine = engine,
             foregroundServiceController = fgs,
-            thermalStatusProvider = thermal,
             counters = counters,
-            memoryHeadroomProvider = memoryHeadroomProvider,
         )
         manager.idleTimeout = IDLE_TIMEOUT
         manager.ioDispatcher = dispatcher
@@ -520,7 +298,6 @@ class InferenceSessionManagerTest {
     private companion object {
         const val MODEL_PATH = "/data/test/model.litertlm"
         val IDLE_TIMEOUT = 1.minutes
-        val POST_WARMUP_IDLE_TIMEOUT = 15.seconds
         val REQUEST = GenerationRequest(prompt = "hi")
     }
 }
@@ -588,18 +365,4 @@ private class FakeForegroundServiceController : ForegroundServiceController {
     val stopCount = AtomicInteger(0)
     override fun start() { startCount.incrementAndGet() }
     override fun stop() { stopCount.incrementAndGet() }
-}
-
-/**
- * Deterministic [ThermalStatusProvider] for unit tests. Default state is
- * [ThermalStatus.NONE]; tests that exercise the thermal gate in
- * `warmUpIfPossible` flip it to SEVERE/CRITICAL via [setStatus].
- */
-private class FakeThermalStatusProvider(
-    initial: ThermalStatus = ThermalStatus.NONE,
-) : ThermalStatusProvider {
-    private val state = MutableStateFlow(initial)
-    override fun current(): ThermalStatus = state.value
-    override fun statusFlow() = state.asStateFlow()
-    fun setStatus(status: ThermalStatus) { state.value = status }
 }

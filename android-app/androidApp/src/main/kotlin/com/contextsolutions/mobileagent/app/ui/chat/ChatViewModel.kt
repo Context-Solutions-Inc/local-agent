@@ -140,10 +140,11 @@ class ChatViewModel @Inject constructor(
 
     private var currentJob: Job? = null
 
-    // PR #8 — aux-model warm-up moved to MainViewModel.warmUpEagerly so
-    // it shares the chat-screen RESUME hook with Gemma. Single source of
-    // truth, fires on every chat-screen entry AND on background→foreground
-    // bounce, and re-fires after a 5-min idle / onTrimMemory unload.
+    // Aux-model warm-up is owned by MainViewModel.warmUpAuxEngines, fired
+    // from the chat-screen RESUME hook. Single source of truth, fires on
+    // every chat-screen entry AND on background→foreground bounce, and
+    // re-fires after a 5-min idle / onTrimMemory unload. Gemma is NOT
+    // warmed eagerly (PR #25) — it loads on the first generate() call.
 
     fun send(prompt: String) {
         val trimmed = prompt.trim()
