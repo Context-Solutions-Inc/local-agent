@@ -10,8 +10,6 @@ import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.inference.Accelerator
-import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
-import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -74,9 +72,6 @@ class ChatViewModelCancelTest {
     private val memoryStore: MemoryStore = mockk(relaxed = true)
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val thermalProvider: ThermalStatusProvider = mockk(relaxed = true)
-    private val headroomProvider = FakeMemoryHeadroomProvider().apply {
-        value = Long.MAX_VALUE
-    }
 
     private val sessionStateFlow = MutableStateFlow<SessionState>(SessionState.Loaded(Accelerator.GPU))
 
@@ -178,13 +173,6 @@ class ChatViewModelCancelTest {
         memoryStore = memoryStore,
         conversationRepository = conversationRepository,
         telemetryCounters = NoOpTelemetryCounters,
-        memoryHeadroomProvider = headroomProvider,
-        systemMemoryThresholds = SystemMemoryThresholds.DEFAULT,
         thermalStatusProvider = thermalProvider,
     )
-
-    private class FakeMemoryHeadroomProvider : MemoryHeadroomProvider {
-        @Volatile var value: Long = Long.MAX_VALUE
-        override fun availableBytes(): Long = value
-    }
 }

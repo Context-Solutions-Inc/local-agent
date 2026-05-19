@@ -39,6 +39,11 @@ fun OnboardingHost(
             onSave = viewModel::saveHfAuthToken,
             onSkip = viewModel::skipHfAuthToken,
         )
+        OnboardingStep.Location -> LocationPickerScreen(
+            catalog = viewModel.locationCatalog,
+            onSave = viewModel::saveLocation,
+            onSkip = viewModel::skipLocation,
+        )
         OnboardingStep.TelemetryConsent -> TelemetryConsentScreen(
             onAccept = { viewModel.setTelemetryConsent(true) },
             onDecline = { viewModel.setTelemetryConsent(false) },

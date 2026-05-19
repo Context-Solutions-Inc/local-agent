@@ -115,7 +115,7 @@ class AgentLoopMemoryTest {
         assertEquals("did philadelphia eagles win 2026-05-09 evening", started.query)
         assertEquals(1, client.callCount)
 
-        // System prompt picks up the §5 memory block AND the §6 pre-flight notice.
+        // System prompt picks up the §5 memory block AND the [SEARCH CONTEXT] block.
         val request = session.requests.single()
         val sys = requireNotNull(request.systemInstruction)
         assertTrue("memory header missing\n$sys", sys.contains(PromptAssembler.MEMORY_CONTEXT_HEADER))
@@ -123,7 +123,10 @@ class AgentLoopMemoryTest {
             "memory bullet missing\n$sys",
             sys.contains("- (preference) my favorite nfl team is the philadelphia eagles"),
         )
-        assertTrue("pre-flight notice missing", sys.contains("Note on this turn"))
+        assertTrue(
+            "search context header missing",
+            sys.contains("=== Search context for this turn ==="),
+        )
     }
 
     @Test
@@ -146,7 +149,10 @@ class AgentLoopMemoryTest {
         val request = session.requests.single()
         val sys = requireNotNull(request.systemInstruction)
         assertFalse("memory block should be omitted", sys.contains(PromptAssembler.MEMORY_CONTEXT_HEADER))
-        assertFalse("no pre-flight notice on RewriterAbort", sys.contains("Note on this turn"))
+        assertFalse(
+            "no search context block on RewriterAbort",
+            sys.contains("=== Search context for this turn ==="),
+        )
     }
 
     @Test
@@ -171,7 +177,10 @@ class AgentLoopMemoryTest {
         val request = session.requests.single()
         val sys = requireNotNull(request.systemInstruction)
         assertTrue("memory block missing on SkipSearch path", sys.contains(PromptAssembler.MEMORY_CONTEXT_HEADER))
-        assertFalse("no pre-flight notice on SkipSearch", sys.contains("Note on this turn"))
+        assertFalse(
+            "no search context block on SkipSearch",
+            sys.contains("=== Search context for this turn ==="),
+        )
     }
 
     @Test

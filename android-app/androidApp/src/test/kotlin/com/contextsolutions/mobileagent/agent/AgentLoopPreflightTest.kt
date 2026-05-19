@@ -16,6 +16,9 @@ import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.preferences.GpsCoordinates
+import com.contextsolutions.mobileagent.preferences.UserLocation
+import com.contextsolutions.mobileagent.preferences.VerticalPreferences
 import com.contextsolutions.mobileagent.search.BraveKeyProvider
 import com.contextsolutions.mobileagent.search.BraveSearchClient
 import com.contextsolutions.mobileagent.search.BraveSearchResult
@@ -24,6 +27,10 @@ import com.contextsolutions.mobileagent.search.SearchCacheDao
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
+import com.contextsolutions.mobileagent.search.SearchSubtype
+import com.contextsolutions.mobileagent.search.vertical.GeneralSearchAdapter
+import com.contextsolutions.mobileagent.search.vertical.VerticalSearchAdapter
+import com.contextsolutions.mobileagent.search.vertical.VerticalSearchDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -44,12 +51,13 @@ import org.junit.Test
  * supplying scripted logits. Asserts:
  *
  *  - high-band query → SearchStarted with rewritten query, search runs,
- *    the system prompt picks up `[PRE-FLIGHT NOTICE BLOCK]`, the synthetic
- *    Tool result becomes the engine's "current message" (history tail).
- *  - middle-band query → M2 path, no notice block, no inline search.
+ *    the system prompt picks up a `[SEARCH CONTEXT]` block carrying the
+ *    fetched payload (LLM-side tool calling is fully disabled — no
+ *    synthetic tool messages on the wire).
+ *  - middle-band query → no notice block, no inline search.
  *  - search disabled → router short-circuits, no notice block.
- *  - search error during pre-flight → tool message marked isError, agent
- *    keeps generating with the error in context.
+ *  - search error during pre-flight → `[SEARCH CONTEXT]` block carries
+ *    the error line and the agent keeps generating.
  */
 class AgentLoopPreflightTest {
 
@@ -110,22 +118,30 @@ class AgentLoopPreflightTest {
         assertEquals("https://espn.com/x", done.message.citations.single().url)
         assertTrue(done.message.text.contains("Eagles won"))
 
-        // System prompt picks up the notice block.
+        // System prompt picks up the [SEARCH CONTEXT] block + pre-flight notice.
         val request = session.requests.single()
         val sysInstruction = requireNotNull(request.systemInstruction)
         assertTrue(
-            "system prompt should contain PRE-FLIGHT NOTICE BLOCK\n$sysInstruction",
-            sysInstruction.contains("Note on this turn"),
+            "system prompt should contain the SEARCH CONTEXT header\n$sysInstruction",
+            sysInstruction.contains("=== Search context for this turn ==="),
         )
-        assertTrue(sysInstruction.contains("A web search has already been performed"))
+        assertTrue("payload missing in system prompt", sysInstruction.contains("Eagles 28-22 win"))
+        assertTrue(
+            "pre-flight notice should appear together with the block",
+            sysInstruction.contains("`[SEARCH CONTEXT]` block above"),
+        )
+        // Tools must NOT be advertised — LLM-side tool calling is disabled.
+        assertTrue("tools list must be empty", request.tools.isEmpty())
 
-        // The engine sees User → Assistant(toolCall) → Tool(result) on the wire.
-        // The tail must be the Tool turn so sendMessageAsync delivers it as a
-        // ToolResponse rather than a fresh user message.
+        // No synthetic tool history is injected: the engine sees the plain
+        // user message as the tail. Pre-flight context lives in the system
+        // instruction only.
         val historyRoles = request.history.map { it.role }
-        assertEquals(HistoryRole.TOOL, historyRoles.last())
-        assertEquals(HistoryRole.MODEL, historyRoles[historyRoles.lastIndex - 1])
-        assertEquals(HistoryRole.USER, historyRoles[historyRoles.lastIndex - 2])
+        assertEquals(HistoryRole.USER, historyRoles.last())
+        assertFalse(
+            "no synthetic MODEL or TOOL entries in history",
+            historyRoles.any { it == HistoryRole.MODEL || it == HistoryRole.TOOL },
+        )
     }
 
     @Test
@@ -144,7 +160,7 @@ class AgentLoopPreflightTest {
         // No pre-flight search, no notice block.
         assertEquals(0, client.callCount)
         val request = session.requests.single()
-        assertFalse(requireNotNull(request.systemInstruction).contains("Note on this turn"))
+        assertFalse(requireNotNull(request.systemInstruction).contains("=== Search context for this turn ==="))
         // History tail is the user message — the M2 path.
         assertEquals(HistoryRole.USER, request.history.last().role)
     }
@@ -164,7 +180,7 @@ class AgentLoopPreflightTest {
         ).toList()
         assertEquals(0, client.callCount)
         val request = session.requests.single()
-        assertFalse(requireNotNull(request.systemInstruction).contains("Note on this turn"))
+        assertFalse(requireNotNull(request.systemInstruction).contains("=== Search context for this turn ==="))
     }
 
     @Test
@@ -183,7 +199,7 @@ class AgentLoopPreflightTest {
         ).toList()
         assertEquals(0, client.callCount)
         val request = session.requests.single()
-        assertFalse(requireNotNull(request.systemInstruction).contains("Note on this turn"))
+        assertFalse(requireNotNull(request.systemInstruction).contains("=== Search context for this turn ==="))
     }
 
     @Test
@@ -207,10 +223,124 @@ class AgentLoopPreflightTest {
         // Generation continues — Done is emitted with the error in context.
         val done = events.filterIsInstance<AgentEvent.Done>().single()
         assertNotNull(done)
-        // turnMessages records the synthetic call + error result faithfully.
+        // No synthetic tool messages in turnMessages now — the error lives
+        // in the system instruction's [SEARCH CONTEXT] block instead.
         val toolMessages = done.turnMessages.filterIsInstance<ChatMessage.Tool>()
-        assertEquals(1, toolMessages.size)
-        assertTrue("error tool message", toolMessages.single().isError)
+        assertTrue("no synthetic tool messages", toolMessages.isEmpty())
+        // Verify the error string reached the system prompt.
+        val request = session.requests.single()
+        val sysInstruction = requireNotNull(request.systemInstruction)
+        assertTrue(sysInstruction.contains("=== Search context for this turn ==="))
+        assertTrue(sysInstruction.contains("error: Network"))
+    }
+
+    @Test
+    fun weather_subtype_renders_directly_and_skips_engine() = runTest {
+        // EC RSS-shaped fixture — alert + current + 2 forecast periods.
+        // Matches the JSON envelope FeedAdapter emits.
+        val torontoJson = """
+            {
+              "subtype":"weather",
+              "query":"weather forecast for Toronto",
+              "sources":[{
+                "domain":"weather.gc.ca",
+                "url":"https://weather.gc.ca/rss/weather/43.6532_-79.3832_e.xml",
+                "snippet":"...",
+                "payload":[
+                  {"title":"YELLOW WARNING - HEAT, Toronto","description":"alert text","published":"2026-05-18T19:58:00Z"},
+                  {"title":"Current Conditions: Mostly Cloudy, 29.7°C","description":"Condition: Mostly Cloudy Temperature: 29.7°C Humidex: 34 Wind: SW 26 km/h gust 48 km/h Humidity: 41 %","published":"2026-05-18T20:00:00Z"},
+                  {"title":"Monday night: Chance of showers. Low 18. POP 40%","description":"forecast","published":"2026-05-18T19:30:00Z"},
+                  {"title":"Tuesday: Chance of showers. High 29. POP 30%","description":"forecast","published":"2026-05-18T19:30:00Z"}
+                ]
+              }]
+            }
+        """.trimIndent()
+        val weatherPayload = FormattedSearchPayload(
+            json = torontoJson,
+            sources = listOf(
+                SearchSource(
+                    title = "Environment Canada",
+                    url = "https://weather.gc.ca/rss/weather/43.6532_-79.3832_e.xml",
+                    snippet = "",
+                ),
+            ),
+        )
+        val fakeWeatherAdapter = object : VerticalSearchAdapter {
+            override suspend fun fetch(
+                query: String,
+                prefs: VerticalPreferences,
+                location: UserLocation?,
+                gps: GpsCoordinates?,
+            ): SearchOutcome = SearchOutcome.Success(weatherPayload, fromCache = false)
+        }
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to fakeWeatherAdapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherDirectLoop(
+            session = session,
+            searchService = service,
+            verticalDispatcher = dispatcher,
+            preflightLogits = floatArrayOf(5f, 0f, 0f),
+        )
+
+        val events = loop.run(
+            AgentTurnInput(userMessage = "weather forecast for Toronto", history = emptyList()),
+        ).toList()
+
+        // Gemma must NOT be invoked — the direct path returns before
+        // session.generate() runs.
+        assertTrue(
+            "engine session must be untouched on weather direct path, got ${session.requests.size} requests",
+            session.requests.isEmpty(),
+        )
+
+        // SearchStarted / SearchCompleted still fire so the UI shows the
+        // "Searching..." indicator + citations.
+        assertEquals(1, events.filterIsInstance<AgentEvent.SearchStarted>().size)
+        val completed = events.filterIsInstance<AgentEvent.SearchCompleted>().single()
+        assertTrue(completed.outcome is SearchOutcome.Success)
+
+        // Done event carries the formatter output, not Gemma's text.
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertFalse("Gemma's text leaked into Done", done.message.text.contains("Gemma"))
+        assertTrue("missing location header", done.message.text.contains("Weather for"))
+        assertTrue("missing current temp", done.message.text.contains("29.7°C"))
+        assertTrue("missing alert banner", done.message.text.contains("⚠"))
+        assertTrue("missing forecast bullet", done.message.text.contains("• Monday night"))
+        assertTrue("missing source citation", done.message.text.contains("weather.gc.ca"))
+        assertTrue("skipMemoryExtraction must be set on weather direct path", done.skipMemoryExtraction)
+        // turnMessages: just User + final Assistant. No synthetic tool
+        // messages — there was no tool call.
+        assertEquals(2, done.turnMessages.size)
+    }
+
+    private fun buildWeatherDirectLoop(
+        session: InferenceSession,
+        searchService: SearchService,
+        verticalDispatcher: VerticalSearchDispatcher,
+        preflightLogits: FloatArray,
+    ): AgentLoop {
+        val assembler = PromptAssembler(timeContextProvider = { timeContext })
+        val engine = StubClassifierEngine(preflightLogits)
+        val router = PreflightRouter(
+            engine = engine,
+            tokenizer = WordPieceTokenizer(stubVocab),
+            rewriter = QueryRewriter { timeContext },
+            configProvider = { PreflightConfig.DEFAULT },
+            searchAvailableProvider = { searchService.isAvailable() },
+            logger = {},
+        )
+        return AgentLoop(
+            session = session,
+            assembler = assembler,
+            searchService = searchService,
+            preflightRouter = router,
+            verticalDispatcher = verticalDispatcher,
+            weatherResponseFormatter = WeatherResponseFormatter,
+        )
     }
 
     // -- Test fixtures ------------------------------------------------------

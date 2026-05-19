@@ -15,8 +15,6 @@ import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
-import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
-import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -70,8 +68,6 @@ class ChatViewModel @Inject constructor(
     private val memoryStore: MemoryStore,
     private val conversationRepository: ConversationRepository,
     private val telemetryCounters: TelemetryCounters,
-    private val memoryHeadroomProvider: MemoryHeadroomProvider,
-    private val systemMemoryThresholds: SystemMemoryThresholds,
     thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
@@ -110,18 +106,6 @@ class ChatViewModel @Inject constructor(
      */
     private val _overflowDecision = MutableStateFlow<OverflowDecision?>(null)
     val overflowDecision: StateFlow<OverflowDecision?> = _overflowDecision.asStateFlow()
-
-    /**
-     * PR #16 — non-null when [send] refused to start a cold model load
-     * because system free RAM is below
-     * [SystemMemoryThresholds.coldLoadMinBytes]. The
-     * chat screen renders a modal asking the user to close other apps;
-     * the original prompt is preserved in [MemoryWarning.pendingPrompt]
-     * so [retryAfterMemoryWarning] can re-attempt the send once memory
-     * has been freed.
-     */
-    private val _memoryWarning = MutableStateFlow<MemoryWarning?>(null)
-    val memoryWarning: StateFlow<MemoryWarning?> = _memoryWarning.asStateFlow()
 
     /** Internal full conversation as the agent sees it (includes tool_call/tool turns). */
     private var agentHistory: List<ChatMessage> = emptyList()
@@ -173,36 +157,13 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // PR #16 — send-time memory gate. Two thresholds, both checked:
-        //
-        //  - Cold load (state Unloaded / Failed → generate() will run
-        //    ensureLoadedLocked → engine.loadModel): need
-        //    `SystemMemoryThresholds.coldLoadMinBytes` (~2 GiB) for the
-        //    load itself + working set.
-        //  - Hot path (state Loaded / Loading → weights already resident):
-        //    need `SystemMemoryThresholds.hotPathMinBytes` (~1 GiB) so the
-        //    watchdog floor (800 MB) isn't crossed by KV-cache growth +
-        //    activations mid-turn. On-device repro showed that without
-        //    this hot-path check, the watchdog fires the moment generate()
-        //    reloads the model, the unload is deferred while we run, and
-        //    the user gets a blank assistant reply because inference
-        //    produced nothing usable under the crunch.
-        val currentState = sessionState.value
-        val modelIsReady = currentState is SessionState.Loaded || currentState is SessionState.Loading
-        val threshold = if (modelIsReady) {
-            systemMemoryThresholds.hotPathMinBytes
-        } else {
-            systemMemoryThresholds.coldLoadMinBytes
-        }
-        val avail = memoryHeadroomProvider.availableBytes()
-        if (avail < threshold) {
-            _memoryWarning.value = MemoryWarning(
-                pendingPrompt = trimmed,
-                availableBytes = avail,
-                modelAlreadyLoaded = modelIsReady,
-            )
-            return
-        }
+        // PR #16's send-time memory gate has been removed — the user is no
+        // longer blocked from sending under memory pressure. The
+        // SystemMemoryMonitor / header LED still signals the condition;
+        // background unload via MemoryPressureWatchdog still fires under
+        // its own threshold; the cold-load + hot-path gates here used to
+        // proactively refuse to start inference under crunch and surfaced
+        // a modal — that whole UX is gone by user request.
 
         currentJob?.cancel()
 
@@ -400,22 +361,6 @@ class ChatViewModel @Inject constructor(
     fun dismissOverflowStartNew() {
         _overflowDecision.value = null
         newConversation()
-    }
-
-    /**
-     * PR #16 — user tapped "Retry" on the low-memory dialog. Clear the
-     * warning and re-attempt the send; if `availMem` is still below the
-     * threshold the gate fires again with a fresh reading.
-     */
-    fun retryAfterMemoryWarning() {
-        val pending = _memoryWarning.value ?: return
-        _memoryWarning.value = null
-        send(pending.pendingPrompt)
-    }
-
-    /** PR #16 — user tapped "Cancel" on the low-memory dialog. Drops the pending prompt. */
-    fun dismissMemoryWarning() {
-        _memoryWarning.value = null
     }
 
     /**
@@ -742,22 +687,3 @@ sealed interface SearchStatus {
 data class OverflowDecision(
     val pendingPrompt: String,
 )
-
-/**
- * PR #16: payload for the low-memory modal.
- *
- * - [pendingPrompt] preserves the user's unsent message so Retry can
- *   re-attempt without re-typing.
- * - [availableBytes] is rendered as MB in the dialog so the user has a
- *   concrete number to act on.
- * - [modelAlreadyLoaded] differentiates the dialog copy: a cold-load
- *   refusal is phrased as "load the model"; a hot-path refusal is
- *   phrased as "safely process this request" because the model is
- *   already resident and the watchdog is about to evict it.
- */
-data class MemoryWarning(
-    val pendingPrompt: String,
-    val availableBytes: Long,
-    val modelAlreadyLoaded: Boolean,
-)
-

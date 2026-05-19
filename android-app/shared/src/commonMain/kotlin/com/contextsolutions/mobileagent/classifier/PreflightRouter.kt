@@ -2,6 +2,8 @@ package com.contextsolutions.mobileagent.classifier
 
 import com.contextsolutions.mobileagent.classifier.internal.softmax
 import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.search.SearchSubtype
+import com.contextsolutions.mobileagent.search.SearchSubtypeDetector
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.LatencyNames
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
@@ -43,6 +45,7 @@ class PreflightRouter(
     private val rewriter: QueryRewriter,
     private val configProvider: () -> PreflightConfig,
     private val searchAvailableProvider: suspend () -> Boolean,
+    private val subtypeDetector: SearchSubtypeDetector = SearchSubtypeDetector(),
     private val logger: (String) -> Unit = {},
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
@@ -97,10 +100,16 @@ class PreflightRouter(
                         pSearchRequired = pSearch,
                     )
                 } else {
+                    // Subtype is detected on the ORIGINAL query — the
+                    // rewriter mutates keywords for time/possessive
+                    // resolution and can strip the verticals' anchor words
+                    // ("weather", "score", etc.). Detection on the literal
+                    // user text preserves intent.
                     PreflightDecision.FireSearch(
                         originalQuery = query,
                         rewrittenQuery = rewritten,
                         pSearchRequired = pSearch,
+                        subtype = subtypeDetector.detect(query),
                     )
                 }
             }
@@ -116,7 +125,10 @@ class PreflightRouter(
         // cost. Band counters are mutually exclusive for a given query.
         counters.observeLatency(LatencyNames.PREFLIGHT_MS, nowEpochMs() - startMs)
         when (decision) {
-            is PreflightDecision.FireSearch -> counters.increment(CounterNames.PREFLIGHT_HIGH_BAND_TOTAL)
+            is PreflightDecision.FireSearch -> counters.increment(
+                CounterNames.PREFLIGHT_HIGH_BAND_TOTAL,
+                tag = decision.subtype.name.lowercase(),
+            )
             is PreflightDecision.SkipSearch -> counters.increment(CounterNames.PREFLIGHT_LOW_BAND_TOTAL)
             is PreflightDecision.FallThrough -> when (decision.reason) {
                 FallThroughReason.MiddleBand -> counters.increment(CounterNames.PREFLIGHT_MIDDLE_BAND_TOTAL)
@@ -141,7 +153,7 @@ class PreflightRouter(
         val pStr = if (pSearch != null) " p_search_required=${pSearch.formatProb()}" else ""
         val extra = when (decision) {
             is PreflightDecision.FireSearch ->
-                " rewritten=\"${redact(decision.rewrittenQuery)}\""
+                " subtype=${decision.subtype.name} rewritten=\"${redact(decision.rewrittenQuery)}\""
             else -> ""
         }
         return "[preflight] decision=$name$pStr query=\"${redact(query)}\"$extra"

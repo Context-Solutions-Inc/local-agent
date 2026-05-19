@@ -56,6 +56,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenConversationHistory: () -> Unit,
+    onOpenSearchSources: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
     memoryViewModel: com.contextsolutions.mobileagent.app.ui.memory.MemoryViewModel = hiltViewModel(),
 ) {
@@ -284,6 +285,21 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            // PR #23 — vertical search sources. Per-vertical site lists
+            // captured at onboarding from the user's location, editable
+            // here. SearchSourcesScreen renders five sections with
+            // add/remove affordances.
+            SectionHeader("Search sources")
+            Text(
+                "Pick which sites Mobile Agent reads for news, weather, sports, " +
+                    "and finance questions. Defaults are based on your location.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenSearchSources) { Text("Manage search sources") }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 

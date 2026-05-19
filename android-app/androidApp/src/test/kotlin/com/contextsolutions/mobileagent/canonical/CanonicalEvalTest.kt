@@ -111,11 +111,16 @@ class CanonicalEvalTest {
     }
 
     private fun checkPromptStructure(q: CanonicalQuery, decision: PreflightDecision): List<String> {
-        val preflightNotice = decision is PreflightDecision.FireSearch
+        // FireSearch turns inject a `[SEARCH CONTEXT]` block; we synthesize a
+        // placeholder here since the canonical eval doesn't actually run a
+        // search (it's a pure prompt-assembly test).
+        val searchContext = if (decision is PreflightDecision.FireSearch) {
+            "[SEARCH CONTEXT]\nquery: ${decision.rewrittenQuery}\n[/SEARCH CONTEXT]"
+        } else null
         val prompt = assembler.assembleStructured(
             history = listOf(ChatMessage.User(q.query)),
             memoryBlock = PromptAssembler.renderMemoryBlock(q.memorySeed),
-            preflightNotice = preflightNotice,
+            searchContext = searchContext,
             searchAvailable = q.searchAvailable,
         )
 
@@ -372,18 +377,26 @@ class CanonicalEvalTest {
                 systemInstruction.contains("Relevant context from previous conversations")
         },
         PreflightNotice {
+            // PR-#23-followup: pre-flight results are now injected as a
+            // plain-text `[SEARCH CONTEXT]` block in the system prompt
+            // instead of a synthetic tool-call/tool-response pair.
             override fun contains(systemInstruction: String, q: CanonicalQuery): Boolean =
-                systemInstruction.contains("web search has already been performed")
+                systemInstruction.contains("=== Search context for this turn ===")
         },
         ToolDefinition {
-            // The tool definition lives in StructuredPrompt.tools, not the
-            // text; here we just verify the system instruction does NOT
-            // forbid tools (i.e., it doesn't contain the search-disabled
-            // text). The structured prompt's `tools` list itself is
-            // checked indirectly via [forbiddenPromptBlocks] in the
-            // search-disabled query.
+            // LLM-side tool calling is fully disabled, but the no-tools
+            // block has two variants:
+            //   - default (search-on): tells the model to consume
+            //     `[SEARCH CONTEXT]` if present; treated as "tools are
+            //     conceptually available via pre-flight"
+            //   - search-off: tells the model search is disabled in
+            //     settings; treated as "no tools, no pre-flight"
+            // This predicate returns true for the default variant only, so
+            // the `forbiddenPromptBlocks` mechanism on the search-disabled
+            // fixture continues to assert the search-off variant fires.
             override fun contains(systemInstruction: String, q: CanonicalQuery): Boolean =
-                q.searchAvailable
+                systemInstruction.contains("=== Available tools ===") &&
+                    !systemInstruction.contains("web search is disabled")
         },
         CitationGuideline {
             override fun contains(systemInstruction: String, q: CanonicalQuery): Boolean =
@@ -396,9 +409,10 @@ class CanonicalEvalTest {
 
 // Pre-baked classifier logits — softmax({5, 0, 0}) ≈ {0.95, 0.02, 0.02},
 // so search_required is the dominant class for the high-band fixture.
-// The middle band picks a near-tie between search_required and ambiguous
-// so the pSearch ends up in the [0.15, 0.85] band. The low band picks
+// The middle band keeps search_required leading but well under the
+// configured highBand (currently 0.5 in `preflight_config.json`); softmax
+// of {0.5, 0, 0} ≈ {0.452, 0.274, 0.274}. The low band picks
 // search_not_required dominant.
 private val HIGH_BAND_LOGITS = floatArrayOf(5f, 0f, 0f)
-private val MIDDLE_BAND_LOGITS = floatArrayOf(1f, 0f, 0.5f)
+private val MIDDLE_BAND_LOGITS = floatArrayOf(0.5f, 0f, 0f)
 private val LOW_BAND_LOGITS = floatArrayOf(0f, 5f, 0f)

@@ -639,6 +639,49 @@ streaming prompts that previously hung for 3-5 s after Cancel was
 tapped. 639 unit tests at end of M2.10 (+3 over M2.7; M2.8 and M2.9
 had no test deltas).
 
+### M2.11 — Vertical search routing + onboarding-driven preferences (PR #23, in review)
+
+Layered on top of M4's binary pre-flight classifier without retraining it.
+Adds:
+
+- **Subtype detector** (`SearchSubtypeDetector`) — regex/keyword refinement
+  that picks `WEATHER | SPORTS | FINANCE | NEWS | GENERAL` from the user's
+  literal query once the classifier decides search is needed. Order:
+  weather → sports → finance → news → general fallback. The dataset
+  category labels validated in `docs/preflight_memory_shared_v1.0.0_MODEL_CARD.md`
+  (`sports_recent`, `markets_current`, `weather`, `news_current`) form the
+  ground truth a v1.x classifier retrain could promote into a fourth head.
+- **Hybrid fetch** — News reuses Brave with a `site:` filter built from
+  user-preferred domains (`BraveSiteFilterAdapter`); Weather / Sports /
+  Finance directly fetch RSS / JSON / HTML (`FeedAdapter`) with a minimal
+  hand-rolled Readability extractor (`HtmlReadabilityExtractor`) and an
+  RSS 2.0 / Atom parser (`RssParser`). General search is unchanged. All
+  vertical fetches run on `Dispatchers.IO` (invariant #1) and present a
+  browser-shaped UA to avoid feed providers' default-Ktor-UA blocks.
+- **Per-vertical preferences** persisted via DataStore Preferences
+  (`SearchPreferencesRepository`). Country-keyed defaults live in
+  `androidApp/src/main/assets/search_defaults.json` (invariant #14) and
+  are seeded on location capture. Editable from Settings → Search sources.
+- **Onboarding step 4** (`LocationPickerScreen`) captures country / region
+  / city with device-locale prefill. New `OnboardingStep.Location` keys
+  off a new `OnboardingPreferences.locationDecided` boolean.
+- **Telemetry**: the existing `PREFLIGHT_HIGH_BAND_TOTAL` counter is tagged
+  with the chosen subtype (`weather` / `sports` / `finance` / `news` /
+  `general`) — no new counter names.
+
+Classifier `.tflite` and `preflight_config.json` are untouched. The
+`AgentLoop` FireSearch path keeps the legacy direct-`SearchService.search`
+fallback when the dispatcher isn't wired so older tests stay green.
+
+Test coverage: `SearchSubtypeDetectorTest` (8 tests, table-driven across
+all 5 subtypes + ambiguity), `HtmlReadabilityExtractorTest` (5),
+`RssParserTest` (4), `DefaultSiteResolverTest` (6). Existing
+`PreflightRouterTest` continues to pass — subtype defaults to GENERAL so
+the M4 assertions are byte-identical. **662 unit tests** at end of M2.11
+(+23 over M2.10). Adapter MockEngine tests + AgentLoop vertical-routing
+integration test + Compose-UI instrumentation are scoped to a follow-up
+PR; this one ships the architectural seam.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

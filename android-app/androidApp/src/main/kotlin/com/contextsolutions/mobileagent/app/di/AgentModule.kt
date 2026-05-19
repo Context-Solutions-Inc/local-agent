@@ -9,13 +9,17 @@ import com.contextsolutions.mobileagent.agent.TodoCommandParser
 import com.contextsolutions.mobileagent.agent.TodoIntentDetector
 import com.contextsolutions.mobileagent.agent.TodoResponseFormatter
 import com.contextsolutions.mobileagent.agent.TodoToolHandler
+import com.contextsolutions.mobileagent.agent.WeatherResponseFormatter
 import com.contextsolutions.mobileagent.agent.currentTimeContext
 import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
+import com.contextsolutions.mobileagent.preferences.LocationCatalog
+import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.mobileagent.search.SearchService
+import com.contextsolutions.mobileagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
@@ -35,6 +39,10 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AgentModule {
+
+    @Provides
+    @Singleton
+    fun provideWeatherResponseFormatter(): WeatherResponseFormatter = WeatherResponseFormatter
 
     @Provides
     @Singleton
@@ -58,6 +66,10 @@ object AgentModule {
         todoIntentDetector: TodoIntentDetector,
         todoCommandParser: TodoCommandParser,
         todoResponseFormatter: TodoResponseFormatter,
+        verticalDispatcher: VerticalSearchDispatcher,
+        searchPreferences: SearchPreferencesRepository,
+        locationCatalog: LocationCatalog,
+        weatherResponseFormatter: WeatherResponseFormatter,
     ): AgentLoopFactory = object : AgentLoopFactory {
         override fun create(
             session: com.contextsolutions.mobileagent.agent.InferenceSession,
@@ -73,6 +85,10 @@ object AgentModule {
             todoIntentDetector = todoIntentDetector,
             todoCommandParser = todoCommandParser,
             todoResponseFormatter = todoResponseFormatter,
+            verticalDispatcher = verticalDispatcher,
+            searchPreferences = searchPreferences,
+            locationCatalog = locationCatalog,
+            weatherResponseFormatter = weatherResponseFormatter,
             logger = { Log.i("AgentLoop", it) },
             counters = counters,
             responseLanguage = responseLanguage,

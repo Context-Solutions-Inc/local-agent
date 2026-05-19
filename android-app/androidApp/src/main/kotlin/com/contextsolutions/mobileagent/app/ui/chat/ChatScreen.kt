@@ -467,37 +467,10 @@ fun ChatScreen(
             )
         }
 
-        // PR #16 — low-memory warning. Two phrasings depending on whether
-        // the model is already resident (hot-path: too tight to safely
-        // run inference) or not (cold-load: too tight to load at all).
-        val memoryWarning by viewModel.memoryWarning.collectAsState()
-        memoryWarning?.let { warning ->
-            val availMb = (warning.availableBytes / 1024 / 1024).toInt()
-            val bodyText = if (warning.modelAlreadyLoaded) {
-                "There isn't enough free memory to safely process this request " +
-                    "right now (about $availMb MB free). Close some other apps to " +
-                    "free up memory, then tap Retry."
-            } else {
-                "There isn't enough free memory to load the AI model right now " +
-                    "(about $availMb MB free). Close some other apps to free up " +
-                    "memory, then tap Retry."
-            }
-            AlertDialog(
-                onDismissRequest = { /* require explicit choice */ },
-                title = { Text("Low memory") },
-                text = { Text(bodyText) },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.retryAfterMemoryWarning() }) {
-                        Text("Retry")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { viewModel.dismissMemoryWarning() }) {
-                        Text("Cancel")
-                    }
-                },
-            )
-        }
+        // The PR #16 low-memory submission gate has been removed — the
+        // user is no longer blocked when system free RAM is low. The
+        // header SystemMemoryStatusIndicator (red LED) is the sole signal
+        // for the condition.
     }
 }
 

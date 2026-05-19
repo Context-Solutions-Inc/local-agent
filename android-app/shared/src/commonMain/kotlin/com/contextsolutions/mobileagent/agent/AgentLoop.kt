@@ -11,9 +11,13 @@ import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.memory.RememberForgetDetector
+import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
+import com.contextsolutions.mobileagent.preferences.VerticalPreferences
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
+import com.contextsolutions.mobileagent.search.SearchSubtype
+import com.contextsolutions.mobileagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.LatencyNames
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
@@ -30,32 +34,30 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 /**
- * The agent layer for a single user turn. The engine drives the multi-step
- * tool-call cycle internally on a single LiteRT-LM Conversation (per the
- * documented pattern at https://ai.google.dev/edge/litert-lm/android), so this
- * class is now a thin coordinator:
+ * The agent layer for a single user turn. LLM-side tool calling is fully
+ * disabled — every tool dispatch happens BEFORE the engine, either via
+ * regex/parsers (clock, todo, memory) or via the pre-flight classifier
+ * (search). The engine just consumes a system prompt + history + an optional
+ * `[SEARCH CONTEXT]` block of plain text:
  *
- *  1. **Pre-flight (M4 / WS-8)** — call [PreflightRouter] first. If the
- *     classifier emits `FireSearch`, run the search inline, append a
- *     synthetic Assistant(toolCall) + Tool(result) pair to history, and
- *     pass `preflightNotice = true` so the system prompt picks up the
- *     `[PRE-FLIGHT NOTICE BLOCK]` (SYSTEM_PROMPT.md §6). Other decisions
- *     leave the M2 path untouched.
- *  2. Build the system prompt and tool list, hand them to the engine alongside
- *     the user's message.
- *  3. Provide a [ToolDispatcher] callback the engine invokes when the model
- *     emits a tool call. The dispatcher routes to [SearchService], emits UI
- *     events ("Searching: ..."), and enforces the per-turn cap (PRD §3.2.2).
+ *  1. **Regex short-circuits** — clock, todo, and remember/forget commands
+ *     are caught at lines ~117-174 and dispatched directly to their handlers
+ *     (no LLM call at all).
+ *  2. **Pre-flight (M4 / WS-8)** — call [PreflightRouter] for non-clock/todo
+ *     turns. On `FireSearch`, fetch results inline and inject them as a
+ *     `[SEARCH CONTEXT]` block in the system instruction. Other decisions
+ *     leave the prompt untouched.
+ *  3. Build the system prompt (tools list is always empty), hand it to the
+ *     engine alongside the user's message.
  *  4. Forward streamed text chunks as [AgentEvent.TokenChunk] and finalise
  *     with [AgentEvent.Done] when the engine reports the turn complete.
  *
- * The agent loop no longer parses tool-call markers or runs its own generation
- * pass loop — the engine handles both. Citations, the per-turn cap, and the
- * "use the tool result" prompt block are still ours to manage.
- *
- * **Pre-flight tool calls do NOT count toward [maxToolCalls]** — pre-flight
- * is a "free" search before Gemma sees the turn (M4_PLAN.md §4 Phase D).
- * Gemma's in-loop budget remains the full 3.
+ * [maxToolCalls] still bounds the [ToolDispatcher] callback (kept as a
+ * defense-in-depth wiring) but in practice never fires because no tools are
+ * registered with the engine. Marker-fallback (`runTextMarkerFallback`) is
+ * also retained for the edge case where Gemma emits a `<|tool_call>` text
+ * marker without registration — it should be unreachable but is cheap to
+ * keep.
  */
 class AgentLoop(
     private val session: InferenceSession,
@@ -69,6 +71,32 @@ class AgentLoop(
     private val todoCommandParser: TodoCommandParser = TodoCommandParser(),
     private val todoResponseFormatter: TodoResponseFormatter = TodoResponseFormatter(),
     private val rememberForgetDetector: RememberForgetDetector = RememberForgetDetector(),
+    /**
+     * PR #23 — vertical dispatcher. When non-null, FireSearch routes via
+     * the subtype-specific adapter; when null, falls back to the legacy
+     * direct `searchService.search()` path so tests don't have to wire
+     * the dispatcher.
+     */
+    private val verticalDispatcher: VerticalSearchDispatcher? = null,
+    private val searchPreferences: SearchPreferencesRepository? = null,
+    /**
+     * Bundled city → GPS-coordinate catalog. When set, FireSearch
+     * resolves the user's captured city to lat/lon and passes them into
+     * the dispatcher so vertical adapters can substitute `{lat}` /
+     * `{lon}` into URL templates (e.g. weather.gc.ca's
+     * `?coords=lat,lon`). Null for tests that don't need GPS routing —
+     * the dispatcher receives `gps = null` and skips any GPS-templated
+     * sources cleanly.
+     */
+    private val locationCatalog: com.contextsolutions.mobileagent.preferences.LocationCatalog? = null,
+    /**
+     * When set, WEATHER FireSearch turns render a deterministic response
+     * from the parsed RSS payload instead of routing through Gemma. Null
+     * for tests that want to exercise the legacy `[SEARCH CONTEXT]` →
+     * LLM path. Returns null itself on unfamiliar payload shapes, so the
+     * fall-through to the LLM remains the safety net for non-CA weather.
+     */
+    private val weatherResponseFormatter: WeatherResponseFormatter? = null,
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -185,21 +213,24 @@ class AgentLoop(
         // -- Pre-flight (PRD §3.2.1) --
         // The router runs the classifier, applies thresholds, and (on a
         // high-band hit) rewrites date/time relatives. We branch on its
-        // decision before touching the engine: FireSearch injects a synthetic
-        // tool round-trip into history; everything else preserves the M2 path.
+        // decision before touching the engine: FireSearch fetches results and
+        // injects them as a plain-text `[SEARCH CONTEXT]` block in the system
+        // instruction; everything else leaves the prompt untouched. LLM-side
+        // tool registration is disabled, so the model never sees a callable
+        // tool — it just reads the injected context block.
         //
         // Clock-intent short-circuit (PR #11): the shipped classifier was
         // trained before clock tools existed and occasionally fires a search
-        // for queries like "set a 5-minute timer for tea", which derails
-        // Gemma into asking for clarification instead of calling set_timer.
-        // When the detector matches we skip pre-flight entirely — the
-        // classifier's verdict is irrelevant when the user's intent is to
-        // invoke a tool the classifier doesn't know about.
-        var preflightNotice = false
+        // for queries like "set a 5-minute timer for tea". Those are caught
+        // upstream by the clock/todo regex pre-detection (lines 117-157), so
+        // pre-flight only sees messages that already fell through those
+        // checks. Keep the historical skipPreflight gate as defense-in-depth
+        // for any clock/todo intent the parser couldn't pin down.
         val historyForPrompt = mutableListOf<ChatMessage>().apply {
             addAll(priorHistory)
             add(userMessage)
         }
+        var searchContextBlock: String? = null
         val skipPreflight = toolHandlers.isNotEmpty() &&
             (clockIntentDetector.isClockIntent(input.userMessage) ||
                 todoIntentDetector.isTodoIntent(input.userMessage))
@@ -215,39 +246,126 @@ class AgentLoop(
         when (decision) {
             is PreflightDecision.FireSearch -> {
                 send(AgentEvent.SearchStarted(decision.rewrittenQuery))
-                val outcome = searchService.search(decision.rewrittenQuery)
-                send(AgentEvent.SearchCompleted(outcome))
-                val callId = PRE_FLIGHT_CALL_ID
-                val argsJson = Json.encodeToString(
-                    kotlinx.serialization.json.JsonObject.serializer(),
-                    buildJsonObject { put("query", decision.rewrittenQuery) },
-                )
-                val toolCallMessage = ChatMessage.Assistant(
-                    text = "",
-                    toolCall = ToolCall(callId, WEB_SEARCH_TOOL_NAME, argsJson),
-                )
-                val toolResultMessage = when (outcome) {
-                    is SearchOutcome.Success -> {
-                        citationsForTurn.addAll(outcome.payload.sources)
-                        ChatMessage.Tool(
-                            callId = callId,
-                            toolName = WEB_SEARCH_TOOL_NAME,
-                            text = outcome.payload.json,
-                            isError = false,
+                // PR #23 — route through vertical dispatcher when wired;
+                // otherwise fall back to the legacy direct search (kept so
+                // tests that don't supply a dispatcher keep working).
+                val outcome = if (verticalDispatcher != null) {
+                    val prefs = searchPreferences?.snapshot() ?: VerticalPreferences()
+                    val location = searchPreferences?.location()
+                    val gps = location?.let { loc ->
+                        locationCatalog?.cityCoords(loc.country, loc.regionCode, loc.city)
+                    }
+                    if (gps != null) {
+                        logger(
+                            "[turn] resolved city coords city=${location.city} " +
+                                "lat=${gps.latitude} lon=${gps.longitude}",
+                        )
+                    } else if (location != null) {
+                        logger(
+                            "[turn] no coords in catalog for " +
+                                "${location.country}/${location.regionCode}/${location.city} — " +
+                                "GPS-templated sources will be skipped",
                         )
                     }
-                    is SearchOutcome.Error -> ChatMessage.Tool(
-                        callId = callId,
-                        toolName = WEB_SEARCH_TOOL_NAME,
-                        text = "Error: ${outcome.kind.name} — ${outcome.message}",
-                        isError = true,
+                    verticalDispatcher.fetch(
+                        subtype = decision.subtype,
+                        query = decision.rewrittenQuery,
+                        prefs = prefs,
+                        location = location,
+                        gps = gps,
                     )
+                } else {
+                    searchService.search(decision.rewrittenQuery)
                 }
-                turnAppendix.add(toolCallMessage)
-                turnAppendix.add(toolResultMessage)
-                historyForPrompt.add(toolCallMessage)
-                historyForPrompt.add(toolResultMessage)
-                preflightNotice = true
+                send(AgentEvent.SearchCompleted(outcome))
+
+                // Weather subtype direct path — bypass Gemma entirely.
+                // Renders a deterministic chat bubble from the parsed RSS
+                // entries (same pattern as runClockCommandDirect /
+                // runTodoCommandDirect). On any failure (formatter
+                // returns null for an unfamiliar payload shape, or the
+                // outcome isn't Success), falls through to the legacy
+                // [SEARCH CONTEXT] + LLM path so non-CA weather and any
+                // future weather sources still get answered.
+                if (decision.subtype == SearchSubtype.WEATHER &&
+                    outcome is SearchOutcome.Success &&
+                    weatherResponseFormatter != null
+                ) {
+                    val rendered = weatherResponseFormatter.format(
+                        city = searchPreferences?.location()?.city,
+                        payload = outcome.payload,
+                    )
+                    if (rendered != null) {
+                        val finalMsg = ChatMessage.Assistant(
+                            text = rendered,
+                            citations = outcome.payload.sources,
+                        )
+                        send(AgentEvent.TokenChunk(rendered))
+                        send(
+                            AgentEvent.Done(
+                                message = finalMsg,
+                                turnMessages = listOf(userMessage, finalMsg),
+                                skipMemoryExtraction = true,
+                            ),
+                        )
+                        logger(
+                            "[turn] weather direct path done " +
+                                "finalTextLen=${rendered.length} " +
+                                "citations=${outcome.payload.sources.size}",
+                        )
+                        return@channelFlow
+                    } else {
+                        logger("[turn] weather direct path declined — formatter returned null, falling through to LLM")
+                    }
+                }
+
+                val subtypeLabel = decision.subtype.name.lowercase()
+                val rawBody = when (outcome) {
+                    is SearchOutcome.Success -> {
+                        citationsForTurn.addAll(outcome.payload.sources)
+                        outcome.payload.json
+                    }
+                    is SearchOutcome.Error ->
+                        "error: ${outcome.kind.name} — ${outcome.message}"
+                }
+                // Cap the body so the whole [SEARCH CONTEXT] block lands at
+                // ~3600 chars (≈ 1000 tokens). Leaves the KV cache headroom
+                // we need for the rest of the system prompt + history. The
+                // header + footer + query/subtype lines take a fixed ~80
+                // chars; we compute the budget for the body then truncate
+                // with a visible marker so the model knows it was cut.
+                val wrapperOverhead =
+                    "[SEARCH CONTEXT]\nquery: ${decision.rewrittenQuery}\nsubtype: $subtypeLabel\n\n[/SEARCH CONTEXT]".length
+                val bodyBudget = SEARCH_CONTEXT_MAX_CHARS - wrapperOverhead
+                val body = if (rawBody.length > bodyBudget) {
+                    val keep = (bodyBudget - SEARCH_CONTEXT_TRUNCATION_MARKER.length).coerceAtLeast(0)
+                    logger(
+                        "[turn] search context body truncated " +
+                            "originalLen=${rawBody.length} keptLen=$keep " +
+                            "budget=$bodyBudget overhead=$wrapperOverhead",
+                    )
+                    rawBody.take(keep) + SEARCH_CONTEXT_TRUNCATION_MARKER
+                } else {
+                    rawBody
+                }
+                searchContextBlock = buildString {
+                    append("[SEARCH CONTEXT]\n")
+                    append("query: ").append(decision.rewrittenQuery).append('\n')
+                    append("subtype: ").append(subtypeLabel).append('\n')
+                    append(body)
+                    append("\n[/SEARCH CONTEXT]")
+                }
+                logger(
+                    "[turn] search context assembled blockLen=${searchContextBlock.length} " +
+                        "outcome=${outcome::class.simpleName} subtype=$subtypeLabel",
+                )
+                // Full block goes to logcat verbatim (no redaction) so the
+                // user can verify on-device that the LLM is seeing real
+                // payload data, not just page-description snippets. At ~3600
+                // chars max this fits inside logcat's per-line limit.
+                logger("[turn] >>> SEARCH CONTEXT START >>>")
+                logger(searchContextBlock)
+                logger("[turn] <<< SEARCH CONTEXT END <<<")
             }
             is PreflightDecision.SkipSearch,
             is PreflightDecision.FallThrough,
@@ -257,10 +375,9 @@ class AgentLoop(
         val structured = assembler.assembleStructured(
             history = historyForPrompt,
             memoryBlock = PromptAssembler.renderMemoryBlock(retrievedMemories),
-            preflightNotice = preflightNotice,
+            searchContext = searchContextBlock,
             searchAvailable = searchService.isAvailable(),
             responseLanguage = responseLanguage,
-            extraTools = toolHandlers.flatMap { it.definitions },
         )
         val request = GenerationRequest(
             systemInstruction = structured.systemInstruction,
@@ -272,6 +389,26 @@ class AgentLoop(
                 "historyTurns=${structured.history.size} " +
                 "toolsRegistered=${structured.tools.joinToString(",") { it.name }}",
         )
+        // Dump the full system instruction to logcat so the user can verify
+        // on-device that the `[SEARCH CONTEXT]` block, memory block, and
+        // tool-disabled directives all land correctly. The instruction can
+        // exceed logcat's per-line ceiling (~4000 chars on Pixel) so we
+        // chunk in 3500-char windows, tagged with their offset so the user
+        // can stitch them back together if needed.
+        val sys = structured.systemInstruction
+        logger("[turn] >>> SYSTEM INSTRUCTION START >>> totalLen=${sys.length}")
+        var sysOffset = 0
+        while (sysOffset < sys.length) {
+            val end = (sysOffset + SYSTEM_INSTRUCTION_LOG_CHUNK).coerceAtMost(sys.length)
+            logger("[turn] sysInstr@$sysOffset: ${sys.substring(sysOffset, end)}")
+            sysOffset = end
+        }
+        logger("[turn] <<< SYSTEM INSTRUCTION END <<<")
+        // The user message goes to the engine as the trailing history entry
+        // via sendMessageAsync — log it once at full length (no redact) so
+        // the user can confirm what Gemma actually sees.
+        val trailingUser = structured.history.lastOrNull()?.text.orEmpty()
+        logger("[turn] user message to engine (len=${trailingUser.length}): $trailingUser")
 
         val dispatcher = ToolDispatcher { call ->
             logger(
@@ -1001,7 +1138,30 @@ class AgentLoop(
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 3
         const val WEB_SEARCH_TOOL_NAME: String = "web_search"
-        const val PRE_FLIGHT_CALL_ID: String = "preflight-call-0"
+        const val NEWS_SEARCH_TOOL_NAME: String = "news_search"
+        const val WEATHER_LOOKUP_TOOL_NAME: String = "weather_lookup"
+        const val SPORTS_LOOKUP_TOOL_NAME: String = "sports_lookup"
+        const val FINANCE_LOOKUP_TOOL_NAME: String = "finance_lookup"
+
+        /**
+         * Maximum total length (in chars) of the assembled `[SEARCH CONTEXT]`
+         * block. ≈ 3600 chars maps to roughly 1000 tokens for English text,
+         * which keeps a comfortable share of the 8K KV-cache budget free for
+         * the rest of the system prompt + history + the model's reply.
+         * Adjusted via per-PR follow-ups; bumping it has to weigh latency +
+         * cache budget against the recall gain.
+         */
+        const val SEARCH_CONTEXT_MAX_CHARS: Int = 3600
+
+        /** Appended to the body when [SEARCH_CONTEXT_MAX_CHARS] forces a cut. */
+        const val SEARCH_CONTEXT_TRUNCATION_MARKER: String = "\n…[truncated]"
+
+        /**
+         * Per-line chunk size used when dumping the system instruction to
+         * logcat. Pixel's per-line ceiling is ~4068 chars; this leaves
+         * headroom for the tag + level prefix logcat itself adds.
+         */
+        const val SYSTEM_INSTRUCTION_LOG_CHUNK: Int = 3500
 
         const val TOOL_LIMIT_REACHED_MESSAGE: String =
             "Error: tool call limit reached for this turn. Answer the user with what you have."

@@ -1,5 +1,7 @@
 package com.contextsolutions.mobileagent.classifier
 
+import com.contextsolutions.mobileagent.search.SearchSubtype
+
 /**
  * Outcome of [PreflightRouter.route] for a single user turn. The agent
  * loop branches on the variant before invoking Gemma per PRD §3.2.1.
@@ -11,21 +13,26 @@ sealed class PreflightDecision {
 
     /**
      * High-band hit (`p_search_required > highBand`) AND the query rewriter
-     * produced a confident search query. The agent fires Brave Search with
-     * [rewrittenQuery], injects the result as a synthetic tool message, and
-     * passes `preflightNotice = true` to the prompt assembler so the
-     * `[PRE-FLIGHT NOTICE BLOCK]` (SYSTEM_PROMPT.md §6) is emitted.
+     * produced a confident search query. The agent fires the matching vertical
+     * adapter for [subtype] with [rewrittenQuery] and injects the result as a
+     * plain-text `[SEARCH CONTEXT]` block in the system instruction (see
+     * `PromptAssembler.searchContext`).
+     *
+     * [subtype] defaults to [SearchSubtype.GENERAL] (Brave Web Search) so
+     * callers that ignore the field reproduce the pre-PR-#23 behaviour
+     * verbatim — the field is purely additive on the existing variant.
      */
     data class FireSearch(
         val originalQuery: String,
         val rewrittenQuery: String,
         override val pSearchRequired: Float,
+        val subtype: SearchSubtype = SearchSubtype.GENERAL,
     ) : PreflightDecision()
 
     /**
-     * Low-band hit (`p_search_required < lowBand`). Per M4_PLAN.md §2 the
-     * `web_search` tool stays registered — Gemma can still call it if its
-     * own judgment differs — but pre-flight does NOT pre-execute a search.
+     * Low-band hit (`p_search_required < lowBand`). No pre-flight search is
+     * executed; the LLM answers from training/memory. (LLM-side tool calls
+     * are fully disabled — Gemma cannot fire its own search.)
      */
     data class SkipSearch(
         override val pSearchRequired: Float,
@@ -33,8 +40,8 @@ sealed class PreflightDecision {
 
     /**
      * Middle band, OR rewriter could not produce a confident query, OR
-     * classifier is unavailable. Behavior matches the M2 path: standard
-     * tool-calling, Gemma decides whether to search.
+     * classifier is unavailable. No pre-flight search is fired and the LLM
+     * answers from training/memory.
      */
     data class FallThrough(
         val reason: FallThroughReason,

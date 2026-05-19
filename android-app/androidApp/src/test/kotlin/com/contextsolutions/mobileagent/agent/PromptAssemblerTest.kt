@@ -46,32 +46,29 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `system instruction includes base template and guidelines but not tool schema`() {
+    fun `system instruction includes base template and guidelines and no-tools block`() {
         val out = assembler().assembleStructured(userOnly("hi"))
 
         assertTrue("missing base", "privacy-respecting AI assistant" in out.systemInstruction)
         assertTrue("missing guidelines header", "=== Guidelines ===" in out.systemInstruction)
-        // Tool schema is registered through ConversationConfig.tools, not system text.
-        assertFalse("schema should NOT be in system text", "\"name\": \"web_search\"" in out.systemInstruction)
-        assertFalse("tool header should NOT be in system text when search is available",
-            "=== Available tools ===" in out.systemInstruction)
+        // Tool registration is fully disabled — the system instruction now
+        // always carries the no-tools block.
+        assertTrue("missing tools header", "=== Available tools ===" in out.systemInstruction)
+        assertTrue("missing no-callable-tools sentence",
+            "You have no callable tools this turn." in out.systemInstruction)
+        // No tool schemas are advertised at all.
+        assertFalse("legacy schema should NOT appear", "\"name\": \"web_search\"" in out.systemInstruction)
         // No chat-template markers — LiteRT-LM applies them.
         assertFalse("<start_of_turn>" in out.systemInstruction)
         assertFalse("<end_of_turn>" in out.systemInstruction)
     }
 
     @Test
-    fun `tools list contains web_search when search is available`() {
-        val out = assembler().assembleStructured(userOnly("hi"), searchAvailable = true)
-        assertEquals(1, out.tools.size)
-        assertEquals("web_search", out.tools.single().name)
-        assertTrue("\"name\": \"web_search\"" in out.tools.single().descriptionJson)
-    }
-
-    @Test
-    fun `tools list is empty when search is unavailable`() {
-        val out = assembler().assembleStructured(userOnly("hi"), searchAvailable = false)
-        assertTrue(out.tools.isEmpty())
+    fun `tools list is always empty regardless of searchAvailable`() {
+        val on = assembler().assembleStructured(userOnly("hi"), searchAvailable = true)
+        val off = assembler().assembleStructured(userOnly("hi"), searchAvailable = false)
+        assertTrue("tools must be empty when search is on", on.tools.isEmpty())
+        assertTrue("tools must be empty when search is off", off.tools.isEmpty())
     }
 
     @Test
@@ -94,12 +91,20 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `includes pre-flight notice only when flagged`() {
+    fun `search context block appears only when searchContext is provided`() {
         val without = assembler().assembleStructured(userOnly("hi"))
-        val with = assembler().assembleStructured(userOnly("hi"), preflightNotice = true)
+        val with = assembler().assembleStructured(
+            userOnly("hi"),
+            searchContext = "[SEARCH CONTEXT]\nquery: weather toronto\n[/SEARCH CONTEXT]",
+        )
 
-        assertFalse("=== Note on this turn ===" in without.systemInstruction)
-        assertTrue("=== Note on this turn ===" in with.systemInstruction)
+        assertFalse("=== Search context for this turn ===" in without.systemInstruction)
+        assertFalse("`[SEARCH CONTEXT]` block above" in without.systemInstruction)
+        assertTrue("=== Search context for this turn ===" in with.systemInstruction)
+        assertTrue("weather toronto" in with.systemInstruction)
+        // Pre-flight notice is appended together with the block so the model
+        // is told to use it.
+        assertTrue("`[SEARCH CONTEXT]` block above" in with.systemInstruction)
     }
 
     @Test
@@ -163,19 +168,24 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `searchAvailable false replaces tool definitions with no-tools block`() {
+    fun `searchAvailable false uses the search-off variant of the no-tools block`() {
         val out = assembler().assembleStructured(userOnly("hi"), searchAvailable = false)
 
-        assertFalse("schema should not appear when search is unavailable", "\"name\": \"web_search\"" in out.systemInstruction)
+        assertFalse("no tool schemas anywhere", "\"name\": \"web_search\"" in out.systemInstruction)
         assertTrue("=== Available tools ===" in out.systemInstruction)
-        assertTrue("Web search is unavailable" in out.systemInstruction)
+        assertTrue("web search is disabled" in out.systemInstruction)
         assertTrue("enable web search in settings" in out.systemInstruction)
     }
 
     @Test
-    fun `searchAvailable true does not add the no-tools block`() {
+    fun `searchAvailable true uses the default no-tools block`() {
         val out = assembler().assembleStructured(userOnly("hi"))
-        assertFalse("Web search is unavailable" in out.systemInstruction)
+        // Default block mentions the [SEARCH CONTEXT] injection path; the
+        // search-off variant doesn't.
+        assertTrue("default block must mention SEARCH CONTEXT",
+            "`[SEARCH CONTEXT]`" in out.systemInstruction)
+        assertFalse("default block must not mention 'web search is disabled'",
+            "web search is disabled" in out.systemInstruction)
     }
 
     @Test

@@ -19,6 +19,7 @@ import com.contextsolutions.mobileagent.app.ui.history.ConversationHistoryScreen
 import com.contextsolutions.mobileagent.app.ui.memory.ConversationMemoryListScreen
 import com.contextsolutions.mobileagent.app.ui.memory.MemoryScreen
 import com.contextsolutions.mobileagent.app.ui.onboarding.OnboardingHost
+import com.contextsolutions.mobileagent.app.ui.settings.SearchSourcesScreen
 import com.contextsolutions.mobileagent.app.ui.settings.SettingsScreen
 import com.contextsolutions.mobileagent.app.ui.todo.TodoManagementScreen
 import kotlinx.coroutines.Job
@@ -126,7 +127,12 @@ fun MainScreen(
                 onBack = { route = MainRoute.Chat },
                 onOpenMemoryManagement = { route = MainRoute.MemoryManagement },
                 onOpenConversationHistory = { route = MainRoute.ConversationHistory },
+                onOpenSearchSources = { route = MainRoute.SearchSources },
             )
+        }
+        MainRoute.SearchSources -> {
+            BackHandler { route = MainRoute.Settings }
+            SearchSourcesScreen(onBack = { route = MainRoute.Settings })
         }
         MainRoute.MemoryManagement -> {
             BackHandler { route = MainRoute.Settings }
@@ -176,6 +182,7 @@ internal sealed interface MainRoute {
     data object TodoManagement : MainRoute
     data object TimerManagement : MainRoute
     data object AlarmManagement : MainRoute
+    data object SearchSources : MainRoute
     data class ConversationMemory(val conversationId: String) : MainRoute
 
     companion object {
@@ -196,6 +203,7 @@ internal sealed interface MainRoute {
                         TodoManagement -> "todos"
                         TimerManagement -> "timers"
                         AlarmManagement -> "alarms"
+                        SearchSources -> "search_sources"
                         is ConversationMemory -> "cmem:${it.conversationId}"
                     }
                 },
@@ -208,6 +216,7 @@ internal sealed interface MainRoute {
                         encoded == "todos" -> TodoManagement
                         encoded == "timers" -> TimerManagement
                         encoded == "alarms" -> AlarmManagement
+                        encoded == "search_sources" -> SearchSources
                         encoded.startsWith("cmem:") -> ConversationMemory(encoded.substringAfter("cmem:"))
                         else -> Chat
                     }

@@ -20,6 +20,7 @@ androidx-lifecycle = "2.8.7"
 androidx-security-crypto = "1.1.0-alpha06"
 androidx-work = "2.10.0"
 androidx-startup = "1.2.0"
+androidx-datastore = "1.1.1"
 
 # Compose
 compose-bom = "2024.12.01"
@@ -118,6 +119,7 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security-crypto" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidx-work" }
 androidx-startup-runtime = { module = "androidx.startup:startup-runtime", version.ref = "androidx-startup" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "androidx-datastore" }
 
 # Compose
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }

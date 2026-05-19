@@ -51,9 +51,16 @@ data class PreflightThresholds(
     }
 
     companion object {
-        /** Per `docs/M3_M4_HANDOFF.md` §4. */
+        /**
+         * Per `docs/M3_M4_HANDOFF.md` §4 (originally 0.85). The high band
+         * was relaxed to 0.5 after on-device testing showed the v1.0
+         * classifier was under-firing on weather/sports queries that the
+         * vertical adapters can handle cleanly. The asset bundle in
+         * `preflight_config.json` is the source of truth at runtime; this
+         * default fires only when the asset fails to load.
+         */
         val DEFAULT: PreflightThresholds = PreflightThresholds(
-            highBand = 0.85f,
+            highBand = 0.5f,
             lowBand = 0.15f,
         )
     }

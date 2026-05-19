@@ -15,6 +15,7 @@ import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.platform.LocaleProvider
 import com.contextsolutions.mobileagent.search.SearchService
+import com.contextsolutions.mobileagent.search.SearchSubtypeDetector
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import dagger.Module
 import dagger.Provides
@@ -115,6 +116,7 @@ object ClassifierModule {
         rewriter: QueryRewriter,
         config: PreflightConfig,
         searchService: SearchService,
+        subtypeDetector: SearchSubtypeDetector,
         counters: com.contextsolutions.mobileagent.telemetry.TelemetryCounters,
     ): PreflightRouter = PreflightRouter(
         engine = engine,
@@ -126,6 +128,7 @@ object ClassifierModule {
         // out of scope for v1.
         configProvider = { config },
         searchAvailableProvider = { searchService.isAvailable() },
+        subtypeDetector = subtypeDetector,
         logger = { Log.i(TAG, it) },
         counters = counters,
     )

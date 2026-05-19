@@ -172,23 +172,22 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `tools registered when search available, empty when not`() = runTest {
-        val session = FakeSession(emitText = "ok")
-        val available = newLoop(session, FakeBraveSearchClient())
-        val noKey = newLoop(
-            FakeSession(emitText = "ok"),
-            FakeBraveSearchClient(),
-            keyProvider = object : BraveKeyProvider { override fun currentKey(): String? = null },
-        )
-
-        val r1 = RecordingSession(session).also { newLoop(it, FakeBraveSearchClient()).run(AgentTurnInput("a")).toList() }
+    fun `tools list always empty regardless of search availability`() = runTest {
+        // LLM-side tool calling is fully disabled — the engine sees an empty
+        // tools list whether or not the user has a Brave key. All tool
+        // dispatch happens before the engine via regex/parsers + pre-flight.
+        val r1 = RecordingSession(FakeSession(emitText = "ok")).also {
+            newLoop(it, FakeBraveSearchClient()).run(AgentTurnInput("a")).toList()
+        }
         val r2 = RecordingSession(FakeSession(emitText = "ok")).also {
-            newLoop(it, FakeBraveSearchClient(),
-                keyProvider = object : BraveKeyProvider { override fun currentKey(): String? = null }).run(AgentTurnInput("a")).toList()
+            newLoop(
+                it, FakeBraveSearchClient(),
+                keyProvider = object : BraveKeyProvider { override fun currentKey(): String? = null },
+            ).run(AgentTurnInput("a")).toList()
         }
 
-        assertEquals(1, r1.requests.single().tools.size)
-        assertTrue(r2.requests.single().tools.isEmpty())
+        assertTrue("tools must be empty when search is available", r1.requests.single().tools.isEmpty())
+        assertTrue("tools must be empty when search is unavailable", r2.requests.single().tools.isEmpty())
     }
 
     private fun newLoop(

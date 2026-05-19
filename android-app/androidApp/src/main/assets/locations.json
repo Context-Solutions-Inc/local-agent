@@ -1,0 +1,160 @@
+{
+  "countries": [
+    {
+      "code": "CA",
+      "name": "Canada",
+      "regions": [
+        { "code": "AB", "name": "Alberta", "cities": [
+          { "name": "Calgary", "lat": 51.0447, "lon": -114.0719 },
+          { "name": "Edmonton", "lat": 53.5461, "lon": -113.4938 }
+        ] },
+        { "code": "BC", "name": "British Columbia", "cities": [
+          { "name": "Vancouver", "lat": 49.2827, "lon": -123.1207 },
+          { "name": "Victoria", "lat": 48.4284, "lon": -123.3656 }
+        ] },
+        { "code": "MB", "name": "Manitoba", "cities": [
+          { "name": "Winnipeg", "lat": 49.8951, "lon": -97.1384 }
+        ] },
+        { "code": "NB", "name": "New Brunswick", "cities": [
+          { "name": "Fredericton", "lat": 45.9636, "lon": -66.6431 },
+          { "name": "Moncton", "lat": 46.0878, "lon": -64.7782 }
+        ] },
+        { "code": "NL", "name": "Newfoundland and Labrador", "cities": [
+          { "name": "St. John's", "lat": 47.5615, "lon": -52.7126 }
+        ] },
+        { "code": "NS", "name": "Nova Scotia", "cities": [
+          { "name": "Halifax", "lat": 44.6488, "lon": -63.5752 }
+        ] },
+        { "code": "ON", "name": "Ontario", "cities": [
+          { "name": "Toronto", "lat": 43.6532, "lon": -79.3832 },
+          { "name": "Ottawa", "lat": 45.4215, "lon": -75.6972 },
+          { "name": "Hamilton", "lat": 43.2557, "lon": -79.8711 },
+          { "name": "London", "lat": 42.9849, "lon": -81.2453 },
+          { "name": "Kitchener", "lat": 43.4516, "lon": -80.4925 },
+          { "name": "Windsor", "lat": 42.3149, "lon": -83.0364 }
+        ] },
+        { "code": "PE", "name": "Prince Edward Island", "cities": [
+          { "name": "Charlottetown", "lat": 46.2382, "lon": -63.1311 }
+        ] },
+        { "code": "QC", "name": "Quebec", "cities": [
+          { "name": "Montreal", "lat": 45.5017, "lon": -73.5673 },
+          { "name": "Quebec City", "lat": 46.8139, "lon": -71.2080 },
+          { "name": "Laval", "lat": 45.6066, "lon": -73.7124 },
+          { "name": "Gatineau", "lat": 45.4765, "lon": -75.7013 }
+        ] },
+        { "code": "SK", "name": "Saskatchewan", "cities": [
+          { "name": "Saskatoon", "lat": 52.1332, "lon": -106.6700 },
+          { "name": "Regina", "lat": 50.4452, "lon": -104.6189 }
+        ] }
+      ]
+    },
+    {
+      "code": "US",
+      "name": "United States",
+      "regions": [
+        { "code": "CA", "name": "California", "cities": [
+          { "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437 },
+          { "name": "San Francisco", "lat": 37.7749, "lon": -122.4194 },
+          { "name": "San Diego", "lat": 32.7157, "lon": -117.1611 },
+          { "name": "San Jose", "lat": 37.3382, "lon": -121.8863 },
+          { "name": "Sacramento", "lat": 38.5816, "lon": -121.4944 }
+        ] },
+        { "code": "NY", "name": "New York", "cities": [
+          { "name": "New York City", "lat": 40.7128, "lon": -74.0060 },
+          { "name": "Buffalo", "lat": 42.8864, "lon": -78.8784 },
+          { "name": "Rochester", "lat": 43.1566, "lon": -77.6088 },
+          { "name": "Albany", "lat": 42.6526, "lon": -73.7562 }
+        ] },
+        { "code": "TX", "name": "Texas", "cities": [
+          { "name": "Houston", "lat": 29.7604, "lon": -95.3698 },
+          { "name": "Dallas", "lat": 32.7767, "lon": -96.7970 },
+          { "name": "Austin", "lat": 30.2672, "lon": -97.7431 },
+          { "name": "San Antonio", "lat": 29.4241, "lon": -98.4936 }
+        ] },
+        { "code": "FL", "name": "Florida", "cities": [
+          { "name": "Miami", "lat": 25.7617, "lon": -80.1918 },
+          { "name": "Orlando", "lat": 28.5383, "lon": -81.3792 },
+          { "name": "Tampa", "lat": 27.9506, "lon": -82.4572 },
+          { "name": "Jacksonville", "lat": 30.3322, "lon": -81.6557 }
+        ] },
+        { "code": "IL", "name": "Illinois", "cities": [
+          { "name": "Chicago", "lat": 41.8781, "lon": -87.6298 },
+          { "name": "Springfield", "lat": 39.7817, "lon": -89.6501 }
+        ] },
+        { "code": "WA", "name": "Washington", "cities": [
+          { "name": "Seattle", "lat": 47.6062, "lon": -122.3321 },
+          { "name": "Spokane", "lat": 47.6588, "lon": -117.4260 }
+        ] },
+        { "code": "MA", "name": "Massachusetts", "cities": [
+          { "name": "Boston", "lat": 42.3601, "lon": -71.0589 },
+          { "name": "Cambridge", "lat": 42.3736, "lon": -71.1097 }
+        ] },
+        { "code": "GA", "name": "Georgia", "cities": [
+          { "name": "Atlanta", "lat": 33.7490, "lon": -84.3880 },
+          { "name": "Savannah", "lat": 32.0809, "lon": -81.0912 }
+        ] },
+        { "code": "CO", "name": "Colorado", "cities": [
+          { "name": "Denver", "lat": 39.7392, "lon": -104.9903 },
+          { "name": "Boulder", "lat": 40.0150, "lon": -105.2705 }
+        ] },
+        { "code": "OR", "name": "Oregon", "cities": [
+          { "name": "Portland", "lat": 45.5152, "lon": -122.6784 },
+          { "name": "Eugene", "lat": 44.0521, "lon": -123.0868 }
+        ] }
+      ]
+    },
+    {
+      "code": "GB",
+      "name": "United Kingdom",
+      "regions": [
+        { "code": "ENG", "name": "England", "cities": [
+          { "name": "London", "lat": 51.5074, "lon": -0.1278 },
+          { "name": "Manchester", "lat": 53.4808, "lon": -2.2426 },
+          { "name": "Birmingham", "lat": 52.4862, "lon": -1.8904 },
+          { "name": "Liverpool", "lat": 53.4084, "lon": -2.9916 },
+          { "name": "Leeds", "lat": 53.8008, "lon": -1.5491 },
+          { "name": "Bristol", "lat": 51.4545, "lon": -2.5879 }
+        ] },
+        { "code": "SCT", "name": "Scotland", "cities": [
+          { "name": "Edinburgh", "lat": 55.9533, "lon": -3.1883 },
+          { "name": "Glasgow", "lat": 55.8642, "lon": -4.2518 },
+          { "name": "Aberdeen", "lat": 57.1497, "lon": -2.0943 }
+        ] },
+        { "code": "WLS", "name": "Wales", "cities": [
+          { "name": "Cardiff", "lat": 51.4816, "lon": -3.1791 },
+          { "name": "Swansea", "lat": 51.6214, "lon": -3.9436 }
+        ] },
+        { "code": "NIR", "name": "Northern Ireland", "cities": [
+          { "name": "Belfast", "lat": 54.5973, "lon": -5.9301 }
+        ] }
+      ]
+    },
+    {
+      "code": "AU",
+      "name": "Australia",
+      "regions": [
+        { "code": "NSW", "name": "New South Wales", "cities": [
+          { "name": "Sydney", "lat": -33.8688, "lon": 151.2093 },
+          { "name": "Newcastle", "lat": -32.9283, "lon": 151.7817 }
+        ] },
+        { "code": "VIC", "name": "Victoria", "cities": [
+          { "name": "Melbourne", "lat": -37.8136, "lon": 144.9631 },
+          { "name": "Geelong", "lat": -38.1499, "lon": 144.3617 }
+        ] },
+        { "code": "QLD", "name": "Queensland", "cities": [
+          { "name": "Brisbane", "lat": -27.4698, "lon": 153.0251 },
+          { "name": "Gold Coast", "lat": -28.0167, "lon": 153.4000 }
+        ] },
+        { "code": "WA", "name": "Western Australia", "cities": [
+          { "name": "Perth", "lat": -31.9505, "lon": 115.8605 }
+        ] },
+        { "code": "SA", "name": "South Australia", "cities": [
+          { "name": "Adelaide", "lat": -34.9285, "lon": 138.6007 }
+        ] },
+        { "code": "TAS", "name": "Tasmania", "cities": [
+          { "name": "Hobart", "lat": -42.8821, "lon": 147.3272 }
+        ] }
+      ]
+    }
+  ]
+}

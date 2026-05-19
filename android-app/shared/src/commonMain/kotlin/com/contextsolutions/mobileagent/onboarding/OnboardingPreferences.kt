@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Persistent state for the M6 Phase E first-run onboarding flow.
  *
- * Four independent gates:
+ * Five independent gates:
  *
  *  - [disclosureAcknowledged] — user has read and accepted the on-device
  *    privacy disclosure (PRD §6.1).
@@ -18,11 +18,16 @@ import kotlinx.coroutines.flow.Flow
  *    production builds) or explicitly chosen to skip. Same "shown the
  *    option" semantics as [braveKeyDecided] — the actual download still
  *    gates on token presence.
+ *  - [locationDecided] (PR #23) — user has either captured a
+ *    country/region/city for vertical search routing, or explicitly
+ *    accepted the device-locale fallback. The location itself is
+ *    persisted by `SearchPreferencesRepository`; this flag only tracks
+ *    "user was shown the picker".
  *  - [telemetryDecided] — mirrors `TelemetryConsentManager.firstRunDecided`
  *    from Phase C. Kept here as a read-through cache so the host can
  *    compute "is onboarding complete?" from a single state object.
  *
- * Onboarding is complete when all four are true. The download screen +
+ * Onboarding is complete when all five are true. The download screen +
  * "ready" screen are sequenced after onboarding by `MainScreen`.
  *
  * Implementation lives in `:shared/androidMain` backed by a plain
@@ -42,4 +47,8 @@ interface OnboardingPreferences {
     fun hfAuthTokenDecided(): Boolean
     fun hfAuthTokenDecidedFlow(): Flow<Boolean>
     fun markHfAuthTokenDecided()
+
+    fun locationDecided(): Boolean
+    fun locationDecidedFlow(): Flow<Boolean>
+    fun markLocationDecided()
 }

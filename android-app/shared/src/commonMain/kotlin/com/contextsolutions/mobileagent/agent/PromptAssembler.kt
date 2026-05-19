@@ -23,15 +23,16 @@ import kotlinx.datetime.LocalDateTime
  * `SYSTEM_PROMPT.md`:
  *  - Base template (§3)
  *  - Temporal context (§4, regenerated per turn from device clock + locale)
- *  - Tool definitions (§7) — gated by [searchAvailable]; replaced with the
- *    "no tools available" block when search is off
+ *  - No-tools block (§7) — LLM tool-calling is fully disabled; all tool
+ *    dispatch (clock, todo, memory, search) happens BEFORE the model via
+ *    regex/parsers (`ClockCommandParser`, `TodoCommandParser`,
+ *    `RememberForgetDetector`) or the pre-flight classifier
+ *    (`PreflightRouter`). The LLM only consumes prompt + history + an
+ *    optional `[SEARCH CONTEXT]` block when pre-flight fired.
  *  - Behavior guidelines (§8)
- *
- * Memory (§5) and pre-flight notice (§6) are wired as no-op placeholders.
  */
 class PromptAssembler(
     private val timeContextProvider: () -> TimeContext,
-    private val toolSchemaJson: String = DEFAULT_WEB_SEARCH_SCHEMA,
 ) {
 
     /**
@@ -40,65 +41,45 @@ class PromptAssembler(
      * (sent via `sendMessageAsync`); everything before it becomes
      * `initialMessages` on the conversation. Callers must put the user's
      * latest input at the tail of [history].
+     *
+     * [searchContext] — pre-flight search results rendered as a plain-text
+     * block inside the system instruction (under `=== Search context ===`).
+     * When non-null, [PREFLIGHT_NOTICE] is also appended so the model knows
+     * to use the block.
      */
     fun assembleStructured(
         history: List<ChatMessage>,
         memoryBlock: String? = null,
-        preflightNotice: Boolean = false,
+        searchContext: String? = null,
         searchAvailable: Boolean = true,
         forceFinalAnswer: Boolean = false,
         responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
-        extraTools: List<ToolDefinition> = emptyList(),
     ): StructuredPrompt {
         require(history.isNotEmpty()) { "history must not be empty" }
 
         val systemInstruction = buildSystemInstruction(
             memoryBlock = memoryBlock,
-            preflightNotice = preflightNotice,
+            searchContext = searchContext,
             searchAvailable = searchAvailable,
             forceFinalAnswer = forceFinalAnswer,
             responseLanguage = responseLanguage,
         )
 
-        // The engine inspects the LAST entry in `history` to decide what to
-        // send via sendMessageAsync (User text or Tool response); everything
-        // else becomes the conversation's initial messages. We hand the full
-        // chronological list so that decision can happen in one place.
         val structuredHistory = history.flatMap(::toHistoryMessages)
 
-        // Tool registration is handled by the engine via ConversationConfig.tools
-        // — the model only treats tools as callable when they come through that
-        // channel. We attach definitions here so the engine can pass them on.
-        // web_search is gated by [searchAvailable] (drives the "no tools" prompt
-        // branch); [extraTools] are pluggable handlers the agent layer registers.
-        val tools = buildList {
-            if (searchAvailable) add(WEB_SEARCH_TOOL_DEFINITION)
-            addAll(extraTools)
-        }
-
-        // PR #11: when clock tools are registered, append a short directive
-        // to the system prompt so the model treats them as the right answer
-        // for clock commands and doesn't over-confirm. The base tool-call
-        // description JSON tells Gemma *what* the tool does; this block
-        // tells it *to actually call the tool* without asking for
-        // confirmation when intent is unambiguous.
-        val hasClockTools = extraTools.any { it.name in CLOCK_TOOL_NAMES }
-        val finalSystemInstruction = if (hasClockTools) {
-            systemInstruction + "\n\n" + CLOCK_TOOLS_BLOCK
-        } else {
-            systemInstruction
-        }
-
+        // Tool registration with the LLM is disabled — all tool dispatch
+        // happens before the engine, and pre-flight results are injected as
+        // a plain-text block in the system instruction (see [searchContext]).
         return StructuredPrompt(
-            systemInstruction = finalSystemInstruction,
+            systemInstruction = systemInstruction,
             history = structuredHistory,
-            tools = tools,
+            tools = emptyList(),
         )
     }
 
     private fun buildSystemInstruction(
         memoryBlock: String?,
-        preflightNotice: Boolean,
+        searchContext: String?,
         searchAvailable: Boolean,
         forceFinalAnswer: Boolean,
         responseLanguage: PreferredLanguage,
@@ -112,19 +93,23 @@ class PromptAssembler(
             append("\n\n")
             append(memoryBlock)
         }
-        if (preflightNotice) {
+        if (!searchContext.isNullOrBlank()) {
+            append("\n\n")
+            append(SEARCH_CONTEXT_HEADER)
+            append('\n')
+            append(searchContext)
             append("\n\n")
             append(PREFLIGHT_NOTICE)
         }
-        // Tool schema is registered through ConversationConfig.tools, not
-        // injected as text here — the model only treats tools as callable
-        // when LiteRT-LM advertises them via its template. We still describe
-        // the unavailability case in text so the model knows why no tool is
-        // surfaced when search is off.
-        if (!searchAvailable) {
-            append("\n\n")
-            append(NO_TOOLS_BLOCK)
-        }
+        // Tool-calling is fully disabled at the LLM layer regardless of
+        // [searchAvailable]; the block tells the model not to attempt
+        // emitting tool-call markers and how to consume `[SEARCH CONTEXT]`
+        // when present. [searchAvailable] still signals whether the user
+        // has enabled search in settings — when false, even the pre-flight
+        // path can't fire, so search-related questions get the "can't
+        // verify" caveat.
+        append("\n\n")
+        append(if (searchAvailable) NO_TOOLS_BLOCK else NO_TOOLS_SEARCH_OFF_BLOCK)
         if (forceFinalAnswer) {
             append("\n\n")
             append(FORCE_FINAL_ANSWER_BLOCK)
@@ -150,14 +135,6 @@ class PromptAssembler(
             significantly before today's date may be outdated.
         """.trimIndent()
     }
-
-    private fun toolDefinitionsBlock(): String = """
-        === Available tools ===
-        You have access to the following tool. Use it when the user's query
-        requires current or specialized information beyond your training data.
-
-        $toolSchemaJson
-    """.trimIndent()
 
     /**
      * Translates a single [ChatMessage] into zero or more [HistoryMessage]s.
@@ -186,35 +163,16 @@ class PromptAssembler(
     }
 
     companion object {
-        val WEB_SEARCH_TOOL_DEFINITION: ToolDefinition = ToolDefinition(
-            name = "web_search",
-            descriptionJson = DEFAULT_WEB_SEARCH_SCHEMA,
-        )
-
-        const val DEFAULT_WEB_SEARCH_SCHEMA: String = """{
-  "name": "web_search",
-  "description": "Search the web for current information. Use for questions about recent events, current scores, market prices, weather, news, product availability, or any topic where information may have changed recently. Do NOT use for general knowledge, settled history, definitions, or reasoning questions you can answer from training. Results carry title, url, and snippet; news items may also include 'age' (e.g. '6 hours ago') and 'breaking: true' — prefer breaking and fresh news sources when the question is time-sensitive.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "The search query. Should be concise and specific. Resolve relative time expressions (e.g., 'last year' -> '2025') and ambiguous references (e.g., 'my team' -> 'Philadelphia Eagles') to concrete terms before searching."
-      }
-    },
-    "required": ["query"]
-  }
-}"""
-
         // Verbatim from SYSTEM_PROMPT.md §3 + §6 + §8 — keep in sync if those sections change.
         // The "respond in {language}" directive used to be appended here as
         // a hard-coded English line (PR `bff6e22`). It's now emitted as a
         // separate block by [languageDirective] so it can be parameterised
         // by the user's Settings preference (PR #10).
         const val BASE_TEMPLATE: String = """You are a helpful, accurate, and privacy-respecting AI assistant running
-entirely on the user's device. You answer questions, help with tasks, and
-have access to a web search tool for retrieving current information when
-needed.
+entirely on the user's device. You answer questions and help with tasks.
+When recent information is needed, the host app may pre-fetch it for you and
+include it below as a [SEARCH CONTEXT] block; use those results as
+authoritative when present.
 
 You are direct and concise. You match the user's register: casual when they
 are casual, precise when they are precise. You do not pad responses with
@@ -241,63 +199,58 @@ unnecessary preamble or filler."""
                 "or inserting characters from other writing systems into the response."
         }
 
+        /**
+         * Default "tools disabled" block. Tool-calling is fully disabled on
+         * the LLM side; this tells the model not to attempt emitting tool-
+         * call markers and explains the `[SEARCH CONTEXT]` injection path
+         * the host app uses when fresh data is needed.
+         */
         const val NO_TOOLS_BLOCK: String = """=== Available tools ===
-You have no tools available in this turn. Web search is unavailable
-(disabled in settings or no API key configured).
+You have no callable tools this turn. Do NOT emit tool-call markers like
+`<|tool_call>` — the host application strips them and the user will see
+broken text. Clock, alarm, todo, and memory commands are handled by the
+host BEFORE you see the message; if one reaches you, just answer in plain
+text.
 
-Answer the user from your training data. For questions about recent events,
-current prices, weather, sports scores, or anything else that may have
-changed since training, be explicit that you cannot verify current
-information and suggest the user enable web search in settings."""
-
-        const val FORCE_FINAL_ANSWER_BLOCK: String = """=== This turn is final ===
-You have already invoked tools the maximum number of times for this turn.
-Do not emit another tool call. Answer the user with the information you
-already have, citing the search results you've received."""
+When the host has fetched recent information for you, it appears above as a
+`[SEARCH CONTEXT]` block. Treat that block as authoritative for current
+facts (today's weather, latest scores, current prices, recent news) and
+cite the source domains in parentheses (e.g., "5°C, cloudy (weather.gc.ca)").
+When no `[SEARCH CONTEXT]` block is present, answer from your training data
+and add a brief caveat for anything time-sensitive."""
 
         /**
-         * Tool names that, when registered as `extraTools`, trigger the
-         * [CLOCK_TOOLS_BLOCK] directive in the system instruction. Kept
-         * here (vs. in [ClockToolHandler]) so PromptAssembler stays free
-         * of an agent→android cycle.
+         * Variant used when the user has disabled search in settings or
+         * provided no API key — pre-flight cannot fire, so the model gets
+         * an explicit "search is off" hint.
          */
-        val CLOCK_TOOL_NAMES: Set<String> = setOf(
-            "set_timer", "set_alarm",
-            "cancel_timer", "cancel_alarm",
-            "list_timers", "list_alarms",
-        )
+        const val NO_TOOLS_SEARCH_OFF_BLOCK: String = """=== Available tools ===
+You have no callable tools this turn, and web search is disabled in the
+user's settings. Do NOT emit tool-call markers like `<|tool_call>`.
 
-        const val CLOCK_TOOLS_BLOCK: String = """=== Clock tools ===
-You have tools to set, cancel, list, or modify timers and alarms
-(set_timer, set_alarm, cancel_timer, cancel_alarm, list_timers,
-list_alarms). When the user asks to perform any of these actions, call
-the appropriate tool IMMEDIATELY. Do NOT ask for confirmation if the
-duration, time of day, or intent is already clear from the message —
-just execute and confirm what you did in a short reply.
+Answer from your training data. For questions about recent events, current
+prices, weather, sports scores, or anything else that may have changed
+since training, be explicit that you cannot verify current information and
+suggest the user enable web search in settings."""
 
-Examples:
-- "set a 5 minute timer for tea" -> call set_timer with minutes=5, label="tea"
-- "wake me at 7am every weekday" -> call set_alarm with hour=7, minute=0, days=["mon","tue","wed","thu","fri"]
-- "cancel my tea timer" -> call cancel_timer with label="tea"
-- "what alarms do I have?" -> call list_alarms
+        const val FORCE_FINAL_ANSWER_BLOCK: String = """=== This turn is final ===
+Answer the user with the information you already have, citing any
+`[SEARCH CONTEXT]` source domains you used."""
 
-Only ask for clarification when the request is genuinely ambiguous
-(e.g., "set a timer" with no duration). Clock tools do NOT need a web
-search — never call web_search to figure out how to set a timer.
+        const val SEARCH_CONTEXT_HEADER: String = "=== Search context for this turn ==="
 
-set_timer vs set_alarm: set_timer is for RELATIVE durations ("in 5
-minutes", "for 25 minutes"). set_alarm is for ABSOLUTE wall-clock
-times ("at 7am", "11:45 AM", "wake me at 6:30"). If the user says
-the word "timer" but gives a clock time like "11:45 AM", call
-set_alarm — the user wants to be alerted at that time of day, not
-after a duration."""
+        const val PREFLIGHT_NOTICE: String = """The `[SEARCH CONTEXT]` block above contains results the host fetched on
+your behalf for THIS query. Use the relevant portions to answer; when the
+results group by category (general / news / weather / sports / finance),
+use only the groups that match the user's question and ignore the rest.
 
-        const val PREFLIGHT_NOTICE: String = """=== Note on this turn ===
-A web search has already been performed on your behalf for this query, and
-the results are included below in the conversation as a tool result. Answer
-the user's question using those results. Do NOT emit another web_search tool
-call for this query unless the results are clearly insufficient and a
-different search would help."""
+DO NOT say "I don't have real-time data", "I can't access current
+information", or "I don't have weather/sports/finance/news access". The
+host has ALREADY fetched the current information for you — it is in the
+`[SEARCH CONTEXT]` block. Read it and answer from it. If the block is
+present but does not contain the specific fact the user asked for, say so
+explicitly (e.g., "the source I have doesn't list tonight's score") rather
+than refusing on the grounds of having no real-time data."""
 
         // SYSTEM_PROMPT.md §5 — verbatim. Wrapped at the same column the file
         // uses so the model sees the exact spec text. The bullet list is
@@ -350,17 +303,17 @@ statement."""
 
         const val BEHAVIOR_GUIDELINES: String = """=== Guidelines ===
 
-Citation: When you use information from a web search result, briefly
+Citation: When you use information from a `[SEARCH CONTEXT]` block, briefly
 reference the source. Format: include the source domain in parentheses after
 the relevant claim, e.g., "The Eagles won 28-22 (espn.com)." Do not invent
 URLs or sources you did not receive.
 
 Uncertainty: If you don't know something or aren't sure, say so. Don't
 fabricate. For questions about events, people, or facts that may have
-changed since your training data, prefer to use web_search rather than guess
-- but if search isn't available or fails, give the user your best answer
-with an explicit caveat ("As of my training data..." or "I'm not certain
-about current details, but...").
+changed since your training data, prefer the `[SEARCH CONTEXT]` block if
+present; otherwise give the user your best answer with an explicit caveat
+("As of my training data..." or "I'm not certain about current details,
+but...").
 
 Conciseness: Match response length to the question. A simple factual question
 gets a one-sentence answer. A complex how-to question gets structured

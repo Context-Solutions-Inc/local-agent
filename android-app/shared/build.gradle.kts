@@ -71,6 +71,9 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqldelight.android.driver)
             implementation(libs.androidx.security.crypto)
+            // PR #23 — vertical search preferences. Single-blob JSON storage
+            // avoids the SQLDelight .sqm snapshot dance (invariant #20).
+            implementation(libs.androidx.datastore.preferences)
             // On-device LLM runtime.
             implementation(libs.litertlm.android)
             // LiteRT-LM 0.10.2's Backend.GPU() requires Play Services TFLite to
