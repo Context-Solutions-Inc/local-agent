@@ -542,6 +542,21 @@ class AgentLoop(
             }
         }
 
+        // Strip any host-internal [SEARCH CONTEXT] scaffolding the model
+        // parroted into its answer (PR #30). Cleaning finalText before the
+        // message is built means both the user-visible bubble (rendered from
+        // finalMessage.text on Done) and the persisted turnMessages → next
+        // turn's history carry the clean text, so it can't re-prime later
+        // turns. Tokens already streamed raw may briefly flicker the marker
+        // before Done replaces the bubble — same accepted behavior as the
+        // marker-fallback path above.
+        val descaffolded = stripSearchContextScaffolding(finalText.toString())
+        if (descaffolded != finalText.toString()) {
+            logger("[turn] scrubbed leaked [SEARCH CONTEXT] scaffolding")
+            finalText.clear()
+            finalText.append(descaffolded)
+        }
+
         val finalMessage = ChatMessage.Assistant(
             text = finalText.toString(),
             citations = citationsForTurn.toList(),
@@ -1180,6 +1195,56 @@ class AgentLoop(
         val MINUTE_GLITCH_REGEX: Regex = Regex(
             """(\d{1,2}):(\d{2})\d+\s*(AM|PM|am|pm|Am|Pm)""",
         )
+
+        // Host-internal search-context scaffolding the model occasionally
+        // parrots back into its OWN answer (PR #30). The `[SEARCH CONTEXT]`
+        // block is injected by the host into the system instruction only; the
+        // model must never emit it. In a multi-turn thread a 2B Gemma — primed
+        // by the literal token in the system prompt plus a prior search-backed
+        // answer sitting in history — sometimes reproduces the wrapper
+        // (markers, `query:`/`subtype:` lines, even the raw results JSON) and
+        // hallucinates content inside it. We strip the scaffolding lines while
+        // keeping the model's prose. Vertical-agnostic: the markers are the
+        // same for general/news/weather/sports/finance.
+        val SEARCH_CONTEXT_MARKER_LINE: Regex = Regex(
+            """^\s*\[/?SEARCH CONTEXT\]\s*$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val SEARCH_CONTEXT_SCAFFOLD_LINE: Regex = Regex(
+            """^\s*(query|subtype)\s*:.*$""",
+            RegexOption.IGNORE_CASE,
+        )
+        // A parroted results line: a single-line JSON array of objects carrying
+        // our payload keys. Compact because the host emits prettyPrint=false.
+        // NOTE: the closing `\}` and `\]` MUST be escaped. Android's
+        // java.util.regex.Pattern is stricter than the desktop JVM (where unit
+        // tests run) and throws PatternSyntaxException on bare closing `}`/`]`,
+        // which would fail this companion's static init → ExceptionInInitializerError
+        // on the first turn. Matches the `\{ … \}` convention in LOOSE_CALL_REGEX.
+        val SEARCH_CONTEXT_JSON_LINE: Regex = Regex(
+            """^\s*\[\s*\{.*"title".*("url"|"snippet").*\}\s*\]\s*$""",
+        )
+        val EXCESS_BLANK_LINES_REGEX: Regex = Regex("""\n{3,}""")
+
+        /**
+         * Remove host-internal `[SEARCH CONTEXT]` scaffolding the model parroted
+         * into its response, keeping the surrounding prose. No-op (returns the
+         * input unchanged) unless a standalone `[SEARCH CONTEXT]` /
+         * `[/SEARCH CONTEXT]` marker line is present — that guard keeps a normal
+         * answer that merely contains a `query:` line untouched. Only strips the
+         * `query:`/`subtype:`/JSON scaffold lines once the output is known to be
+         * contaminated by a marker.
+         */
+        fun stripSearchContextScaffolding(text: String): String {
+            val hasMarker = text.lineSequence().any { SEARCH_CONTEXT_MARKER_LINE.matches(it) }
+            if (!hasMarker) return text
+            val kept = text.lineSequence().filterNot { line ->
+                SEARCH_CONTEXT_MARKER_LINE.matches(line) ||
+                    SEARCH_CONTEXT_SCAFFOLD_LINE.matches(line) ||
+                    SEARCH_CONTEXT_JSON_LINE.matches(line)
+            }
+            return EXCESS_BLANK_LINES_REGEX.replace(kept.joinToString("\n"), "\n\n").trim()
+        }
 
         // Gemma's text-emit form for a string boundary inside a tool-call
         // body. Each occurrence stands in for a literal `"`; replacing
