@@ -229,10 +229,13 @@ class FeedAdapter(
  *
  * Currently rewrites EC's per-coords weather RSS feed
  * (`weather.gc.ca/rss/weather/{lat}_{lon}_{e|f}.xml`) → the HTML
- * forecast page (`weather.gc.ca/en/location/index.html?coords={lat},{lon}`).
- * Add cases here as new structured sources land.
+ * forecast page (`weather.gc.ca/en/location/index.html?coords={lat},{lon}`),
+ * and the bundled default sports RSS feeds → each brand's consumer-facing
+ * landing page (a feed URL like `sportsnet.ca/feed/` is raw XML, useless to
+ * tap). Add cases here as new structured sources land.
  *
- * Falls through to the fetch URL for any source without a specific rule.
+ * Falls through to the fetch URL for any source without a specific rule —
+ * so a user-added custom RSS feed keeps its feed URL until a rule exists.
  */
 fun toHumanReadableUrl(fetchedUrl: String): String {
     EC_RSS_COORDS_URL.matchEntire(fetchedUrl)?.let { m ->
@@ -240,9 +243,27 @@ fun toHumanReadableUrl(fetchedUrl: String): String {
         val lon = m.groupValues[2]
         return "https://weather.gc.ca/en/location/index.html?coords=$lat,$lon"
     }
+    SPORTS_FEED_LANDING[fetchedUrl]?.let { return it }
     return fetchedUrl
 }
 
 val EC_RSS_COORDS_URL: Regex = Regex(
     """https?://weather\.gc\.ca/rss/weather/(-?[0-9.]+)_(-?[0-9.]+)_[ef]\.xml""",
+)
+
+/**
+ * Exact fetch-URL → consumer-landing-page map for the default sports RSS
+ * feeds shipped in `search_defaults.json`. Keyed on the full feed URL (not a
+ * domain prefix) so the `abc.net.au` NEWS source — which shares the domain
+ * with ABC Sport — is never rewritten. BBC and ABC map to the brand's sport
+ * section because the feed host (`feeds.bbci.co.uk`) isn't consumer-facing.
+ */
+val SPORTS_FEED_LANDING: Map<String, String> = mapOf(
+    "https://www.tsn.ca/rss/news" to "https://www.tsn.ca/",
+    "https://www.sportsnet.ca/feed/" to "https://www.sportsnet.ca/",
+    "https://www.espn.com/espn/rss/news" to "https://www.espn.com/",
+    "https://www.cbssports.com/rss/headlines/" to "https://www.cbssports.com/",
+    "https://feeds.bbci.co.uk/sport/rss.xml" to "https://www.bbc.com/sport",
+    "https://www.skysports.com/rss/12040" to "https://www.skysports.com/",
+    "https://www.abc.net.au/news/feed/45924/rss.xml" to "https://www.abc.net.au/news/sport",
 )

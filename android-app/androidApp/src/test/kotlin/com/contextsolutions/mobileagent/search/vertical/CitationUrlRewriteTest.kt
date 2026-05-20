@@ -47,6 +47,31 @@ class CitationUrlRewriteTest {
     }
 
     @Test
+    fun rewrites_all_default_sports_feeds_to_consumer_pages() {
+        val expected = mapOf(
+            "https://www.tsn.ca/rss/news" to "https://www.tsn.ca/",
+            "https://www.sportsnet.ca/feed/" to "https://www.sportsnet.ca/",
+            "https://www.espn.com/espn/rss/news" to "https://www.espn.com/",
+            "https://www.cbssports.com/rss/headlines/" to "https://www.cbssports.com/",
+            "https://feeds.bbci.co.uk/sport/rss.xml" to "https://www.bbc.com/sport",
+            "https://www.skysports.com/rss/12040" to "https://www.skysports.com/",
+            "https://www.abc.net.au/news/feed/45924/rss.xml" to "https://www.abc.net.au/news/sport",
+        )
+        for ((feed, landing) in expected) {
+            assertEquals(landing, toHumanReadableUrl(feed))
+        }
+    }
+
+    @Test
+    fun sports_rewrite_is_exact_match_not_domain_prefix() {
+        // The map keys on the full feed URL, so an unrelated path on a
+        // shared domain (abc.net.au also hosts the NEWS source) falls
+        // through unchanged rather than being dragged to /news/sport.
+        val abcNews = "https://www.abc.net.au/news/feed/51120/rss.xml"
+        assertEquals(abcNews, toHumanReadableUrl(abcNews))
+    }
+
+    @Test
     fun passes_through_unrelated_urls() {
         val brave = "https://api.search.brave.com/res/v1/web/search?q=eagles"
         assertEquals(brave, toHumanReadableUrl(brave))
