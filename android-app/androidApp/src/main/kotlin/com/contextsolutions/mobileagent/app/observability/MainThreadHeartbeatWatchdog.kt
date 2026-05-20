@@ -33,10 +33,12 @@ import javax.inject.Singleton
  *    pool with anything that might be blocked by GPU saturation.
  *  - [MainThreadProbe] abstracts "post a Runnable to main + read ack age"
  *    so tests can drive the trip logic synchronously without a Looper.
- *  - [pingIntervalMs] (5 s) + 4 consecutive misses ≈ [stallThresholdMs]
- *    (20 s) is comfortably below the OS's ~60 s threshold, well above any
+ *  - [pingIntervalMs] (5 s) + ~2 consecutive misses ≈ [stallThresholdMs]
+ *    (10 s) is comfortably below the OS's ~60 s threshold, well above any
  *    legitimate main-thread stall on a healthy device (Compose first-frame
- *    verification on debug builds tops out around 1–2 s per route).
+ *    verification on debug builds tops out around 1–2 s per route). Tightened
+ *    from 20 s so a wedged decode is caught — and the in-flight generation
+ *    cancelled by [trip] → forceUnload — sooner.
  *  - First [startupGraceMs] of process lifetime suppresses trips. Cold
  *    start does class verification + DI graph construction on the main
  *    thread; the verification logs in the M7 PR#1 capture showed 200–400 ms
@@ -166,7 +168,7 @@ class MainThreadHeartbeatWatchdog @Inject constructor(
     companion object {
         private const val TAG = "MainThreadWatchdog"
         const val DEFAULT_PING_INTERVAL_MS: Long = 5_000L
-        const val DEFAULT_STALL_THRESHOLD_MS: Long = 20_000L
+        const val DEFAULT_STALL_THRESHOLD_MS: Long = 10_000L
         /** Suppress trips during cold-start class verification + DI graph construction. */
         const val DEFAULT_STARTUP_GRACE_MS: Long = 30_000L
         /** Don't re-trip during this window after a remediation — avoids double-counting one incident. */

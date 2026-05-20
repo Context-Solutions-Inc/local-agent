@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,6 +79,17 @@ class InferenceSessionManager @Inject constructor(
     private var activeGenerationCount = 0
     private var pendingForceUnload = false
 
+    /**
+     * The coroutine [Job]s collecting in-flight generations. Captured inside
+     * [generate]'s flow block (the collector's own context) so a watchdog trip
+     * can cancel them — cancellation propagates through
+     * `LiteRtInferenceEngine.generate`'s `flowOn` boundary to
+     * `bindCancellation`, which fires `Conversation.cancelProcess()` (the only
+     * thing that actually stops a wedged native decode — see CLAUDE.md
+     * invariant #29). Guarded by [mutex] alongside [activeGenerationCount].
+     */
+    private val activeGenerationJobs = mutableSetOf<Job>()
+
     private val _state = MutableStateFlow<SessionState>(SessionState.Unloaded)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
@@ -106,9 +118,15 @@ class InferenceSessionManager @Inject constructor(
         config: InferenceConfig = InferenceConfig(),
         toolDispatcher: com.contextsolutions.mobileagent.inference.ToolDispatcher? = null,
     ): Flow<GenerationEvent> = flow {
+        // The Job of the collecting coroutine. This flow block has no `flowOn`,
+        // so it runs in the collector's context — cancelling this Job is
+        // equivalent to the user tapping Cancel (ChatViewModel.cancel). The
+        // watchdog uses it to abort a hung decode (see [forceUnload]).
+        val genJob = currentCoroutineContext()[Job]
         val acquired = mutex.withLock {
             val h = ensureLoadedLocked(modelPath, config)
             activeGenerationCount++
+            genJob?.let { activeGenerationJobs += it }
             // Cancel any pending unload up-front: we're about to use the model.
             cancelIdleUnloadLocked()
             // Start FGS only on the first concurrent generation; subsequent
@@ -123,7 +141,10 @@ class InferenceSessionManager @Inject constructor(
         } finally {
             // NonCancellable so cancellation of the collector still runs cleanup.
             withContext(NonCancellable) {
-                mutex.withLock { onGenerationEndedLocked() }
+                mutex.withLock {
+                    genJob?.let { activeGenerationJobs -= it }
+                    onGenerationEndedLocked()
+                }
             }
         }
     }
@@ -134,10 +155,20 @@ class InferenceSessionManager @Inject constructor(
      * caller-driven "free memory" lever.
      *
      * If a generation is in flight, we cannot tear down the engine without
-     * crashing the JNI layer. We set [pendingForceUnload] and the unload happens
-     * the moment the active generations drain. The chat layer (WS-3/WS-11) will
-     * eventually subscribe to memory-pressure events and proactively cancel the
-     * in-flight generation; for now, deferring is the safe behaviour.
+     * crashing the JNI layer, so we set [pendingForceUnload] and the unload
+     * happens the moment the active generations drain.
+     *
+     * For most reasons (TrimMemory, LowMemory, Manual) we let the in-flight
+     * turn finish on its own — the app isn't stuck, and cutting a turn the user
+     * is watching off mid-stream is a worse UX than releasing a few seconds
+     * late. But [UnloadReason.MainThreadWatchdog] only fires when the main
+     * thread has been stalled for >stallThreshold — i.e. the decode is wedged
+     * and will NOT drain on its own. There we additionally cancel the
+     * generation coroutine(s); cancellation propagates to
+     * `Conversation.cancelProcess()` (CLAUDE.md invariant #29), the only thing
+     * that stops a wedged native decode. The Flow then completes, runs its
+     * `finally`, and the deferred unload fires. Without this the watchdog trip
+     * was a silent no-op while a generation was hung.
      */
     fun forceUnload(reason: UnloadReason = UnloadReason.Manual) {
         when (reason) {
@@ -153,6 +184,13 @@ class InferenceSessionManager @Inject constructor(
             mutex.withLock {
                 if (activeGenerationCount > 0) {
                     pendingForceUnload = true
+                    // Hung-decode case: abort the in-flight turn so it can
+                    // drain and the deferred unload above can fire. Job.cancel()
+                    // is non-suspending — the cancelled Flow's NonCancellable
+                    // finally waits for this mutex, so there's no deadlock.
+                    if (reason == UnloadReason.MainThreadWatchdog) {
+                        activeGenerationJobs.forEach { it.cancel() }
+                    }
                 } else {
                     cancelIdleUnloadLocked()
                     unloadLocked()

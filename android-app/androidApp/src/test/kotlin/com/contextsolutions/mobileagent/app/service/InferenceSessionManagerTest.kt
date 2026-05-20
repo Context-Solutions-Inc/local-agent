@@ -270,6 +270,39 @@ class InferenceSessionManagerTest {
         assertEquals(1, engine.unloadCount.get())
     }
 
+    @Test
+    fun `forceUnload with MainThreadWatchdog during generation cancels the turn and unloads`() = runTest {
+        // PR #31 — unlike LowMemory/TrimMemory, a MainThreadWatchdog trip means
+        // the decode is wedged and will NOT drain on its own. forceUnload must
+        // cancel the in-flight generation so it completes, runs its finally,
+        // and the deferred unload fires — WITHOUT the gate ever completing.
+        val gate = CompletableDeferred<Unit>()
+        val engine = FakeInferenceEngine(generateOverride = { _, _ ->
+            flow {
+                emit(GenerationEvent.TokenChunk("x", 0))
+                gate.await()  // never completed in this test
+                emit(GenerationEvent.Done(1, FinishReason.END_OF_TURN))
+            }
+        })
+        val fgs = FakeForegroundServiceController()
+        val manager = newManagerWith(engine, fgs)
+
+        val collectJob = launch {
+            manager.generate(MODEL_PATH, REQUEST).collect { /* drain */ }
+        }
+        advanceUntilIdle()
+        assertEquals(1, fgs.startCount.get())
+
+        manager.forceUnload(UnloadReason.MainThreadWatchdog)
+        advanceUntilIdle()
+        collectJob.join()
+
+        assertEquals("hung turn must be cancelled and unloaded", 1, engine.unloadCount.get())
+        assertEquals(SessionState.Unloaded, manager.state.value)
+        assertEquals(1, fgs.stopCount.get())
+        assertTrue("gate was never completed", !gate.isCompleted)
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────
 
     private fun TestScope.newManager(): Triple<InferenceSessionManager, FakeInferenceEngine, FakeForegroundServiceController> {
