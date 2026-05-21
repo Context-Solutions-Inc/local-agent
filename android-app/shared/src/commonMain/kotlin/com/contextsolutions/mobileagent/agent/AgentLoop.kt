@@ -117,6 +117,14 @@ class AgentLoop(
      * fall-through to the LLM remains the safety net for non-CA weather.
      */
     private val weatherResponseFormatter: WeatherResponseFormatter? = null,
+    /**
+     * When set, FINANCE FireSearch turns whose payload carries a Brave `stocks`
+     * rich quote render a deterministic card instead of routing through Gemma
+     * (PR #38). Returns null for fallback web-snippet payloads, so those fall
+     * through to the `[SEARCH CONTEXT]` → LLM path unchanged. Null for tests
+     * that exercise the legacy path.
+     */
+    private val stockResponseFormatter: StockResponseFormatter? = null,
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -433,6 +441,39 @@ class AgentLoop(
                         return@channelFlow
                     } else {
                         logger("[turn] weather direct path declined — formatter returned null, falling through to LLM")
+                    }
+                }
+
+                // FINANCE direct path (PR #38) — render a deterministic stock
+                // card from a Brave `stocks` rich quote, bypassing Gemma. On a
+                // fallback web-snippet payload the formatter returns null and we
+                // fall through to the [SEARCH CONTEXT] → LLM path below.
+                if (decision.subtype == SearchSubtype.FINANCE &&
+                    outcome is SearchOutcome.Success &&
+                    stockResponseFormatter != null
+                ) {
+                    val rendered = stockResponseFormatter.format(outcome.payload)
+                    if (rendered != null) {
+                        val finalMsg = ChatMessage.Assistant(
+                            text = rendered,
+                            citations = outcome.payload.sources,
+                        )
+                        send(AgentEvent.TokenChunk(rendered))
+                        send(
+                            AgentEvent.Done(
+                                message = finalMsg,
+                                turnMessages = listOf(userMessage, finalMsg),
+                                skipMemoryExtraction = true,
+                            ),
+                        )
+                        logger(
+                            "[turn] finance direct path done " +
+                                "finalTextLen=${rendered.length} " +
+                                "citations=${outcome.payload.sources.size}",
+                        )
+                        return@channelFlow
+                    } else {
+                        logger("[turn] finance direct path declined — no rich quote, falling through to LLM")
                     }
                 }
 

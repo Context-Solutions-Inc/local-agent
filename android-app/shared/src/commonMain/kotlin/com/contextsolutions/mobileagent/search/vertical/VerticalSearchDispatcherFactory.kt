@@ -57,16 +57,20 @@ object VerticalSearchDispatcherFactory {
                 maxCitations = 1,
                 logger = logger,
             ),
-            // FINANCE uses Brave with a `site:` filter (PR #35) rather than RSS:
-            // a web search across finance domains answers both market news and
-            // single-instrument quotes ("nvidia stock price") in one call. This
-            // subsumes the old STOCKS vertical's two-call ticker resolver. One
-            // source + one citation, same rationale as SPORTS.
-            SearchSubtype.FINANCE to BraveSiteFilterAdapter(
-                searchService = searchService,
-                subtype = SearchSubtype.FINANCE,
-                maxDomains = 1,
-                maxCitations = 1,
+            // FINANCE resolves the ticker via Brave's finance result, then
+            // fetches stockanalysis.com for a structured quote rendered as a
+            // deterministic card (PR #38). On no quote it falls back to the
+            // `site:`-filtered web search (PR #35 — one source + one citation,
+            // same rationale as SPORTS).
+            SearchSubtype.FINANCE to FinanceQuoteAdapter(
+                httpClient = client,
+                fallback = BraveSiteFilterAdapter(
+                    searchService = searchService,
+                    subtype = SearchSubtype.FINANCE,
+                    maxDomains = 1,
+                    maxCitations = 1,
+                    logger = logger,
+                ),
                 logger = logger,
             ),
         )

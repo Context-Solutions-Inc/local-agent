@@ -515,7 +515,78 @@ class AgentLoopPreflightTest {
             preflightRouter = router,
             verticalDispatcher = verticalDispatcher,
             weatherResponseFormatter = WeatherResponseFormatter,
+            stockResponseFormatter = StockResponseFormatter,
         )
+    }
+
+    @Test
+    fun finance_stock_quote_renders_directly_and_skips_engine() = runTest {
+        val quoteJson = """
+            {"subtype":"stock_quote","query":"nvidia stock price","quote":{
+              "symbol":"NVDA","name":"NVIDIA Corporation","exchange":"NASDAQ",
+              "latest_price":131.26,"change":2.34,"change_percent":1.81}}
+        """.trimIndent()
+        val payload = FormattedSearchPayload(
+            json = quoteJson,
+            sources = listOf(SearchSource("NVIDIA Corporation (NVDA)", "https://stockanalysis.com/stocks/nvda/", "")),
+        )
+        val fakeAdapter = object : VerticalSearchAdapter {
+            override suspend fun fetch(
+                query: String,
+                prefs: VerticalPreferences,
+                location: UserLocation?,
+                gps: GpsCoordinates?,
+            ): SearchOutcome = SearchOutcome.Success(payload, fromCache = false)
+        }
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.FINANCE to fakeAdapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherDirectLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f))
+
+        val events = loop.run(AgentTurnInput("what is the stock price of Nvidia")).toList()
+
+        assertTrue("engine must be untouched on finance direct path", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertFalse("Gemma's text leaked", done.message.text.contains("Gemma"))
+        assertTrue("missing symbol", done.message.text.contains("NVDA"))
+        assertTrue("missing price", done.message.text.contains("$131.26"))
+        assertTrue("missing up arrow", done.message.text.contains("▲"))
+        assertTrue("missing source", done.message.text.contains("stockanalysis.com"))
+        assertTrue("skipMemoryExtraction must be set", done.skipMemoryExtraction)
+        assertEquals(2, done.turnMessages.size)
+    }
+
+    @Test
+    fun finance_fallback_snippet_payload_falls_through_to_llm() = runTest {
+        // A fallback web-snippet payload has no "stock_quote" marker, so the
+        // formatter declines and the turn goes to the LLM (today's behavior).
+        val snippetJson = """[{"title":"NVDA","url":"https://finance.yahoo.com/quote/NVDA","snippet":"…"}]"""
+        val payload = FormattedSearchPayload(
+            json = snippetJson,
+            sources = listOf(SearchSource("NVDA", "https://finance.yahoo.com/quote/NVDA", "…")),
+        )
+        val fakeAdapter = object : VerticalSearchAdapter {
+            override suspend fun fetch(
+                query: String,
+                prefs: VerticalPreferences,
+                location: UserLocation?,
+                gps: GpsCoordinates?,
+            ): SearchOutcome = SearchOutcome.Success(payload, fromCache = false)
+        }
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.FINANCE to fakeAdapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Nvidia is trading around …"))
+        val loop = buildWeatherDirectLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f))
+
+        loop.run(AgentTurnInput("nvidia stock price")).toList()
+
+        assertTrue("engine should run for a fallback snippet payload", session.requests.isNotEmpty())
     }
 
     // -- Test fixtures ------------------------------------------------------

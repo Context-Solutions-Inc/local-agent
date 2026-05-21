@@ -8,6 +8,7 @@ import com.contextsolutions.mobileagent.agent.ResponseFilter
 import com.contextsolutions.mobileagent.agent.TodoCommandParser
 import com.contextsolutions.mobileagent.agent.TodoIntentDetector
 import com.contextsolutions.mobileagent.agent.TodoResponseFormatter
+import com.contextsolutions.mobileagent.agent.StockResponseFormatter
 import com.contextsolutions.mobileagent.agent.TodoToolHandler
 import com.contextsolutions.mobileagent.agent.WeatherResponseFormatter
 import com.contextsolutions.mobileagent.agent.currentTimeContext
@@ -48,6 +49,10 @@ object AgentModule {
 
     @Provides
     @Singleton
+    fun provideStockResponseFormatter(): StockResponseFormatter = StockResponseFormatter
+
+    @Provides
+    @Singleton
     fun provideWeatherLocationResolver(catalog: LocationCatalog): WeatherLocationResolver =
         WeatherLocationResolver(catalog)
 
@@ -79,6 +84,7 @@ object AgentModule {
         weatherLocationResolver: WeatherLocationResolver,
         defaultSiteResolver: DefaultSiteResolver,
         weatherResponseFormatter: WeatherResponseFormatter,
+        stockResponseFormatter: StockResponseFormatter,
     ): AgentLoopFactory = object : AgentLoopFactory {
         override fun create(
             session: com.contextsolutions.mobileagent.agent.InferenceSession,
@@ -100,6 +106,7 @@ object AgentModule {
             weatherLocationResolver = weatherLocationResolver,
             defaultSiteResolver = defaultSiteResolver,
             weatherResponseFormatter = weatherResponseFormatter,
+            stockResponseFormatter = stockResponseFormatter,
             logger = { Log.i("AgentLoop", it) },
             counters = counters,
             responseLanguage = responseLanguage,
