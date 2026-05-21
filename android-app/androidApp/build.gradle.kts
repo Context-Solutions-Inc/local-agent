@@ -84,6 +84,13 @@ val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
 val useStubEngine: String = (project.findProperty("useStubEngine") as String? ?: "false")
 
+// Build number == total commits on the current branch, computed at configuration
+// time. `providers.exec` (not the deprecated `project.exec`) keeps this
+// configuration-cache compatible. Falls back to 1 outside a git checkout.
+val gitCommitCount: Int =
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toIntOrNull() ?: 1
+
 android {
     namespace = "com.contextsolutions.mobileagent.app"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -92,8 +99,8 @@ android {
         applicationId = "com.contextsolutions.mobileagent"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0-m0"
+        versionCode = gitCommitCount
+        versionName = "0.0.1-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

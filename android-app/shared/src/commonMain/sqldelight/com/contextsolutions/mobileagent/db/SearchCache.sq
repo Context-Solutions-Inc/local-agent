@@ -5,7 +5,7 @@ CREATE TABLE search_cache (
     normalized_query TEXT NOT NULL PRIMARY KEY,
     original_query TEXT NOT NULL,
     payload_json TEXT NOT NULL,               -- formatted result payload (top-3 organic, ≤2KB)
-    category TEXT NOT NULL,                   -- 'time_sensitive' (5 min TTL) | 'general' (24h TTL)
+    category TEXT NOT NULL,                   -- 'time_sensitive' (5 min TTL) | 'general' (1h TTL)
     cached_at_epoch_ms INTEGER NOT NULL,
     last_accessed_at_epoch_ms INTEGER NOT NULL, -- bumped on cache hit; drives LRU eviction
     expires_at_epoch_ms INTEGER NOT NULL

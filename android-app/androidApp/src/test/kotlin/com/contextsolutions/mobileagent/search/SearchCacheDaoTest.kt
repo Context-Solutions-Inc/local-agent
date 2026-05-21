@@ -69,7 +69,7 @@ class SearchCacheDaoTest {
     }
 
     @Test
-    fun `general entries survive past 5 minutes but expire after 24 hours`() {
+    fun `general entries survive past 5 minutes but expire after 1 hour`() {
         val dao = newDao()
         clockNow = 1_000
         dao.store("kotlin coroutines tutorial", samplePayload())
@@ -77,7 +77,7 @@ class SearchCacheDaoTest {
         clockNow = 1_000 + 6 * 60 * 1_000 // 6 minutes
         assertTrue(dao.lookup("kotlin coroutines tutorial") is SearchCacheDao.CacheLookup.Hit)
 
-        clockNow = 1_000 + 24 * 60 * 60 * 1_000 // 24 h
+        clockNow = 1_000 + 1 * 60 * 60 * 1_000 // 1 h
         assertEquals(SearchCacheDao.CacheLookup.Miss, dao.lookup("kotlin coroutines tutorial"))
     }
 

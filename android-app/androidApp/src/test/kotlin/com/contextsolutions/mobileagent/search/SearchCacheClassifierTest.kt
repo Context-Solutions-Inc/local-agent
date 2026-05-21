@@ -48,7 +48,7 @@ class SearchCacheClassifierTest {
     @Test
     fun `category exposes correct TTL and storage id`() {
         assertEquals(5 * 60 * 1_000L, SearchCacheCategory.TIME_SENSITIVE.ttlMs)
-        assertEquals(24 * 60 * 60 * 1_000L, SearchCacheCategory.GENERAL.ttlMs)
+        assertEquals(1 * 60 * 60 * 1_000L, SearchCacheCategory.GENERAL.ttlMs)
         assertEquals("time_sensitive", SearchCacheCategory.TIME_SENSITIVE.storageId)
         assertEquals("general", SearchCacheCategory.GENERAL.storageId)
     }

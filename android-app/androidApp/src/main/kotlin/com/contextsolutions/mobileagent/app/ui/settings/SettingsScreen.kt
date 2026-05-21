@@ -238,7 +238,7 @@ fun SettingsScreen(
             }
             Text(
                 "Cached results: $countLabel. Time-sensitive queries expire after " +
-                    "5 minutes; general results after 24 hours.",
+                    "5 minutes; general results after 1 hour.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))

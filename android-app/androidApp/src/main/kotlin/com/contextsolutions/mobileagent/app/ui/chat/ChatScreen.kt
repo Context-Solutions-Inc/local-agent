@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.contextsolutions.mobileagent.app.BuildConfig
 import com.contextsolutions.mobileagent.app.service.SessionState
 import com.contextsolutions.mobileagent.app.ui.clock.ClockViewModel
 import com.contextsolutions.mobileagent.app.ui.observability.SystemMemoryStatusViewModel
@@ -108,6 +109,9 @@ fun ChatScreen(
     val alarms by clockViewModel.alarms.collectAsState()
     val activeTodoCount by todoViewModel.activeCount.collectAsState()
     var input by remember { mutableStateOf("") }
+    // PR #32 — About dialog: tapping the brand logo surfaces app name + the
+    // build currently on the device (version name + commit-count build number).
+    var showAbout by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -202,13 +206,14 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    // PR #18 — placeholder app brand. Decorative-only: no tap
-                    // target until we have an About surface to route to.
-                    Icon(
-                        imageVector = Icons.Filled.SmartToy,
-                        contentDescription = "Mobile Agent",
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
+                    // PR #18 brand logo, now tappable (PR #32) — opens the
+                    // About dialog so the running build is always identifiable.
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.SmartToy,
+                            contentDescription = "About Mobile Agent",
+                        )
+                    }
                 },
                 title = {},
                 actions = {
@@ -464,6 +469,24 @@ fun ChatScreen(
         // user is no longer blocked when system free RAM is low. The
         // header SystemMemoryStatusIndicator (red LED) is the sole signal
         // for the condition.
+
+        // PR #32 — About dialog. Version name is the semantic release tag;
+        // build number is VERSION_CODE, wired to the git commit count in
+        // androidApp/build.gradle.kts so it bumps every build.
+        if (showAbout) {
+            AlertDialog(
+                onDismissRequest = { showAbout = false },
+                title = { Text("Mobile Agent") },
+                text = {
+                    Text("Version ${BuildConfig.VERSION_NAME}\nBuild ${BuildConfig.VERSION_CODE}")
+                },
+                confirmButton = {
+                    TextButton(onClick = { showAbout = false }) {
+                        Text("OK")
+                    }
+                },
+            )
+        }
     }
 }
 
