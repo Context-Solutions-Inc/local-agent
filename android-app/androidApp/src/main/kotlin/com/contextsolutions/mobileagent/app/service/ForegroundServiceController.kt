@@ -19,7 +19,7 @@ interface ForegroundServiceController {
 
 @Singleton
 class AndroidInferenceForegroundServiceController @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) : ForegroundServiceController {
 
     override fun start() {

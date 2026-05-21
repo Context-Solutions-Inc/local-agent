@@ -248,8 +248,8 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
                 currentCoroutineContext().ensureActive()
                 val pendingCalls = mutableMapOf<String, com.google.ai.edge.litertlm.ToolCall>()
                 val flow = when (nextMessage) {
-                    is String -> conversation.sendMessageAsync(nextMessage as String)
-                    is Message -> conversation.sendMessageAsync(nextMessage as Message)
+                    is String -> conversation.sendMessageAsync(nextMessage)
+                    is Message -> conversation.sendMessageAsync(nextMessage)
                     else -> error("unexpected outbound type: ${nextMessage::class}")
                 }
                 var failed = false
@@ -372,6 +372,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
     }
 
     private fun HistoryToolCall.toLiteRtToolCall(): com.google.ai.edge.litertlm.ToolCall {
+        @Suppress("UNCHECKED_CAST")
         val args: Map<String, Any?> = (parseAsStructured(argumentsJson) as? Map<String, Any?>) ?: emptyMap()
         return com.google.ai.edge.litertlm.ToolCall(name, args)
     }
@@ -406,7 +407,7 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
     private fun ToolDefinition.toLiteRtToolProvider(): com.google.ai.edge.litertlm.ToolProvider {
         val descriptor: OpenApiTool = object : OpenApiTool {
             override fun getToolDescriptionJsonString(): String = descriptionJson
-            override fun execute(args: String): String = ""
+            override fun execute(paramsJsonString: String): String = ""
         }
         return tool(descriptor)
     }

@@ -15,10 +15,7 @@ import kotlinx.serialization.json.Json
  */
 class DefaultSiteResolver(jsonText: String) {
 
-    private val parsed: DefaultsFile = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }.decodeFromString(DefaultsFile.serializer(), jsonText)
+    private val parsed: DefaultsFile = json.decodeFromString(DefaultsFile.serializer(), jsonText)
 
     fun defaultsFor(country: String): VerticalPreferences {
         val countryEntry = parsed.countries[country.uppercase()] ?: parsed.countries[parsed.fallback]
@@ -52,6 +49,8 @@ class DefaultSiteResolver(jsonText: String) {
     )
 
     companion object {
+        private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
         /**
          * Merge [user] preferences on top of [defaults]: any vertical the user
          * has explicitly customised (non-empty list) wins; any vertical they

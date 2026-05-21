@@ -385,7 +385,7 @@ class AgentLoop(
             tools = structured.tools,
         )
         logger(
-            "[turn] sending to engine systemPromptLen=${structured.systemInstruction?.length ?: 0} " +
+            "[turn] sending to engine systemPromptLen=${structured.systemInstruction.length} " +
                 "historyTurns=${structured.history.size} " +
                 "toolsRegistered=${structured.tools.joinToString(",") { it.name }}",
         )

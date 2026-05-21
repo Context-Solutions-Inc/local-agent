@@ -139,8 +139,8 @@ class MarkerFunctionCallParser(
             }
         }
         when {
-            error != null -> emit(ParsedEvent.Error(error!!.message, error!!.cause))
-            done != null -> emit(ParsedEvent.Done(done!!.finishReason))
+            error != null -> emit(ParsedEvent.Error(error.message, error.cause))
+            done != null -> emit(ParsedEvent.Done(done.finishReason))
             else -> emit(ParsedEvent.Done(com.contextsolutions.mobileagent.inference.FinishReason.END_OF_TURN))
         }
     }

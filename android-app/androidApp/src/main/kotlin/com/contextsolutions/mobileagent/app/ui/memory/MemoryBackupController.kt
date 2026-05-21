@@ -50,7 +50,7 @@ interface MemoryBackupOps {
 @OptIn(ExperimentalUuidApi::class)
 @Singleton
 class MemoryBackupController @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val store: MemoryStore,
     private val embedder: EmbedderEngine,
     private val clock: AgentClock,

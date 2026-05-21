@@ -1,6 +1,7 @@
 package com.contextsolutions.mobileagent.app.ui.chat
 
 import android.content.Intent
+import android.view.View
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -196,7 +197,7 @@ fun ChatScreen(
         if (ui.messages.size > lastSeenSize) {
             val newest = ui.messages.lastOrNull()
             if (newest is UiMessage.Assistant && newest.text.isNotBlank()) {
-                view.announceForAccessibility(newest.text)
+                announceForAccessibilityCompat(view, newest.text)
             }
         }
         lastSeenSize = ui.messages.size
@@ -742,4 +743,13 @@ private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean)
     if (overflow > 0) {
         if (animate) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat())
     }
+}
+
+// `View.announceForAccessibility` is deprecated in API 36 but is still the
+// canonical one-shot TalkBack announcement primitive (invariant #26 — a
+// `liveRegion` on the streaming bubble re-reads the whole growing string).
+// Isolated here so the deprecation suppression stays narrowly scoped.
+@Suppress("DEPRECATION")
+private fun announceForAccessibilityCompat(view: View, text: CharSequence) {
+    view.announceForAccessibility(text)
 }

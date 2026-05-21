@@ -19,10 +19,9 @@ import kotlinx.serialization.json.Json
  */
 class LocationCatalog(jsonText: String) {
 
-    private val file: CatalogFile = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }.decodeFromString(CatalogFile.serializer(), jsonText)
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private val file: CatalogFile = json.decodeFromString(CatalogFile.serializer(), jsonText)
 
     fun countries(): List<CountryEntry> = file.countries
 

@@ -35,7 +35,7 @@ import kotlinx.coroutines.withContext
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    @ApplicationContext private val appContext: Context,
+    @param:ApplicationContext private val appContext: Context,
     private val secureStorage: SecureStorage,
     private val cache: SearchCacheDao,
     private val telemetryConsent: TelemetryConsentManager,
