@@ -14,8 +14,9 @@
         { "domain": "weather.gc.ca", "displayName": "Environment Canada", "kind": "RSS", "endpointTemplate": "https://weather.gc.ca/rss/weather/{lat}_{lon}_e.xml" }
       ],
       "sports": [
-        { "domain": "tsn.ca", "displayName": "TSN", "kind": "RSS", "endpointTemplate": "https://www.tsn.ca/rss/news" },
-        { "domain": "sportsnet.ca", "displayName": "Sportsnet", "kind": "RSS", "endpointTemplate": "https://www.sportsnet.ca/feed/" }
+        { "domain": "tsn.ca", "displayName": "TSN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "tsn.ca" },
+        { "domain": "sportsnet.ca", "displayName": "Sportsnet", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "sportsnet.ca" },
+        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }
       ],
       "finance": [
         { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "RSS", "endpointTemplate": "https://ca.finance.yahoo.com/news/rssindex" },
@@ -36,8 +37,8 @@
         { "domain": "weather.com", "displayName": "The Weather Channel", "kind": "HTML", "endpointTemplate": "https://weather.com/weather/today/l/{city}+{region}" }
       ],
       "sports": [
-        { "domain": "espn.com", "displayName": "ESPN", "kind": "RSS", "endpointTemplate": "https://www.espn.com/espn/rss/news" },
-        { "domain": "cbssports.com", "displayName": "CBS Sports", "kind": "RSS", "endpointTemplate": "https://www.cbssports.com/rss/headlines/" }
+        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" },
+        { "domain": "cbssports.com", "displayName": "CBS Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "cbssports.com" }
       ],
       "finance": [
         { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "RSS", "endpointTemplate": "https://finance.yahoo.com/news/rssindex" },
@@ -57,8 +58,8 @@
         { "domain": "metoffice.gov.uk", "displayName": "Met Office", "kind": "HTML", "endpointTemplate": "https://www.metoffice.gov.uk/weather/forecast/{city}" }
       ],
       "sports": [
-        { "domain": "bbc.com", "displayName": "BBC Sport", "kind": "RSS", "endpointTemplate": "https://feeds.bbci.co.uk/sport/rss.xml" },
-        { "domain": "skysports.com", "displayName": "Sky Sports", "kind": "RSS", "endpointTemplate": "https://www.skysports.com/rss/12040" }
+        { "domain": "bbc.com", "displayName": "BBC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bbc.com/sport" },
+        { "domain": "skysports.com", "displayName": "Sky Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "skysports.com" }
       ],
       "finance": [
         { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "RSS", "endpointTemplate": "https://uk.finance.yahoo.com/news/rssindex" },
@@ -77,7 +78,7 @@
         { "domain": "bom.gov.au", "displayName": "Bureau of Meteorology", "kind": "RSS", "endpointTemplate": "http://www.bom.gov.au/fwo/IDN10064.xml" }
       ],
       "sports": [
-        { "domain": "abc.net.au", "displayName": "ABC Sport", "kind": "RSS", "endpointTemplate": "https://www.abc.net.au/news/feed/45924/rss.xml" }
+        { "domain": "abc.net.au", "displayName": "ABC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "abc.net.au/news/sport" }
       ],
       "finance": [
         { "domain": "au.finance.yahoo.com", "displayName": "Yahoo Finance (AU)", "kind": "RSS", "endpointTemplate": "https://au.finance.yahoo.com/news/rssindex" }

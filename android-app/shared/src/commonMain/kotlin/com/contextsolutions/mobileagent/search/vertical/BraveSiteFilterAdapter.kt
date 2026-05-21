@@ -9,13 +9,15 @@ import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSubtype
 
 /**
- * News adapter that reuses [SearchService] (Brave) with a `site:` filter
- * built from the user's preferred news domains. Snippet quality from Brave
- * is genuinely good for news — the freshness/structured-data gap that
- * pushes weather/sports/finance to direct fetches doesn't apply here.
+ * Reuses [SearchService] (Brave) with a `site:` filter built from the user's
+ * preferred domains for a [subtype]. Drives NEWS and SPORTS: Brave snippet
+ * quality is good for both, and for sports a web search restricted to e.g.
+ * `espn.com` answers historical/specific queries ("who won the masters last
+ * year") that RSS headline feeds can't. The freshness/structured-data gap
+ * that pushes weather/finance to direct fetches doesn't apply here.
  *
- * Construction: rewrites `query` into `"$query site:d1 OR site:d2 OR ..."`
- * using up to [maxDomains] domains from `prefs.news` filtered to
+ * Construction: rewrites `query` into `"$query (site:d1 OR site:d2 OR ...)"`
+ * using up to [maxDomains] domains from `prefs.sitesFor(subtype)` filtered to
  * [SourceKind.BRAVE_SITE_FILTER]. Any non-Brave entries in the list are
  * ignored (the user is free to mix kinds in a vertical's site list).
  */

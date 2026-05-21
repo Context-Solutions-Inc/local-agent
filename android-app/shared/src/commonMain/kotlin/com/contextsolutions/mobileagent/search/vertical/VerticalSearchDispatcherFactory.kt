@@ -43,12 +43,12 @@ object VerticalSearchDispatcherFactory {
                 readability = readability,
                 logger = logger,
             ),
-            SearchSubtype.SPORTS to FeedAdapter(
+            // SPORTS uses Brave with a `site:` filter (PR #34) rather than RSS:
+            // RSS feeds only carry recent headlines and can't answer historical
+            // queries like "who won the masters last year".
+            SearchSubtype.SPORTS to BraveSiteFilterAdapter(
+                searchService = searchService,
                 subtype = SearchSubtype.SPORTS,
-                httpClient = client,
-                rssParser = rssParser,
-                readability = readability,
-                logger = logger,
             ),
             SearchSubtype.FINANCE to FeedAdapter(
                 subtype = SearchSubtype.FINANCE,

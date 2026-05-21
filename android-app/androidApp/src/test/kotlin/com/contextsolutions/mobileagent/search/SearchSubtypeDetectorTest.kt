@@ -22,6 +22,7 @@ class SearchSubtypeDetectorTest {
         assertEquals(SearchSubtype.SPORTS, detector.detect("Leafs score last night"))
         assertEquals(SearchSubtype.SPORTS, detector.detect("NHL standings"))
         assertEquals(SearchSubtype.SPORTS, detector.detect("who won the Super Bowl"))
+        assertEquals(SearchSubtype.SPORTS, detector.detect("who won the masters last year"))
         assertEquals(SearchSubtype.SPORTS, detector.detect("Premier League fixtures this week"))
         assertEquals(SearchSubtype.SPORTS, detector.detect("Raptors game tonight"))
         assertEquals(SearchSubtype.SPORTS, detector.detect("Champions League playoff bracket"))
