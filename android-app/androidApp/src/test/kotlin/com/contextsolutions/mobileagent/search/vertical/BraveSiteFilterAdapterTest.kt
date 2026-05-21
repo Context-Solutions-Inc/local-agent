@@ -13,12 +13,14 @@ import com.contextsolutions.mobileagent.search.BraveSearchResult
 import com.contextsolutions.mobileagent.search.BraveWebResults
 import com.contextsolutions.mobileagent.search.FormattedSearchPayload
 import com.contextsolutions.mobileagent.search.SearchCacheDao
+import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchPostProcessor
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSubtype
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -57,7 +59,7 @@ class BraveSiteFilterAdapterTest {
 
         adapter.fetch(query = "who won the masters last year", prefs = prefs, location = null)
 
-        assertEquals("who won the masters last year (site:espn.com)", fakeClient.lastQuery)
+        assertEquals("who won the masters last year site:espn.com", fakeClient.lastQuery)
     }
 
     @Test
@@ -90,7 +92,7 @@ class BraveSiteFilterAdapterTest {
 
         adapter.fetch(query = "nvidia stock price", prefs = prefs, location = null)
 
-        assertEquals("nvidia stock price (site:bloomberg.com)", fakeClient.lastQuery)
+        assertEquals("nvidia stock price site:bloomberg.com", fakeClient.lastQuery)
     }
 
     @Test
@@ -119,6 +121,38 @@ class BraveSiteFilterAdapterTest {
     }
 
     @Test
+    fun `finance caps citation chips but keeps full model context`() = runTest {
+        fakeClient.next = BraveSearchResult.Success(multiSourcePayload())
+        val adapter = BraveSiteFilterAdapter(
+            searchService = service,
+            subtype = SearchSubtype.FINANCE,
+            maxCitations = 1,
+        )
+        val prefs = VerticalPreferences(finance = listOf(brave("finance.yahoo.com")))
+
+        val outcome = adapter.fetch(query = "nvidia stock price", prefs = prefs, location = null)
+
+        val success = outcome as SearchOutcome.Success
+        // One chip rendered to the user...
+        assertEquals(1, success.payload.sources.size)
+        // ...but the model still sees all three hits as context.
+        assertTrue(success.payload.json.contains("https://finance.yahoo.com/c"))
+    }
+
+    @Test
+    fun `news keeps multiple citations when uncapped`() = runTest {
+        // NEWS leaves maxCitations null — guards against the FINANCE/SPORTS cap leaking.
+        fakeClient.next = BraveSearchResult.Success(multiSourcePayload())
+        val adapter = BraveSiteFilterAdapter(searchService = service)
+        val prefs = VerticalPreferences(news = listOf(brave("cbc.ca")))
+
+        val outcome = adapter.fetch(query = "election results", prefs = prefs, location = null)
+
+        val success = outcome as SearchOutcome.Success
+        assertEquals(3, success.payload.sources.size)
+    }
+
+    @Test
     fun `news still rewrites against its own site list`() = runTest {
         // Default subtype is NEWS — guards against the SPORTS change leaking.
         val adapter = BraveSiteFilterAdapter(searchService = service)
@@ -126,7 +160,7 @@ class BraveSiteFilterAdapterTest {
 
         adapter.fetch(query = "election results", prefs = prefs, location = null)
 
-        assertEquals("election results (site:cbc.ca)", fakeClient.lastQuery)
+        assertEquals("election results site:cbc.ca", fakeClient.lastQuery)
     }
 
     private fun brave(domain: String) =
@@ -136,6 +170,18 @@ class BraveSiteFilterAdapterTest {
         BraveSearchResponse(
             web = BraveWebResults(
                 results = listOf(BraveResult(title = "ESPN", url = "https://espn.com", description = "Sample")),
+            ),
+        ),
+    )
+
+    private fun multiSourcePayload(): FormattedSearchPayload = SearchPostProcessor.format(
+        BraveSearchResponse(
+            web = BraveWebResults(
+                results = listOf(
+                    BraveResult(title = "Yahoo Finance 1", url = "https://finance.yahoo.com/a", description = "A"),
+                    BraveResult(title = "Yahoo Finance 2", url = "https://finance.yahoo.com/b", description = "B"),
+                    BraveResult(title = "Yahoo Finance 3", url = "https://finance.yahoo.com/c", description = "C"),
+                ),
             ),
         ),
     )

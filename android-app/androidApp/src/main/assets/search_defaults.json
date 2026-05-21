@@ -14,13 +14,10 @@
         { "domain": "weather.gc.ca", "displayName": "Environment Canada", "kind": "RSS", "endpointTemplate": "https://weather.gc.ca/rss/weather/{lat}_{lon}_e.xml" }
       ],
       "sports": [
-        { "domain": "tsn.ca", "displayName": "TSN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "tsn.ca" },
-        { "domain": "sportsnet.ca", "displayName": "Sportsnet", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "sportsnet.ca" },
-        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }
+        { "domain": "tsn.ca", "displayName": "TSN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "tsn.ca" }
       ],
       "finance": [
-        { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ca.finance.yahoo.com" },
-        { "domain": "bnnbloomberg.ca", "displayName": "BNN Bloomberg", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bnnbloomberg.ca" }
+        { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ca.finance.yahoo.com" }
       ]
     },
     "US": {
@@ -37,12 +34,10 @@
         { "domain": "weather.com", "displayName": "The Weather Channel", "kind": "HTML", "endpointTemplate": "https://weather.com/weather/today/l/{city}+{region}" }
       ],
       "sports": [
-        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" },
-        { "domain": "cbssports.com", "displayName": "CBS Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "cbssports.com" }
+        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }
       ],
       "finance": [
-        { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "finance.yahoo.com" },
-        { "domain": "marketwatch.com", "displayName": "MarketWatch", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "marketwatch.com" }
+        { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "finance.yahoo.com" }
       ]
     },
     "GB": {
@@ -58,12 +53,10 @@
         { "domain": "metoffice.gov.uk", "displayName": "Met Office", "kind": "HTML", "endpointTemplate": "https://www.metoffice.gov.uk/weather/forecast/{city}" }
       ],
       "sports": [
-        { "domain": "bbc.com", "displayName": "BBC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bbc.com/sport" },
-        { "domain": "skysports.com", "displayName": "Sky Sports", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "skysports.com" }
+        { "domain": "bbc.com", "displayName": "BBC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bbc.com/sport" }
       ],
       "finance": [
-        { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "uk.finance.yahoo.com" },
-        { "domain": "ft.com", "displayName": "Financial Times", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ft.com" }
+        { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "uk.finance.yahoo.com" }
       ]
     },
     "AU": {

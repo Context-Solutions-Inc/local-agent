@@ -35,7 +35,10 @@ object VerticalSearchDispatcherFactory {
         val rssParser = RssParser()
         val readability = HtmlReadabilityExtractor()
         val adapters: Map<SearchSubtype, VerticalSearchAdapter> = mapOf(
-            SearchSubtype.NEWS to BraveSiteFilterAdapter(searchService = searchService),
+            SearchSubtype.NEWS to BraveSiteFilterAdapter(
+                searchService = searchService,
+                logger = logger,
+            ),
             SearchSubtype.WEATHER to FeedAdapter(
                 subtype = SearchSubtype.WEATHER,
                 httpClient = client,
@@ -45,18 +48,26 @@ object VerticalSearchDispatcherFactory {
             ),
             // SPORTS uses Brave with a `site:` filter (PR #34) rather than RSS:
             // RSS feeds only carry recent headlines and can't answer historical
-            // queries like "who won the masters last year".
+            // queries like "who won the masters last year". One source + one
+            // citation: a single sports site shouldn't yield redundant cites.
             SearchSubtype.SPORTS to BraveSiteFilterAdapter(
                 searchService = searchService,
                 subtype = SearchSubtype.SPORTS,
+                maxDomains = 1,
+                maxCitations = 1,
+                logger = logger,
             ),
             // FINANCE uses Brave with a `site:` filter (PR #35) rather than RSS:
             // a web search across finance domains answers both market news and
             // single-instrument quotes ("nvidia stock price") in one call. This
-            // subsumes the old STOCKS vertical's two-call ticker resolver.
+            // subsumes the old STOCKS vertical's two-call ticker resolver. One
+            // source + one citation, same rationale as SPORTS.
             SearchSubtype.FINANCE to BraveSiteFilterAdapter(
                 searchService = searchService,
                 subtype = SearchSubtype.FINANCE,
+                maxDomains = 1,
+                maxCitations = 1,
+                logger = logger,
             ),
         )
         return VerticalSearchDispatcher(

@@ -62,6 +62,19 @@ object SearchPostProcessor {
     }
 
     /**
+     * Trims the *displayed citation chips* ([FormattedSearchPayload.sources]) to
+     * at most [maxSources], leaving [FormattedSearchPayload.json] — the context
+     * the agent loop hands the model — untouched. Used by verticals that draw
+     * from a single source and shouldn't surface multiple redundant chips from
+     * it (FINANCE / SPORTS — see `VerticalSearchDispatcherFactory`), while the
+     * model still sees Brave's full top-N for that domain to synthesise from.
+     */
+    fun limitCitations(payload: FormattedSearchPayload, maxSources: Int): FormattedSearchPayload {
+        if (payload.sources.size <= maxSources) return payload
+        return payload.copy(sources = payload.sources.take(maxSources))
+    }
+
+    /**
      * News-shaped: fill from news first (up to [MAX_NEWS_IN_TOP_N], sorted by
      * breaking then ISO `page_age` desc), then top up any remaining slots from
      * web, then fall back to leftover news if web is short. Dedup by URL

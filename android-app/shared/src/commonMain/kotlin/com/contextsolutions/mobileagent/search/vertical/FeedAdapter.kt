@@ -24,17 +24,17 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Generic adapter for WEATHER / SPORTS / FINANCE verticals. Iterates the
- * site list for [subtype] in user-preferred order and dispatches per
- * [SiteConfig.kind]:
+ * Generic adapter for the WEATHER vertical (SPORTS and FINANCE moved to the
+ * Brave `site:` path in PRs #34 / #35). Iterates the site list for [subtype]
+ * in user-preferred order and dispatches per [SiteConfig.kind]:
  *
  *  - [SourceKind.RSS] → fetch + parse via [RssParser]
  *  - [SourceKind.HTML] → fetch + extract via [HtmlReadabilityExtractor]
  *  - [SourceKind.JSON] → fetch + pass raw body through (downstream typed
  *    parsing per vertical is a follow-up; for now the raw JSON snippet
  *    feeds Gemma, which can synthesise the rest)
- *  - [SourceKind.BRAVE_SITE_FILTER] → skipped (only meaningful for NEWS;
- *    [BraveSiteFilterAdapter] handles that case)
+ *  - [SourceKind.BRAVE_SITE_FILTER] → skipped (handled by
+ *    [BraveSiteFilterAdapter] for the NEWS / SPORTS / FINANCE verticals)
  *
  * Per source: a [PER_SOURCE_CHAR_CAP]-char cap on the extracted text keeps
  * the per-source token budget at ~600. The combined payload is wrapped in
@@ -230,9 +230,9 @@ class FeedAdapter(
  * Currently rewrites EC's per-coords weather RSS feed
  * (`weather.gc.ca/rss/weather/{lat}_{lon}_{e|f}.xml`) → the HTML
  * forecast page (`weather.gc.ca/en/location/index.html?coords={lat},{lon}`),
- * and the bundled default sports + finance RSS feeds → each brand's
- * consumer-facing landing page (a feed URL like `sportsnet.ca/feed/` is raw
- * XML, useless to tap). Add cases here as new structured sources land.
+ * and the bundled default sports RSS feeds → each brand's consumer-facing
+ * landing page (a feed URL like `sportsnet.ca/feed/` is raw XML, useless to
+ * tap). Add cases here as new structured sources land.
  *
  * Falls through to the fetch URL for any source without a specific rule —
  * so a user-added custom RSS feed keeps its feed URL until a rule exists.
@@ -243,7 +243,7 @@ fun toHumanReadableUrl(fetchedUrl: String): String {
         val lon = m.groupValues[2]
         return "https://weather.gc.ca/en/location/index.html?coords=$lat,$lon"
     }
-    (SPORTS_FEED_LANDING[fetchedUrl] ?: FINANCE_FEED_LANDING[fetchedUrl])?.let { return it }
+    SPORTS_FEED_LANDING[fetchedUrl]?.let { return it }
     return fetchedUrl
 }
 
@@ -266,21 +266,4 @@ val SPORTS_FEED_LANDING: Map<String, String> = mapOf(
     "https://feeds.bbci.co.uk/sport/rss.xml" to "https://www.bbc.com/sport",
     "https://www.skysports.com/rss/12040" to "https://www.skysports.com/",
     "https://www.abc.net.au/news/feed/45924/rss.xml" to "https://www.abc.net.au/news/sport",
-)
-
-/**
- * Exact fetch-URL → consumer-landing-page map for the default finance RSS
- * feeds shipped in `search_defaults.json`. Same exact-match discipline as
- * [SPORTS_FEED_LANDING]. MarketWatch maps to `www.marketwatch.com` because
- * its feed host (`feeds.marketwatch.com`) isn't consumer-facing; the Yahoo
- * Finance feeds land on their per-region home. The GB `ft.com` source is a
- * BRAVE_SITE_FILTER, not RSS, so it never reaches this map.
- */
-val FINANCE_FEED_LANDING: Map<String, String> = mapOf(
-    "https://ca.finance.yahoo.com/news/rssindex" to "https://ca.finance.yahoo.com/",
-    "https://www.bnnbloomberg.ca/rss" to "https://www.bnnbloomberg.ca/",
-    "https://finance.yahoo.com/news/rssindex" to "https://finance.yahoo.com/",
-    "https://feeds.marketwatch.com/marketwatch/topstories/" to "https://www.marketwatch.com/",
-    "https://uk.finance.yahoo.com/news/rssindex" to "https://uk.finance.yahoo.com/",
-    "https://au.finance.yahoo.com/news/rssindex" to "https://au.finance.yahoo.com/",
 )

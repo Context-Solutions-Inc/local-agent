@@ -63,21 +63,6 @@ class CitationUrlRewriteTest {
     }
 
     @Test
-    fun rewrites_all_default_finance_feeds_to_consumer_pages() {
-        val expected = mapOf(
-            "https://ca.finance.yahoo.com/news/rssindex" to "https://ca.finance.yahoo.com/",
-            "https://www.bnnbloomberg.ca/rss" to "https://www.bnnbloomberg.ca/",
-            "https://finance.yahoo.com/news/rssindex" to "https://finance.yahoo.com/",
-            "https://feeds.marketwatch.com/marketwatch/topstories/" to "https://www.marketwatch.com/",
-            "https://uk.finance.yahoo.com/news/rssindex" to "https://uk.finance.yahoo.com/",
-            "https://au.finance.yahoo.com/news/rssindex" to "https://au.finance.yahoo.com/",
-        )
-        for ((feed, landing) in expected) {
-            assertEquals(landing, toHumanReadableUrl(feed))
-        }
-    }
-
-    @Test
     fun sports_rewrite_is_exact_match_not_domain_prefix() {
         // The map keys on the full feed URL, so an unrelated path on a
         // shared domain (abc.net.au also hosts the NEWS source) falls
