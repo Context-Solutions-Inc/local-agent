@@ -124,7 +124,12 @@ class CanonicalEvalTest {
             searchAvailable = q.searchAvailable,
         )
 
-        val sys = prompt.systemInstruction
+        // The [SEARCH CONTEXT] block now rides on the current user turn rather
+        // than the system instruction (PR #39 recency fix), so detect prompt
+        // blocks against the full assembled prompt — system instruction plus
+        // the tail user message. Memory/tool/guideline blocks still live in the
+        // system instruction; the search-context block lives in the user turn.
+        val sys = prompt.systemInstruction + "\n" + (prompt.history.lastOrNull()?.text ?: "")
         val failures = mutableListOf<String>()
 
         for (block in q.expectedPromptBlocks) {

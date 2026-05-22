@@ -125,24 +125,32 @@ class AgentLoopPreflightTest {
         assertEquals("https://espn.com/x", done.message.citations.single().url)
         assertTrue(done.message.text.contains("Eagles won"))
 
-        // System prompt picks up the [SEARCH CONTEXT] block + pre-flight notice.
+        // The [SEARCH CONTEXT] block + pre-flight notice ride on the current
+        // user turn (recency), NOT the system instruction.
         val request = session.requests.single()
         val sysInstruction = requireNotNull(request.systemInstruction)
-        assertTrue(
-            "system prompt should contain the SEARCH CONTEXT header\n$sysInstruction",
+        assertFalse(
+            "search context must NOT be in the system prompt\n$sysInstruction",
             sysInstruction.contains("=== Search context for this turn ==="),
         )
-        assertTrue("payload missing in system prompt", sysInstruction.contains("Eagles 28-22 win"))
+        assertFalse("payload must not leak into system prompt", sysInstruction.contains("Eagles 28-22 win"))
+
+        val tail = request.history.last()
+        assertEquals(HistoryRole.USER, tail.role)
+        assertTrue(
+            "tail user turn should contain the SEARCH CONTEXT header\n${tail.text}",
+            tail.text.contains("=== Search context for this turn ==="),
+        )
+        assertTrue("payload missing in current user turn", tail.text.contains("Eagles 28-22 win"))
         assertTrue(
             "pre-flight notice should appear together with the block",
-            sysInstruction.contains("`[SEARCH CONTEXT]` block above"),
+            tail.text.contains("`[SEARCH CONTEXT]` block above"),
         )
         // Tools must NOT be advertised — LLM-side tool calling is disabled.
         assertTrue("tools list must be empty", request.tools.isEmpty())
 
         // No synthetic tool history is injected: the engine sees the plain
-        // user message as the tail. Pre-flight context lives in the system
-        // instruction only.
+        // user message (now carrying the search context) as the tail.
         val historyRoles = request.history.map { it.role }
         assertEquals(HistoryRole.USER, historyRoles.last())
         assertFalse(
@@ -231,14 +239,15 @@ class AgentLoopPreflightTest {
         val done = events.filterIsInstance<AgentEvent.Done>().single()
         assertNotNull(done)
         // No synthetic tool messages in turnMessages now — the error lives
-        // in the system instruction's [SEARCH CONTEXT] block instead.
+        // in the current user turn's [SEARCH CONTEXT] block instead.
         val toolMessages = done.turnMessages.filterIsInstance<ChatMessage.Tool>()
         assertTrue("no synthetic tool messages", toolMessages.isEmpty())
-        // Verify the error string reached the system prompt.
+        // Verify the error string reached the current user turn (not the system prompt).
         val request = session.requests.single()
-        val sysInstruction = requireNotNull(request.systemInstruction)
-        assertTrue(sysInstruction.contains("=== Search context for this turn ==="))
-        assertTrue(sysInstruction.contains("error: Network"))
+        val tail = request.history.last()
+        assertEquals(HistoryRole.USER, tail.role)
+        assertTrue(tail.text.contains("=== Search context for this turn ==="))
+        assertTrue(tail.text.contains("error: Network"))
     }
 
     @Test

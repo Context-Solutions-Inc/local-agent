@@ -43,9 +43,16 @@ class PromptAssembler(
      * latest input at the tail of [history].
      *
      * [searchContext] — pre-flight search results rendered as a plain-text
-     * block inside the system instruction (under `=== Search context ===`).
-     * When non-null, [PREFLIGHT_NOTICE] is also appended so the model knows
-     * to use the block.
+     * block. When non-null it is appended to the *current* user message (the
+     * tail [HistoryMessage]), under `=== Search context ===`, followed by
+     * [PREFLIGHT_NOTICE]. It deliberately does NOT go in the system
+     * instruction: the system prompt sits at the far front of the context
+     * window, but the prior assistant turn (e.g. a "no real-time data"
+     * refusal made before search was enabled) sits right next to the
+     * generation point. A 2B model anchors on that recent refusal and repeats
+     * it, ignoring distant evidence. Riding the evidence on the current user
+     * turn (the canonical RAG placement) makes it the most-recent thing the
+     * model reads, so fresh results win the recency battle.
      */
     fun assembleStructured(
         history: List<ChatMessage>,
@@ -59,17 +66,19 @@ class PromptAssembler(
 
         val systemInstruction = buildSystemInstruction(
             memoryBlock = memoryBlock,
-            searchContext = searchContext,
             searchAvailable = searchAvailable,
             forceFinalAnswer = forceFinalAnswer,
             responseLanguage = responseLanguage,
         )
 
-        val structuredHistory = history.flatMap(::toHistoryMessages)
+        val structuredHistory = appendSearchContext(
+            history.flatMap(::toHistoryMessages),
+            searchContext,
+        )
 
         // Tool registration with the LLM is disabled — all tool dispatch
-        // happens before the engine, and pre-flight results are injected as
-        // a plain-text block in the system instruction (see [searchContext]).
+        // happens before the engine, and pre-flight results ride on the
+        // current user turn (see [appendSearchContext] / [searchContext]).
         return StructuredPrompt(
             systemInstruction = systemInstruction,
             history = structuredHistory,
@@ -77,9 +86,38 @@ class PromptAssembler(
         )
     }
 
+    /**
+     * Appends the `[SEARCH CONTEXT]` block + [PREFLIGHT_NOTICE] to the tail
+     * (current) user turn, so the evidence is the most-recent thing the model
+     * reads before generating (see [assembleStructured] KDoc for why).
+     *
+     * Defensive: if [searchContext] is blank, or the tail isn't a USER turn
+     * (should never happen — [AgentLoop] always puts the user message last),
+     * the history is returned unchanged so we never silently drop evidence
+     * onto the wrong role. The caller logs the block separately, so a missing
+     * tail is observable on-device rather than failing the turn.
+     */
+    private fun appendSearchContext(
+        history: List<HistoryMessage>,
+        searchContext: String?,
+    ): List<HistoryMessage> {
+        if (searchContext.isNullOrBlank()) return history
+        val tail = history.lastOrNull()
+        if (tail == null || tail.role != HistoryRole.USER) return history
+        val augmented = buildString {
+            append(tail.text)
+            append("\n\n")
+            append(SEARCH_CONTEXT_HEADER)
+            append('\n')
+            append(searchContext)
+            append("\n\n")
+            append(PREFLIGHT_NOTICE)
+        }
+        return history.dropLast(1) + tail.copy(text = augmented)
+    }
+
     private fun buildSystemInstruction(
         memoryBlock: String?,
-        searchContext: String?,
         searchAvailable: Boolean,
         forceFinalAnswer: Boolean,
         responseLanguage: PreferredLanguage,
@@ -92,14 +130,6 @@ class PromptAssembler(
         if (!memoryBlock.isNullOrBlank()) {
             append("\n\n")
             append(memoryBlock)
-        }
-        if (!searchContext.isNullOrBlank()) {
-            append("\n\n")
-            append(SEARCH_CONTEXT_HEADER)
-            append('\n')
-            append(searchContext)
-            append("\n\n")
-            append(PREFLIGHT_NOTICE)
         }
         // Tool-calling is fully disabled at the LLM layer regardless of
         // [searchAvailable]; the block tells the model not to attempt

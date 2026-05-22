@@ -23,10 +23,13 @@ The full system prompt has the following structure:
 [BASE TEMPLATE]
 [TEMPORAL CONTEXT BLOCK]      ← always present, regenerated per turn
 [MEMORY CONTEXT BLOCK]        ← present when retrieval finds relevant memories
-[PRE-FLIGHT NOTICE BLOCK]     ← present only when pre-flight search has fired
 [TOOL DEFINITIONS]
 [BEHAVIOR GUIDELINES]
 ```
+
+The `[SEARCH CONTEXT]` block and its pre-flight notice (§6) are **not** part
+of the system instruction. As of PR #39 they are appended to the *current
+user message* instead — see §6.3 for why.
 
 ---
 
@@ -170,6 +173,24 @@ different search would help.
 ### 6.2 When omitted
 
 Omitted when pre-flight did not fire, which is the more common case once you exclude high-confidence search-required queries. In that situation Gemma 4 follows the standard tool-calling flow and decides whether to search on its own.
+
+### 6.3 Placement: on the current user turn, not the system prompt (PR #39)
+
+The `[SEARCH CONTEXT]` block and this notice are appended to the **current
+user message** (the turn sent via `sendMessageAsync`), not the system
+instruction — `PromptAssembler.appendSearchContext`.
+
+The bug that forced this: with search disabled, a recency query gets the
+correct "I don't have access to real-time data" refusal. The user then enables
+search and re-asks. Search fires and results are injected, but Gemma repeats
+the refusal. Cause is positional — the system instruction sits at the far
+front of the context window, while the prior refusal is the assistant turn
+immediately before the current query, right next to the generation point. A 2B
+model anchors on its own most-recent turn and ignores distant evidence; the
+notice forbidding the refusal lost the same recency battle. Riding the evidence
+on the current user turn (the canonical RAG placement) makes it the most-recent
+thing the model reads, so fresh results win. The notice's "block above" wording
+stays correct: it renders after the block within that same user message.
 
 ---
 

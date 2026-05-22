@@ -115,7 +115,8 @@ class AgentLoopMemoryTest {
         assertEquals("did philadelphia eagles win 2026-05-09 evening", started.query)
         assertEquals(1, client.callCount)
 
-        // System prompt picks up the §5 memory block AND the [SEARCH CONTEXT] block.
+        // System prompt picks up the §5 memory block; the [SEARCH CONTEXT]
+        // block rides on the current user turn (recency), not the system prompt.
         val request = session.requests.single()
         val sys = requireNotNull(request.systemInstruction)
         assertTrue("memory header missing\n$sys", sys.contains(PromptAssembler.MEMORY_CONTEXT_HEADER))
@@ -123,9 +124,13 @@ class AgentLoopMemoryTest {
             "memory bullet missing\n$sys",
             sys.contains("- (preference) my favorite nfl team is the philadelphia eagles"),
         )
-        assertTrue(
-            "search context header missing",
+        assertFalse(
+            "search context must not be in system prompt",
             sys.contains("=== Search context for this turn ==="),
+        )
+        assertTrue(
+            "search context header missing from current user turn",
+            request.history.last().text.contains("=== Search context for this turn ==="),
         )
     }
 

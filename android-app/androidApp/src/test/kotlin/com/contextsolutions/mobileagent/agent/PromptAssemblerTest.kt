@@ -91,20 +91,62 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `search context block appears only when searchContext is provided`() {
+    fun `search context rides on the current user turn, not the system instruction`() {
         val without = assembler().assembleStructured(userOnly("hi"))
         val with = assembler().assembleStructured(
             userOnly("hi"),
             searchContext = "[SEARCH CONTEXT]\nquery: weather toronto\n[/SEARCH CONTEXT]",
         )
 
+        // Never in the system instruction (either case) — it sits at the far
+        // front of the context window and loses the recency battle.
         assertFalse("=== Search context for this turn ===" in without.systemInstruction)
-        assertFalse("`[SEARCH CONTEXT]` block above" in without.systemInstruction)
-        assertTrue("=== Search context for this turn ===" in with.systemInstruction)
-        assertTrue("weather toronto" in with.systemInstruction)
-        // Pre-flight notice is appended together with the block so the model
-        // is told to use it.
-        assertTrue("`[SEARCH CONTEXT]` block above" in with.systemInstruction)
+        assertFalse("=== Search context for this turn ===" in with.systemInstruction)
+        assertFalse("weather toronto" in with.systemInstruction)
+        assertFalse("`[SEARCH CONTEXT]` block above" in with.systemInstruction)
+
+        // No block → tail user turn is untouched.
+        assertEquals("hi", without.history.last().text)
+        assertEquals(HistoryRole.USER, without.history.last().role)
+
+        // With a block → header + payload + pre-flight notice are appended to
+        // the current (tail) user message, after its original text.
+        val tail = with.history.last()
+        assertEquals(HistoryRole.USER, tail.role)
+        assertTrue(tail.text.startsWith("hi"))
+        assertTrue("=== Search context for this turn ===" in tail.text)
+        assertTrue("weather toronto" in tail.text)
+        assertTrue("`[SEARCH CONTEXT]` block above" in tail.text)
+    }
+
+    @Test
+    fun `search context is appended after a prior refusal turn so fresh evidence wins recency`() {
+        // Repro of the disable-then-enable-search bug: turn 1 refused (search
+        // off), turn 2 re-asks with search on. The refusal must stay in
+        // history (no hygiene) but the evidence must land on the tail user
+        // turn — positionally after the refusal, closest to generation.
+        val out = assembler().assembleStructured(
+            history = listOf(
+                ChatMessage.User("did the eagles win last night"),
+                ChatMessage.Assistant("I don't have access to real-time data."),
+                ChatMessage.User("did the eagles win last night"),
+            ),
+            searchContext = "[SEARCH CONTEXT]\nquery: did the eagles win\n" +
+                "[{\"title\":\"Eagles 28-22 win\"}]\n[/SEARCH CONTEXT]",
+        )
+
+        // Refusal turn is preserved unmodified (hygiene intentionally not applied).
+        assertEquals(HistoryRole.MODEL, out.history[1].role)
+        assertEquals("I don't have access to real-time data.", out.history[1].text)
+
+        // Evidence rides on the tail user turn, after the refusal.
+        val tail = out.history.last()
+        assertEquals(HistoryRole.USER, tail.role)
+        assertTrue(tail.text.startsWith("did the eagles win last night"))
+        assertTrue("Eagles 28-22 win" in tail.text)
+        assertTrue("`[SEARCH CONTEXT]` block above" in tail.text)
+        // System instruction stays clean.
+        assertFalse("Eagles 28-22 win" in out.systemInstruction)
     }
 
     @Test
