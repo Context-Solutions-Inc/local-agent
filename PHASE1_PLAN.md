@@ -859,6 +859,50 @@ deterministic score card (regex-parse + render, bypass the LLM, like
 WEATHER/FINANCE), deferred as high-effort/brittle for unstructured sports prose.
 See CLAUDE.md invariants #35 and #36.
 
+### M2.18 — GENERAL/NEWS/SPORTS on LLM Context (FINANCE stays /web/search) ✅ COMPLETE 2026-05-22
+
+PR #42. Generalizes PR #41 (M2.17) to the verticals whose results the LLM
+*reads*: **GENERAL** and **NEWS** move off `/web/search` onto
+`KtorBraveLlmContextClient` (`/llm/context`) for pre-extracted page content.
+**FINANCE deliberately stays on `/web/search`** — its `FinanceQuoteAdapter`
+resolves a ticker by parsing the `finance.yahoo.com/quote/<TICKER>/` URL, which
+`/llm/context` doesn't return (it returns `/markets/stocks/articles/…`).
+WEATHER and the single-instrument FINANCE quote card never touch Brave.
+
+Because PR #41 already made the adapter, post-processor, greedy decoding, and
+history scoping endpoint-agnostic, this is DI wiring + one parameterization.
+Four coexisting `BraveSearchClient`s, each its own `SearchService` + cache
+namespace:
+- **GENERAL** — default `KtorBraveLlmContextClient(maxUrls = 3)`, `"ctx:"`.
+  `maxUrls`/`maxTokens`/`maxSnippetsPerUrl` became ctor params (defaults
+  preserve SPORTS).
+- **NEWS** — `@NewsSearch`, `KtorBraveLlmContextClient(maxUrls = 10)`, `"news:"`;
+  adapter `maxCitations = 10` for up to 10 source chips. Two US defaults
+  (`apnews.com` + `reuters.com`).
+- **SPORTS** — `@SportsSearch`, `KtorBraveLlmContextClient(maxUrls = 1)`,
+  `"sports:"` (single clean source).
+- **FINANCE** — `@FinanceSearch`, `KtorBraveSearchClient` (`/web/search`),
+  `"fin:"`. Keeps the deterministic stockanalysis.com card working.
+
+The `"ctx:"` namespace also invalidates pre-#42 `/web/search`-shaped rows
+(payload type identical, so it's invalidation not a break).
+`KtorBraveSearchClient` + `SearchPostProcessor.format` stay live (FINANCE);
+`limitCitations` is endpoint-agnostic. `VerticalSearchDispatcherFactory.create`
++ `VerticalSearchModule` thread the three qualified services.
+
+Tests: new `KtorBraveLlmContextClientTest` (MockEngine — asserts injected
+`maxUrls`/budget params + path + auth header reach the wire), extended
+`SearchServiceTest` (`"ctx:"` bypasses legacy un-namespaced rows).
+
+**Caught on-device:** the first iteration moved FINANCE onto `/llm/context` too,
+which broke ticker resolution (logcat `no ticker in Brave results — snippet
+fallback`); reverted by giving FINANCE its own `/web/search` service.
+
+Post-review on-device tuning (all in PR #42): NEWS gets its own `maxUrls = 10` /
+`maxCitations = 10` service with two US defaults (apnews.com + reuters.com); the
+preflight `high_band` threshold dropped 0.4 → 0.3 (a "latest news headlines"
+query scored 0.391, just under the old band). See CLAUDE.md invariants #14, #37.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

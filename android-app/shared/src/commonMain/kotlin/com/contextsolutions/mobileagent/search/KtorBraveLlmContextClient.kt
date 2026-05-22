@@ -20,13 +20,14 @@ import kotlinx.serialization.json.Json
  * relevance-ranked page content rather than index snippets — see
  * [BraveLlmContextResponse]. Implements the same interface as
  * [KtorBraveSearchClient], so it drops into [SearchService] unchanged (key
- * resolution, caching, counters all reused); only SPORTS is wired to it
- * (PR #41).
+ * resolution, caching, counters all reused). Every Brave-backed vertical runs
+ * through it (GENERAL/NEWS/FINANCE-fallback + SPORTS) since PR #42 — see
+ * [maxUrls].
  *
  * Same auth and same Search-plan billing as the web client
- * (`X-Subscription-Token`, $5/1000). The query is passed through verbatim — no
- * `site:` pinning for SPORTS (PR #41): the endpoint's data-first ranking is
- * trusted to surface multi-source quality without restricting to one domain.
+ * (`X-Subscription-Token`, $5/1000). The query is passed through verbatim;
+ * `site:` pinning (when a vertical uses it) is applied upstream by
+ * [com.contextsolutions.mobileagent.search.vertical.BraveSiteFilterAdapter].
  *
  * Budget caps are sent on every request so the returned context stays small
  * enough for on-device Gemma 4 E2B; [LlmContextPostProcessor] is the
@@ -38,12 +39,23 @@ import kotlinx.serialization.json.Json
 class KtorBraveLlmContextClient internal constructor(
     private val httpClient: HttpClient,
     private val endpoint: String = DEFAULT_ENDPOINT,
+    private val maxUrls: Int = DEFAULT_MAX_URLS,
+    private val maxTokens: Int = MAX_TOKENS,
+    private val maxSnippetsPerUrl: Int = MAX_SNIPPETS_PER_URL,
     private val logger: (String) -> Unit = {},
 ) : BraveSearchClient {
 
-    constructor(httpEngineFactory: HttpEngineFactory) : this(httpEngineFactory.create())
-    constructor(httpEngineFactory: HttpEngineFactory, logger: (String) -> Unit) :
-        this(httpEngineFactory.create(), logger = logger)
+    /**
+     * Builds the Ktor [HttpClient] internally so the Hilt module stays
+     * Ktor-free. [maxUrls] is the per-vertical URL budget (PR #42): SPORTS
+     * passes 1 (single `site:`-pinned clean source — invariant #35);
+     * GENERAL/NEWS/FINANCE-fallback pass more for multi-source synthesis.
+     */
+    constructor(
+        httpEngineFactory: HttpEngineFactory,
+        maxUrls: Int = DEFAULT_MAX_URLS,
+        logger: (String) -> Unit = {},
+    ) : this(httpEngineFactory.create(), maxUrls = maxUrls, logger = logger)
 
     // Mirrors the server's ContentNegotiation config (ignores unknown keys, see
     // BraveLlmContextResponse) — we decode the text body ourselves so the raw
@@ -55,9 +67,9 @@ class KtorBraveLlmContextClient internal constructor(
         val response = try {
             httpClient.get(endpoint) {
                 parameter("q", query)
-                parameter("maximum_number_of_urls", MAX_URLS)
-                parameter("maximum_number_of_tokens", MAX_TOKENS)
-                parameter("maximum_number_of_snippets_per_url", MAX_SNIPPETS_PER_URL)
+                parameter("maximum_number_of_urls", maxUrls)
+                parameter("maximum_number_of_tokens", maxTokens)
+                parameter("maximum_number_of_snippets_per_url", maxSnippetsPerUrl)
                 header(HttpHeaders.Accept, "application/json")
                 header(SUBSCRIPTION_TOKEN_HEADER, apiKey)
             }
@@ -138,12 +150,15 @@ class KtorBraveLlmContextClient internal constructor(
         const val SUBSCRIPTION_TOKEN_HEADER = "X-Subscription-Token"
 
         // Budget caps — keep the returned context small for on-device Gemma.
-        // ONE URL: SPORTS is `site:`-pinned to a single domain (espn.com /
-        // tsn.ca), and on-device testing showed extra URLs from that domain
-        // are noise (a VideoObject blob, a standings table) full of confusing
+        // [maxUrls] is now per-vertical (PR #42); this is only the default the
+        // bare-factory constructor falls back to. DEFAULT = 1 preserves SPORTS
+        // behaviour: SPORTS is `site:`-pinned to a single domain (espn.com /
+        // tsn.ca), and on-device testing showed extra URLs from that domain are
+        // noise (a VideoObject blob, a standings table) full of confusing
         // numbers the 2B model mis-transcribes. One URL = the top scores page,
-        // the cleanest single source.
-        private const val MAX_URLS = 1
+        // the cleanest single source. GENERAL/NEWS/FINANCE-fallback inject a
+        // higher value (3) from SearchModule for multi-source synthesis.
+        private const val DEFAULT_MAX_URLS = 1
         private const val MAX_TOKENS = 1800
         private const val MAX_SNIPPETS_PER_URL = 6
 

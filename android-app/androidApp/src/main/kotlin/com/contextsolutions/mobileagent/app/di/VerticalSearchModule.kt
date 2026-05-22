@@ -35,10 +35,14 @@ object VerticalSearchModule {
         httpEngineFactory: HttpEngineFactory,
         searchService: SearchService,
         @SportsSearch sportsSearchService: SearchService,
+        @FinanceSearch financeSearchService: SearchService,
+        @NewsSearch newsSearchService: SearchService,
     ): VerticalSearchDispatcher = VerticalSearchDispatcherFactory.create(
         httpEngineFactory = httpEngineFactory,
         searchService = searchService,
         sportsSearchService = sportsSearchService,
+        financeSearchService = financeSearchService,
+        newsSearchService = newsSearchService,
         logger = { Log.i(TAG, it) },
     )
 }

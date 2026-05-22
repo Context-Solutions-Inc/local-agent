@@ -23,6 +23,8 @@ object VerticalSearchDispatcherFactory {
         httpEngineFactory: HttpEngineFactory,
         searchService: SearchService,
         sportsSearchService: SearchService = searchService,
+        financeSearchService: SearchService = searchService,
+        newsSearchService: SearchService = searchService,
         logger: (String) -> Unit = {},
     ): VerticalSearchDispatcher {
         val client = httpEngineFactory.create {
@@ -36,8 +38,15 @@ object VerticalSearchDispatcherFactory {
         val rssParser = RssParser()
         val readability = HtmlReadabilityExtractor()
         val adapters: Map<SearchSubtype, VerticalSearchAdapter> = mapOf(
+            // NEWS uses its own LLM-context service ([newsSearchService],
+            // maxUrls = 10) and surfaces up to 10 citation chips (PR #42 follow-up).
+            // maxDomains stays at the default (3) so the multi-site OR filter
+            // covers the shipped US defaults (apnews.com + reuters.com) plus any
+            // source the user adds.
             SearchSubtype.NEWS to BraveSiteFilterAdapter(
-                searchService = searchService,
+                searchService = newsSearchService,
+                subtype = SearchSubtype.NEWS,
+                maxCitations = 10,
                 logger = logger,
             ),
             SearchSubtype.WEATHER to FeedAdapter(
@@ -69,11 +78,14 @@ object VerticalSearchDispatcherFactory {
             // fetches stockanalysis.com for a structured quote rendered as a
             // deterministic card (PR #38). On no quote it falls back to the
             // `site:`-filtered web search (PR #35 — one source + one citation,
-            // same rationale as SPORTS).
+            // same rationale as SPORTS). Uses [financeSearchService] — Brave
+            // `/web/search`, NOT `/llm/context` (PR #42): ticker resolution parses
+            // the `finance.yahoo.com/quote/<TICKER>/` URL, which only `/web/search`
+            // returns (`/llm/context` returns `/markets/stocks/articles/…`). See #37.
             SearchSubtype.FINANCE to FinanceQuoteAdapter(
                 httpClient = client,
                 fallback = BraveSiteFilterAdapter(
-                    searchService = searchService,
+                    searchService = financeSearchService,
                     subtype = SearchSubtype.FINANCE,
                     maxDomains = 1,
                     maxCitations = 1,

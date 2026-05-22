@@ -166,6 +166,38 @@ class SearchServiceTest {
         assertEquals(2L, dao.count())
     }
 
+    @Test
+    fun `ctx namespace bypasses legacy un-namespaced cache rows`() = runTest {
+        // PR #42 moved the default service to the LLM Context client and gave it
+        // cacheNamespace = "ctx:". Pre-#42 `/web/search` payloads were cached
+        // under the empty namespace; the "ctx:" prefix must NOT read them, so a
+        // post-upgrade query re-fetches fresh content instead of serving a stale
+        // web-shaped row.
+        val legacyClient = FakeBraveSearchClient().apply {
+            next = BraveSearchResult.Success(samplePayload())
+        }
+        val legacyService = SearchService(StaticBraveKeyProvider("test-key"), legacyClient, dao)
+        legacyService.search("nvidia stock price") // writes a row under the empty namespace
+        assertEquals(1L, dao.count())
+
+        val freshPayload = SearchPostProcessor.format(
+            BraveSearchResponse(
+                web = BraveWebResults(
+                    results = listOf(BraveResult(title = "Fresh", url = "https://fresh", description = "ctx")),
+                ),
+            ),
+        )
+        val ctxClient = FakeBraveSearchClient().apply { next = BraveSearchResult.Success(freshPayload) }
+        val ctxService = SearchService(StaticBraveKeyProvider("test-key"), ctxClient, dao, cacheNamespace = "ctx:")
+
+        val out = ctxService.search("nvidia stock price") as SearchOutcome.Success
+        // Cache miss under "ctx:" → network, fresh payload (not the legacy row).
+        assertEquals(freshPayload.json, out.payload.json)
+        assertFalse(out.fromCache)
+        assertEquals(1, ctxClient.callCount)
+        assertEquals(2L, dao.count()) // legacy + ctx rows coexist
+    }
+
     private fun service(
         keyProvider: BraveKeyProvider = StaticBraveKeyProvider("test-key"),
     ): SearchService = SearchService(keyProvider, fakeClient, dao)

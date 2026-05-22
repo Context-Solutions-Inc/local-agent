@@ -29,6 +29,12 @@ import kotlinx.coroutines.CancellationException
  * SPORTS / FINANCE queries). It is intentional local diagnostics, NOT telemetry
  * egress, and is distinct from the redacting HTTP error logger (PRD §4.4) that
  * scrubs query strings out of error logs.
+ *
+ * **PR #42:** GENERAL/NEWS/SPORTS moved to [KtorBraveLlmContextClient]
+ * (`/llm/context`), but FINANCE stays here on `/web/search` — its ticker
+ * resolution parses the `finance.yahoo.com/quote/<TICKER>/` URL that only
+ * `/web/search` returns (see `@FinanceSearch` / invariant #37). Wired via the
+ * `@FinanceSearch` [SearchService].
  */
 class KtorBraveSearchClient internal constructor(
     private val httpClient: HttpClient,

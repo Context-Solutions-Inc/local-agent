@@ -17,6 +17,12 @@ import kotlinx.serialization.json.Json
  * up any remaining slots. The threshold avoids polluting non-news queries
  * (e.g., `NVDA stock price` returns 0 news hits and renders identically to
  * today).
+ *
+ * **PR #42:** [format] reduces `/web/search` responses — used by FINANCE (which
+ * stays on [KtorBraveSearchClient] for ticker resolution; see invariant #37);
+ * GENERAL/NEWS/SPORTS format via [LlmContextPostProcessor] instead.
+ * [limitCitations] is endpoint-agnostic and called live by
+ * `BraveSiteFilterAdapter` to trim UI citation chips for both.
  */
 object SearchPostProcessor {
     private const val MAX_SNIPPET_CHARS = 200
