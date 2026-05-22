@@ -801,6 +801,30 @@ reverted for the stockanalysis.com parse. New tests:
 `StockAnalysisParserTest`, `StockResponseFormatterTest`, AgentLoop finance
 cases. See CLAUDE.md invariant #33.
 
+### M2.16 — Search context on the current user turn (recency fix) ✅ COMPLETE 2026-05-22
+
+PR #39. Fixes the disable-then-enable-search bug: with search off, a recency
+query gets the correct "I don't have real-time data" refusal; the user enables
+search and re-asks; search fires and results inject, but Gemma **repeats the
+refusal**. Cause is positional — the system instruction sits at the far front
+of the context window while the prior refusal is the assistant turn right
+before the current query (next to the generation point), so a 2B model anchors
+on its own recent refusal and ignores distant evidence; the `PREFLIGHT_NOTICE`
+forbidding the refusal lost the same recency battle.
+
+Fix: the `[SEARCH CONTEXT]` block + notice now ride on the **current user
+message** (sent via `sendMessageAsync`) instead of the system instruction —
+canonical RAG placement, so fresh evidence is the most-recent thing read.
+`PromptAssembler.appendSearchContext` appends to the tail `USER`
+`HistoryMessage` (defensive no-op if the tail isn't a user turn);
+`buildSystemInstruction` no longer takes `searchContext`. The engine layer is
+unchanged. Token-neutral. History-hygiene (pruning the stale refusal) was
+rejected — `ChatMessage` has no "used search" flag, so detection would need
+brittle phrase/locale matching. New regression test in `PromptAssemblerTest`;
+`AgentLoopPreflightTest`/`AgentLoopMemoryTest` re-pointed to assert the block
+on `request.history.last().text`; `CanonicalEvalTest` widens its block-detection
+haystack. See SYSTEM_PROMPT.md §6.3 and CLAUDE.md invariant #34.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in
