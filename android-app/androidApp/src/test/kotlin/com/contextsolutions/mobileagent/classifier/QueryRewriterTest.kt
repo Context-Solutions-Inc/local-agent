@@ -100,6 +100,50 @@ class QueryRewriterTest {
         )
     }
 
+    // -- Future relative expressions (PR #43) ------------------------------
+
+    @Test
+    fun tomorrow_resolves_to_iso() {
+        assertEquals(
+            "any games 2026-05-11",
+            rewriter.rewrite("any games tomorrow"),
+        )
+    }
+
+    @Test
+    fun tomorrow_night_resolves_before_tomorrow() {
+        // "tomorrow night" must match before the bare "tomorrow" rule.
+        assertEquals(
+            "what's on tv 2026-05-11 evening",
+            rewriter.rewrite("what's on tv tomorrow night"),
+        )
+    }
+
+    @Test
+    fun next_week_resolves_to_week_of_iso() {
+        assertEquals(
+            "fixtures week of 2026-05-17",
+            rewriter.rewrite("fixtures next week"),
+        )
+    }
+
+    @Test
+    fun next_month_resolves_to_month_year() {
+        // The reported case: May 2026 + 1 month → June 2026.
+        assertEquals(
+            "what are the big sporting events June 2026",
+            rewriter.rewrite("what are the big sporting events next month"),
+        )
+    }
+
+    @Test
+    fun next_year_resolves_to_year() {
+        assertEquals(
+            "world cup schedule 2027",
+            rewriter.rewrite("world cup schedule next year"),
+        )
+    }
+
     @Test
     fun rules_are_case_insensitive() {
         assertEquals(

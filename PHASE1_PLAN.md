@@ -903,6 +903,36 @@ Post-review on-device tuning (all in PR #42): NEWS gets its own `maxUrls = 10` /
 preflight `high_band` threshold dropped 0.4 → 0.3 (a "latest news headlines"
 query scored 0.391, just under the old band). See CLAUDE.md invariants #14, #37.
 
+### M2.19 — Relative-temporal force-fire + future rewrite rules ✅ COMPLETE 2026-05-22
+
+PR #43. The classifier under-fires on now-relative queries — "who won the super
+bowl last year" scored `p_search_required=0.175` (middle band) → on-device Gemma,
+whose fixed knowledge cutoff answers stale; search never fired. The signal is the
+**relative temporal reference**, not the topic, so the fix is topic-agnostic and
+avoids lowering the global threshold.
+
+- **`RelativeTemporalDetector`** (`search/`) — one word-boundary regex matching
+  PAST/PRESENT/FUTURE relative phrases; excludes absolute dates ("in 2019") and
+  bare "now".
+- **`PreflightRouter`** gate widens to
+  `pSearch > highBand || temporalDetector.matches(query)`. Lives in the router
+  (not `AgentLoop` like the WEATHER force-fire #32) precisely because it WANTS the
+  existing rewriter + subtype detection that WEATHER bypasses.
+- **`QueryRewriter`** gained the future siblings of its date rules — `tomorrow`
+  (+ morning/afternoon/evening/night), `next week`, `next month`, `next year` —
+  so "next month" in May 2026 resolves to "June 2026" instead of riding through
+  literally (caught on-device after the initial force-fire landed).
+- **Observability:** `preflight_temporal_force_total` (a subset of
+  `preflight_high_band_total`, counted only when the band alone wouldn't have
+  fired) + a `forced=temporal` logcat marker.
+
+Accepted tradeoff: false positives like "how are you today" force a search; the
+counter exists to tune the trigger from telemetry. Tests: new
+`RelativeTemporalDetectorTest`; extended `PreflightRouterTest` (mid-band +
+temporal → `FireSearch(SPORTS)` with rewritten "2025" + counter) and
+`QueryRewriterTest` (future rules incl. the reported "next month" → "June 2026").
+See CLAUDE.md invariant #38.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

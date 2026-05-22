@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.memory.MemoryCategory
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
+import kotlinx.datetime.plus
 
 /**
  * Deterministic-only query rewriter for the Phase C [PreflightRouter] —
@@ -17,7 +18,12 @@ import kotlinx.datetime.minus
  *
  *  - Date/time substitution from [TimeContext]: today, tonight, this morning,
  *    this afternoon, this evening, this week, this month, this year,
- *    yesterday, last night, last week, last month, last year.
+ *    yesterday, last night, last week, last month, last year, and the future
+ *    siblings tomorrow (+ morning/afternoon/evening/night), next week,
+ *    next month, next year — mirroring the future families
+ *    [com.contextsolutions.mobileagent.search.RelativeTemporalDetector]
+ *    force-fires on (invariant #38) so "next month" resolves to a concrete
+ *    month instead of riding through literally.
  *  - Memory-reference abort: queries containing possessives ("my team",
  *    "my company", "where I live", …) return `null` so the router emits
  *    `FallThrough(RewriterAbort)`. M5 will replace this with retrieval-
@@ -156,8 +162,11 @@ class QueryRewriter(
     private fun dateTimeRules(context: TimeContext): List<RewriteRule> {
         val today = LocalDate(context.now.year, context.now.monthNumber, context.now.dayOfMonth)
         val yesterday = today.minus(DatePeriod(days = 1))
+        val tomorrow = today.plus(DatePeriod(days = 1))
         val lastWeekStart = today.minus(DatePeriod(days = 7))
+        val nextWeekStart = today.plus(DatePeriod(days = 7))
         val lastMonthFirst = today.minus(DatePeriod(months = 1))
+        val nextMonthFirst = today.plus(DatePeriod(months = 1))
 
         // Order matters: longer phrases first.
         return listOf(
@@ -166,16 +175,24 @@ class QueryRewriter(
             RewriteRule(wordRegex("yesterday morning"), iso(yesterday) + " morning"),
             RewriteRule(wordRegex("yesterday afternoon"), iso(yesterday) + " afternoon"),
             RewriteRule(wordRegex("yesterday"), iso(yesterday)),
+            RewriteRule(wordRegex("tomorrow morning"), iso(tomorrow) + " morning"),
+            RewriteRule(wordRegex("tomorrow afternoon"), iso(tomorrow) + " afternoon"),
+            RewriteRule(wordRegex("tomorrow evening"), iso(tomorrow) + " evening"),
+            RewriteRule(wordRegex("tomorrow night"), iso(tomorrow) + " evening"),
+            RewriteRule(wordRegex("tomorrow"), iso(tomorrow)),
             RewriteRule(wordRegex("this morning"), iso(today) + " morning"),
             RewriteRule(wordRegex("this afternoon"), iso(today) + " afternoon"),
             RewriteRule(wordRegex("this evening"), iso(today) + " evening"),
             RewriteRule(wordRegex("tonight"), iso(today) + " evening"),
             RewriteRule(wordRegex("today"), iso(today)),
             RewriteRule(wordRegex("last week"), "week of " + iso(lastWeekStart)),
+            RewriteRule(wordRegex("next week"), "week of " + iso(nextWeekStart)),
             RewriteRule(wordRegex("this week"), "week of " + iso(today)),
             RewriteRule(wordRegex("last month"), monthName(lastMonthFirst.monthNumber) + " " + lastMonthFirst.year),
+            RewriteRule(wordRegex("next month"), monthName(nextMonthFirst.monthNumber) + " " + nextMonthFirst.year),
             RewriteRule(wordRegex("this month"), monthName(today.monthNumber) + " " + today.year),
             RewriteRule(wordRegex("last year"), (today.year - 1).toString()),
+            RewriteRule(wordRegex("next year"), (today.year + 1).toString()),
             RewriteRule(wordRegex("this year"), today.year.toString()),
         )
     }

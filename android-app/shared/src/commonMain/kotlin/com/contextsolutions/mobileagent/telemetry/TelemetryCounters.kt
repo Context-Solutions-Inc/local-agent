@@ -106,6 +106,12 @@ object CounterNames {
     const val PREFLIGHT_REWRITER_ABORT_TOTAL = "preflight_rewriter_abort_total"
     const val PREFLIGHT_CLASSIFIER_UNAVAILABLE_TOTAL = "preflight_classifier_unavailable_total"
 
+    // A FireSearch the band thresholds alone would NOT have produced — forced
+    // because RelativeTemporalDetector matched a now-relative phrase. A subset
+    // of PREFLIGHT_HIGH_BAND_TOTAL; lets us watch how often temporal force-fire
+    // carries the decision (and its false-positive rate). See invariant #38.
+    const val PREFLIGHT_TEMPORAL_FORCE_TOTAL = "preflight_temporal_force_total"
+
     // daily_search
     const val SEARCH_INVOKED_TOTAL = "search_invoked_total"
     const val SEARCH_CACHE_HIT_TOTAL = "search_cache_hit_total"
