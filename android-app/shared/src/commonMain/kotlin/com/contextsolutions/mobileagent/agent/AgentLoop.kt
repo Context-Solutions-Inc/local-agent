@@ -141,8 +141,13 @@ class AgentLoop(
         // once per user turn entering the loop (regardless of whether the
         // turn errors later). No content recorded.
         counters.increment(CounterNames.QUERIES_TOTAL)
+        // PR #48 — an attached photo makes this a vision turn: the query is about
+        // the image, not the web or a device tool. Image turns skip the
+        // deterministic clock/todo/memory short-circuits AND preflight/search,
+        // going straight to the model. Capture it once up front.
+        val hasImage = input.imageBytes != null
         logger(
-            "[turn] start userMessage=\"${redact(input.userMessage)}\" " +
+            "[turn] start userMessage=\"${redact(input.userMessage)}\" hasImage=$hasImage " +
                 "toolHandlers=${toolHandlers.flatMap { it.definitions }.joinToString(",") { it.name }} " +
                 "searchAvailable=${searchService.isAvailable()}",
         )
@@ -159,7 +164,7 @@ class AgentLoop(
         // Unmatched messages fall through to the existing LLM path so
         // natural-language phrasings the parser doesn't cover ("wake me
         // up tomorrow morning", compound queries) still work.
-        if (toolHandlers.isNotEmpty()) {
+        if (toolHandlers.isNotEmpty() && !hasImage) {
             val command = ClockCommandParser.parse(input.userMessage)
             if (command != null) {
                 logger("[turn] deterministic clock command: ${command::class.simpleName}")
@@ -212,7 +217,9 @@ class AgentLoop(
         // downstream in `MemoryExtractor.extract()` (called from
         // ChatViewModel after Done) via the same `RememberForgetDetector`
         // we're consulting here, so we don't duplicate save logic.
-        val memoryCommand = rememberForgetDetector.classify(input.userMessage)
+        val memoryCommand =
+            if (hasImage) RememberForgetDetector.Command.None
+            else rememberForgetDetector.classify(input.userMessage)
         if (memoryCommand !is RememberForgetDetector.Command.None) {
             logger("[turn] explicit memory command: ${memoryCommand::class.simpleName}")
             emitMemoryCommandAck(input.userMessage, memoryCommand)
@@ -220,15 +227,23 @@ class AgentLoop(
         }
 
         // Treat the inbound user message as the trailing turn in history.
+        // PR #48 — only this current turn carries image bytes (ephemeral); prior
+        // history is text-only, so the image never round-trips.
         val priorHistory = input.history
-        val userMessage = ChatMessage.User(input.userMessage)
+        val userMessage = ChatMessage.User(input.userMessage, imageBytes = input.imageBytes)
 
         val finalText = StringBuilder()
         val citationsForTurn = mutableListOf<SearchSource>()
         var toolCallsThisTurn = 0
         // Tracks the agent's view of in-progress tool messages so the final
         // turnMessages is faithful to what actually happened.
-        val turnAppendix = mutableListOf<ChatMessage>(userMessage)
+        // PR #48 — turnAppendix becomes the persisted + in-memory history that
+        // FUTURE turns replay, so the user turn recorded here is text-only. The
+        // image rides only on `userMessage` (used for THIS turn's prompt below),
+        // never on history — keeping image input ephemeral.
+        val turnAppendix = mutableListOf<ChatMessage>(
+            if (hasImage) ChatMessage.User(input.userMessage) else userMessage,
+        )
 
         // -- Memory retrieval (PRD §3.2.4) --
         // Runs BEFORE pre-flight (M5_PLAN.md §2 — sequential with retrieval
@@ -282,8 +297,19 @@ class AgentLoop(
             weatherLocationResolver != null &&
             searchService.isAvailable() &&
             (bareWeatherRequest || weatherLocationResolver.resolve(input.userMessage) != null)
-        val forceWeather = deterministicWeather
+        // PR #48 — an image turn never fires search (the question is about the
+        // photo). forceWeather is computed above but suppressed here so the
+        // image branch wins. Falls through to the LLM with no [SEARCH CONTEXT],
+        // so sampling stays at the warm defaults (searchContextBlock == null).
+        val forceWeather = deterministicWeather && !hasImage
         val decision = when {
+            hasImage -> {
+                logger("[turn] image attached — skipping preflight/search")
+                PreflightDecision.FallThrough(
+                    reason = FallThroughReason.MiddleBand,
+                    pSearchRequired = null,
+                )
+            }
             skipPreflight -> {
                 logger("[turn] skipping pre-flight (clock intent detected)")
                 PreflightDecision.FallThrough(

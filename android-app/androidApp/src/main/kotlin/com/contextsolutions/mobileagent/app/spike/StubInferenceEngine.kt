@@ -53,7 +53,16 @@ class StubInferenceEngine(
         toolDispatcher: ToolDispatcher?,
     ): Flow<GenerationEvent> = flow {
         delay(simulatedFirstTokenLatencyMs)
-        val response = cannedResponse.take(maxResponseChars(request.maxTokens))
+        // PR #48 — when a photo rides on the current turn, prepend a marker so
+        // `-PuseStubEngine=true` exercises the full image path (UI → AgentLoop →
+        // request) without the real vision engine.
+        val imageBytes = request.history.lastOrNull()?.imageBytes
+        val base = if (imageBytes != null) {
+            "[stub] received image of ${imageBytes.size} bytes. $cannedResponse"
+        } else {
+            cannedResponse
+        }
+        val response = base.take(maxResponseChars(request.maxTokens))
         val tokens = response.split(' ').filter { it.isNotEmpty() }
         val perTokenDelayMs = (1_000.0 / simulatedTokensPerSecond).toLong()
         var index = 0

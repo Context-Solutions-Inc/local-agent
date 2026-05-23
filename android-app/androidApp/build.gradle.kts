@@ -108,7 +108,7 @@ android {
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = gitCommitTimestamp
-        versionName = "0.0.1-beta"
+        versionName = "0.0.2-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -165,6 +165,21 @@ android {
                 "/META-INF/{AL2.0,LGPL2.1}",
                 "/META-INF/INDEX.LIST",
                 "/META-INF/DEPENDENCIES",
+            )
+        }
+        // PR #48 — native-lib collision introduced by LiteRT-LM 0.12.0. Where
+        // 0.10.2 statically linked its LiteRT core into liblitertlm_jni.so (fully
+        // isolated from the classifier runtime — invariant #18), 0.12.0 ships the
+        // core as a standalone libLiteRt.so + libLiteRtClGlAccelerator.so. Those
+        // share a SONAME with the classifier/embedder's com.google.ai.edge.litert
+        // :litert:2.1.4 builds, so AGP can package only one of each. pickFirst
+        // resolves the duplicate; the consequence is that BOTH runtimes share one
+        // libLiteRt.so at runtime, so the classifier (invariant #18) must be
+        // re-validated on-device alongside the LLM after this bump.
+        jniLibs {
+            pickFirsts += setOf(
+                "**/libLiteRt.so",
+                "**/libLiteRtClGlAccelerator.so",
             )
         }
     }

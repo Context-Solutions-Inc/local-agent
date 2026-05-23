@@ -22,7 +22,7 @@ A privacy-first, cross-platform mobile assistant that runs entirely on-device us
 ### 1.3 Non-goals (v1)
 
 - Voice input/output (text-only for v1)
-- Multi-modal input beyond text (no image/audio understanding in v1, despite Gemma 4's capability)
+- ~~Multi-modal input beyond text~~ — **revised in 0.0.2-beta (PR #48): single-image input (vision) is now supported** via Gemma 4's native vision tower (one photo per turn, on-device). Audio understanding remains out of scope.
 - Server-side conversation sync or multi-device history
 - Custom fine-tuned models or per-user model adaptation
 - Tools beyond web search (no calendar, email, file access in v1)
@@ -332,4 +332,4 @@ The primary business risk is Brave API cost. If usage scales beyond the free tie
 
 ## 9. Out of scope (deferred to future versions)
 
-Multi-modal input (image and audio understanding via Gemma 4's native capabilities), additional tools (calendar, email, local file search, calculator), conversation export, server-sync of conversations across devices, custom system prompt configuration, voice input/output, widget and Siri/Assistant integration, and tablet-optimized layouts.
+Audio understanding, additional tools (calendar, email, local file search, calculator), conversation export, server-sync of conversations across devices, custom system prompt configuration, voice input/output, widget and Siri/Assistant integration, and tablet-optimized layouts. (**Image** understanding via Gemma 4's vision tower was deferred here originally but shipped in 0.0.2-beta — see §1.3 and PR #48.)

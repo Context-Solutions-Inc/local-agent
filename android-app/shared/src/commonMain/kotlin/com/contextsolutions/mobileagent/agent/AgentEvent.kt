@@ -68,6 +68,13 @@ sealed interface AgentEvent {
 data class AgentTurnInput(
     val userMessage: String,
     val history: List<ChatMessage> = emptyList(),
+    /**
+     * Optional photo (downscaled JPEG) attached to this turn (PR #48). When
+     * present the loop skips preflight/search and the deterministic clock/todo/
+     * memory short-circuits, sending the image straight to the model for a
+     * vision-grounded answer. Ephemeral: not persisted with the turn.
+     */
+    val imageBytes: ByteArray? = null,
 )
 
 /** Convenience accessor for callers that want the formatted payload off a successful event. */

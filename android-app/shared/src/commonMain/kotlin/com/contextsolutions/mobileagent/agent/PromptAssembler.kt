@@ -196,7 +196,11 @@ class PromptAssembler(
      */
     private fun toHistoryMessages(message: ChatMessage): List<HistoryMessage> = when (message) {
         is ChatMessage.System -> listOf(HistoryMessage(HistoryRole.SYSTEM, message.text))
-        is ChatMessage.User -> listOf(HistoryMessage(HistoryRole.USER, message.text))
+        // PR #48 — carry any attached photo onto the USER history message. Only
+        // the current (trailing) turn ever has bytes; prior turns are null.
+        is ChatMessage.User -> listOf(
+            HistoryMessage(HistoryRole.USER, message.text, imageBytes = message.imageBytes),
+        )
         is ChatMessage.Tool -> listOf(
             HistoryMessage(role = HistoryRole.TOOL, text = message.text, toolName = message.toolName),
         )

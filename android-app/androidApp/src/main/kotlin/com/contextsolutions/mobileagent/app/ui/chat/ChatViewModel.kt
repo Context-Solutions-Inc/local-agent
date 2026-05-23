@@ -2,7 +2,11 @@ package com.contextsolutions.mobileagent.app.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.compose.ui.graphics.ImageBitmap
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.contextsolutions.mobileagent.agent.AgentEvent
 import com.contextsolutions.mobileagent.agent.AgentTurnInput
 import com.contextsolutions.mobileagent.agent.ChatMessage
@@ -68,6 +72,7 @@ class ChatViewModel @Inject constructor(
     private val memoryStore: MemoryStore,
     private val conversationRepository: ConversationRepository,
     private val telemetryCounters: TelemetryCounters,
+    @ApplicationContext private val appContext: Context,
     thermalStatusProvider: ThermalStatusProvider,
 ) : ViewModel() {
 
@@ -150,6 +155,36 @@ class ChatViewModel @Inject constructor(
 
     private var currentJob: Job? = null
 
+    /**
+     * PR #48 — the photo attached to the *next* send. Bytes (downscaled JPEG)
+     * go to the model; the matching thumbnail is mirrored into [ChatUiState] for
+     * the input chip. Ephemeral: cleared after each send, never persisted.
+     */
+    private var pendingImageBytes: ByteArray? = null
+
+    /**
+     * Decode + downscale a gallery image and stage it for the next send. Runs
+     * off the main thread via [ImagePreprocessor]. On a decode failure the
+     * pending image is left cleared and a chat error is surfaced.
+     */
+    fun onImagePicked(uri: Uri) {
+        viewModelScope.launch {
+            val prepared = ImagePreprocessor.prepare(appContext, uri)
+            if (prepared == null) {
+                _ui.update { it.copy(error = "Couldn't read that image.") }
+                return@launch
+            }
+            pendingImageBytes = prepared.jpegBytes
+            _ui.update { it.copy(pendingImageThumbnail = prepared.thumbnail, error = null) }
+        }
+    }
+
+    /** Discard a staged image before sending (the chip's remove button). */
+    fun clearPickedImage() {
+        pendingImageBytes = null
+        _ui.update { it.copy(pendingImageThumbnail = null) }
+    }
+
     // Aux-model warm-up is owned by MainViewModel.warmUpAuxEngines, fired
     // from the chat-screen RESUME hook. Single source of truth, fires on
     // every chat-screen entry AND on background→foreground bounce, and
@@ -158,7 +193,12 @@ class ChatViewModel @Inject constructor(
 
     fun send(prompt: String) {
         val trimmed = prompt.trim()
-        if (trimmed.isEmpty()) return
+        // PR #48 — snapshot the staged image and clear it so a second tap can't
+        // double-send it. An image-only turn (no text) is allowed.
+        val imageBytes = pendingImageBytes
+        val imageThumb = _ui.value.pendingImageThumbnail
+        pendingImageBytes = null
+        if (trimmed.isEmpty() && imageBytes == null) return
 
         // PR#13 overflow guard. The check is synchronous (uses the in-memory
         // ack mirror) so the UI can react in the same frame.
@@ -190,7 +230,9 @@ class ChatViewModel @Inject constructor(
         // CancellationException catch ran).
         _ui.update {
             it.copy(
-                messages = it.messages + UiMessage.User(trimmed),
+                messages = it.messages + UiMessage.User(trimmed, thumbnail = imageThumb),
+                // Clear the input chip now that the image is part of the turn.
+                pendingImageThumbnail = null,
                 partialText = "",
                 searchStatus = SearchStatus.None,
                 error = null,
@@ -240,7 +282,13 @@ class ChatViewModel @Inject constructor(
                     responseLanguage = language,
                     responseFilter = filter,
                 )
-                loop.run(AgentTurnInput(userMessage = trimmed, history = historySnapshot)).collect { event ->
+                loop.run(
+                    AgentTurnInput(
+                        userMessage = trimmed,
+                        history = historySnapshot,
+                        imageBytes = imageBytes,
+                    ),
+                ).collect { event ->
                     onAgentEvent(event)
                 }
             } catch (e: CancellationException) {
@@ -700,10 +748,17 @@ data class ChatUiState(
     val isGenerating: Boolean = false,
     val isCancelling: Boolean = false,
     val error: String? = null,
+    /** PR #48 — thumbnail of the image staged for the next send (input chip). Null when none. */
+    val pendingImageThumbnail: ImageBitmap? = null,
 )
 
 sealed interface UiMessage {
-    data class User(val text: String) : UiMessage
+    /**
+     * A user turn. [thumbnail] (PR #48) is the attached photo rendered in the
+     * bubble for the live session only — it is not persisted, so a reloaded
+     * conversation shows the text without the image (ephemeral, by design).
+     */
+    data class User(val text: String, val thumbnail: ImageBitmap? = null) : UiMessage
     data class Assistant(
         val text: String,
         val citations: List<SearchSource>,

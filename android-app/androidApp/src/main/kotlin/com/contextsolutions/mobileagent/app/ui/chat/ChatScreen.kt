@@ -2,6 +2,10 @@ package com.contextsolutions.mobileagent.app.ui.chat
 
 import android.content.Intent
 import android.view.View
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +37,8 @@ import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -67,7 +73,10 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -110,6 +119,11 @@ fun ChatScreen(
     val alarms by clockViewModel.alarms.collectAsState()
     val activeTodoCount by todoViewModel.activeCount.collectAsState()
     var input by remember { mutableStateOf("") }
+    // PR #48 — Android Photo Picker. No storage permission needed; returns a
+    // content Uri the ViewModel decodes + downscales off the main thread.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> if (uri != null) viewModel.onImagePicked(uri) }
     // PR #32 — About dialog: tapping the brand logo surfaces app name + the
     // build currently on the device (version name + commit-count build number).
     var showAbout by remember { mutableStateOf(false) }
@@ -317,7 +331,7 @@ fun ChatScreen(
                 }
                 items(ui.messages) { message ->
                     when (message) {
-                        is UiMessage.User -> UserBubble(message.text)
+                        is UiMessage.User -> UserBubble(message.text, message.thumbnail)
                         is UiMessage.Assistant -> AssistantBubble(
                             text = message.text,
                             citations = message.citations,
@@ -397,6 +411,24 @@ fun ChatScreen(
             // leading/trailing whitespace; internal newlines are preserved
             // and Gemma handles them natively (chat templating already
             // expects multiline user turns).
+            // PR #48 — staged-image chip: thumbnail + remove button, shown
+            // above the input while a photo is attached to the next send.
+            ui.pendingImageThumbnail?.let { thumb ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        bitmap = thumb,
+                        contentDescription = "Attached image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    IconButton(onClick = { viewModel.clearPickedImage() }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove image")
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -408,12 +440,25 @@ fun ChatScreen(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // PR #48 — attach a photo from the gallery.
+                IconButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    enabled = !ui.isGenerating && !thermal.isBlocking,
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = "Attach image")
+                }
                 Button(
                     onClick = {
                         viewModel.send(input)
                         input = ""
                     },
-                    enabled = !ui.isGenerating && !thermal.isBlocking && input.isNotBlank(),
+                    // Allow an image-only send (no text) when a photo is staged.
+                    enabled = !ui.isGenerating && !thermal.isBlocking &&
+                        (input.isNotBlank() || ui.pendingImageThumbnail != null),
                 ) {
                     Text("Send")
                 }
@@ -527,7 +572,7 @@ private fun ClockIconButton(
 }
 
 @Composable
-private fun UserBubble(text: String) {
+private fun UserBubble(text: String, thumbnail: ImageBitmap? = null) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
@@ -538,11 +583,27 @@ private fun UserBubble(text: String) {
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            // SelectionContainer enables long-press text selection; the
-            // platform shows its standard floating toolbar (Copy / Select
-            // all / Share) — no custom menu needed.
-            SelectionContainer {
-                Text(text, style = MaterialTheme.typography.bodyMedium)
+            Column {
+                // PR #48 — attached photo (live session only; not persisted).
+                thumbnail?.let { thumb ->
+                    Image(
+                        bitmap = thumb,
+                        contentDescription = "Attached image",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .widthIn(max = 240.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    if (text.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                }
+                // SelectionContainer enables long-press text selection; the
+                // platform shows its standard floating toolbar (Copy / Select
+                // all / Share) — no custom menu needed.
+                if (text.isNotEmpty()) {
+                    SelectionContainer {
+                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
             }
         }
     }

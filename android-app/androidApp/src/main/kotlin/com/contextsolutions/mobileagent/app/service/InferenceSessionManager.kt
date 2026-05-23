@@ -100,7 +100,13 @@ class InferenceSessionManager @Inject constructor(
      */
     suspend fun acquire(
         modelPath: String,
-        config: InferenceConfig = InferenceConfig(),
+        // PR #48 — the production Gemma load enables vision so an attached photo
+        // triggers a vision prefill. Vision is gated at engine init and the model
+        // is keyed on modelPath (config of the first loader wins), so this is the
+        // single place that determines whether the chat engine can see images.
+        // The M0 spike harness uses its own Engine, not this manager, so it is
+        // unaffected. Validate peak RSS on-device (8 GB Pixel 7) per PR #48.
+        config: InferenceConfig = InferenceConfig(enableVision = true),
     ): ModelHandle = mutex.withLock {
         ensureLoadedLocked(modelPath, config)
     }
@@ -115,7 +121,13 @@ class InferenceSessionManager @Inject constructor(
     fun generate(
         modelPath: String,
         request: GenerationRequest,
-        config: InferenceConfig = InferenceConfig(),
+        // PR #48 — the production Gemma load enables vision so an attached photo
+        // triggers a vision prefill. Vision is gated at engine init and the model
+        // is keyed on modelPath (config of the first loader wins), so this is the
+        // single place that determines whether the chat engine can see images.
+        // The M0 spike harness uses its own Engine, not this manager, so it is
+        // unaffected. Validate peak RSS on-device (8 GB Pixel 7) per PR #48.
+        config: InferenceConfig = InferenceConfig(enableVision = true),
         toolDispatcher: com.contextsolutions.mobileagent.inference.ToolDispatcher? = null,
     ): Flow<GenerationEvent> = flow {
         // The Job of the collecting coroutine. This flow block has no `flowOn`,

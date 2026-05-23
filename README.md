@@ -48,9 +48,9 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 - **Devices:** Google Pixel 7 (Phase 1)
 - **OS:** Android 16 (API 36)
 - **Language stack:** Kotlin 2.3.21, Jetpack Compose, Kotlin Multiplatform (Android-only actuals in Phase 1)
-- **Inference runtime:** LiteRT-LM 0.10.2 (Gemma) + `com.google.ai.edge.litert:litert:2.1.4` (classifier + embedder)
+- **Inference runtime:** LiteRT-LM 0.12.0 (Gemma, incl. vision) + `com.google.ai.edge.litert:litert:2.1.5` (classifier + embedder)
 - **Models:**
-  - Gemma 4 E2B (`litert-community/gemma-4-E2B-it-litert-lm`, ~2.58 GB, downloaded on first run)
+  - Gemma 4 E2B (`litert-community/gemma-4-E2B-it-litert-lm`, ~2.58 GB, downloaded on first run) — text **and** image input
   - Pre-flight + memory classifier: shared DistilBERT-base encoder + 3 task heads (INT8, 67.7 MB, bundled)
   - Sentence embedder: all-MiniLM-L6-v2 (INT8, 23.5 MB, bundled)
 
@@ -69,7 +69,7 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 | M6 Polish, eval, telemetry | ✅ Complete 2026-05-11. Schema v1→v2→v3 with `verifyMigrations` build gate; eager Gemma warm-up via `LifecycleResumeEffect` (first-token 1–3 s on cold-open-then-send); opt-in (default OFF) Firebase Analytics pipeline — 4 themed daily events, memory-exclusion canary test; Firebase Crashlytics behind `SafeCrashReporter` + `ContentRedactor`; 3-screen first-run onboarding; `ThermalBanner` at MODERATE/SEVERE + full block at CRITICAL; accessibility audit; 2 hosted-CI workflows (`regression-gate.yml`, `prompt-eval-gate.yml`). **318 unit tests.** See `docs/M6_PLAN.md` + `docs/M6_M7_HANDOFF.md`. |
 | M7 Closed beta → public launch | Not started. See `docs/M7_PLAN.md`. |
 
-Post-M6 increments tracked as M2.1–M2.7 in [PHASE1_PLAN.md](PHASE1_PLAN.md) §5: news.results enhancements, persisted multi-conversation history, on-device TODO list, proactive memory-pressure handling, icon-only header with system-RAM status indicator, and an explicit `remember`/`forget` short-circuit in the agent loop. **636 unit tests as of M2.7.**
+Post-M6 increments tracked as M2.1–M2.24 in [PHASE1_PLAN.md](PHASE1_PLAN.md) §5: news.results enhancements, persisted multi-conversation history, on-device TODO list, proactive memory-pressure handling, icon-only header with system-RAM status indicator, an explicit `remember`/`forget` short-circuit, per-vertical search routing (News/Weather/Sports/Finance), and most recently **single-image photo input (vision, M2.24)** — see "Asking about a photo" below.
 
 ## Building
 
@@ -184,6 +184,39 @@ hardcoded in the URL (the fetcher sends no custom headers). The DWML example
 hardcodes coordinates so it doesn't need a saved location. To isolate one parser
 per turn, configure only that one kind under News (the composite runs only the
 side(s) with matching sources).
+
+## Asking about a photo
+
+The assistant can look at a photo and answer questions about it, running Gemma's
+vision tower entirely on-device (0.0.2-beta+).
+
+1. In the chat, tap the **image icon** to the left of **Send**.
+2. Pick a photo from the Android Photo Picker (no storage permission needed).
+3. The selected image appears as a thumbnail chip above the input — tap the **✗**
+   to remove it before sending.
+4. Optionally type a question ("what breed is this dog?", "read the sign in this
+   photo"). You can also send an image with no text.
+5. Tap **Send**. The photo renders in your chat bubble and the model answers.
+
+Notes:
+
+- **One image per turn.** The photo is downscaled to ~768 px and JPEG-encoded
+  before it reaches the model (Gemma's vision input size).
+- **Image turns skip web search.** A photo question is answered from the image
+  itself — the pre-flight classifier and search verticals are bypassed for that
+  turn.
+- **Images are ephemeral.** The photo is sent to the model and shown in the live
+  bubble, but it is **not** persisted: it isn't written to the conversation
+  database and won't reappear if you reload the chat (only the text is kept).
+- **All on-device.** The image never leaves the phone — it is not uploaded
+  anywhere (Brave Search is not involved in an image turn).
+
+> Diagnostics: `adb logcat -s AgentLoop:I LiteRtInferenceEngine:I` shows
+> `[turn] image attached — skipping preflight/search` and
+> `current user turn carries image: <N> bytes` on an image turn. The native
+> `litert: No dispatch library found / Failed to initialize Dispatch API` lines
+> are harmless — LiteRT-LM probing for an optional NPU vendor delegate that the
+> Pixel 7 doesn't have; it falls back to the GPU vision path.
 
 ## Privacy
 

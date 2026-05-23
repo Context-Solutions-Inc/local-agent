@@ -1062,6 +1062,36 @@ able to exercise all five `SourceKind` parsers, plus two Settings UX fixes.
   `:androidApp:testDebugUnitTest` + `assembleDebug` green; merged after
   on-device validation on the Pixel 7.
 
+### M2.24 — Single-image photo input (vision) + LiteRT-LM 0.12.0 ✅ COMPLETE 2026-05-23
+
+PR #48 (branch `feature/pr48-image-input`). Adds on-device image understanding;
+version → **0.0.2-beta**. See CLAUDE.md invariants #39–#40.
+
+- **Feature:** attach one gallery photo (Android Photo Picker, no permission) →
+  the on-device Gemma vision tower answers about it. `imageBytes` (downscaled
+  JPEG) threaded through `AgentTurnInput` → `ChatMessage.User` → `HistoryMessage`;
+  only the trailing turn carries bytes. `AgentLoop`'s `hasImage` gate skips
+  preflight/search + the clock/todo/memory short-circuits and keeps warm sampling.
+  `LiteRtInferenceEngine` enables vision at init (`visionBackend=GPU`,
+  `maxNumImages=1`) and sends `Contents.of(ImageBytes, Text)` on the current turn.
+  **Ephemeral:** image is shown in the live bubble + sent to the model but never
+  persisted (DB stays text-only). UI: attach button + thumbnail chip + in-bubble
+  render; `ImagePreprocessor` decodes/downscales to ~768 px via `ImageDecoder`
+  (no Coil).
+- **Runtime bump (required for vision):** LiteRT-LM 0.10.2 → **0.12.0** — 0.10.2's
+  vision loader rejected Gemma's multi-resolution encoder (*"Vision Encoder model
+  must have exactly one signature but got 3"*). `ai-edge-litert` 2.1.4 → **2.1.5**:
+  0.11.0+ ships `libLiteRt.so` + `libLiteRtClGlAccelerator.so` standalone, which
+  collide with the classifier runtime's same-named libs; only litert 2.1.5's
+  copies serve both (classifier JNI symbols + a core `liblitertlm_jni.so` 0.12.0
+  tolerates — 2.1.4 SIGSEGV'd in GPU init). `packaging.jniLibs.pickFirst` resolves
+  the duplicate. **`litertlm` + `aiEdgeLitert` versions are now coupled** (#40).
+- **Tests:** `AgentLoopImageTest` (preflight bypass, image-on-trailing-turn,
+  warm sampling, clock-short-circuit bypass, ephemeral history, stub echo, config
+  defaults). `:androidApp:testDebugUnitTest` green. On-device (Pixel 7):
+  `FireSearch p=0.418 subtype=NEWS` (classifier sane) + correct image description,
+  no crash.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

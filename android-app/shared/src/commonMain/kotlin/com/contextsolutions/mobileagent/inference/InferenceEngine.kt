@@ -85,6 +85,15 @@ data class InferenceConfig(
     val temperature: Float = 0.7f,
     val topK: Int = 40,
     val topP: Float = 0.95f,
+    /**
+     * Enables Gemma's vision tower at engine init (PR #48). Vision is gated at
+     * LiteRT-LM's `EngineConfig` level (`visionBackend` + `maxNumImages`) — it
+     * cannot be turned on per-request once the engine is loaded. The chat load
+     * path sets this true so an attached photo triggers a vision prefill; the
+     * spike harness and unit tests leave it false to avoid paying the
+     * vision-init memory/latency cost when no image is ever sent.
+     */
+    val enableVision: Boolean = false,
 )
 
 /**
@@ -172,6 +181,19 @@ data class HistoryMessage(
     val text: String,
     val toolName: String? = null,
     val toolCalls: List<HistoryToolCall> = emptyList(),
+    /**
+     * Optional image attached to a [HistoryRole.USER] turn (PR #48). Holds a
+     * downscaled JPEG. Only the *current* (trailing) turn ever carries bytes —
+     * image input is ephemeral (PR #48 scope), so prior turns stay null and the
+     * image never round-trips through persisted history. The engine wraps these
+     * bytes as a `Content.ImageBytes` on the current message.
+     *
+     * Note: a [ByteArray] member makes this data class's generated
+     * `equals`/`hashCode`/`copy` use array identity, not content. Nothing relies
+     * on structural equality of [HistoryMessage] today; if that changes, compare
+     * this field explicitly.
+     */
+    val imageBytes: ByteArray? = null,
 )
 
 /** Structured tool call carried in an assistant [HistoryMessage]. */

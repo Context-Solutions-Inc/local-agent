@@ -49,7 +49,11 @@ firebase-crashlytics-plugin = "3.0.2"
 # On-device inference (LiteRT-LM, Android JNI)
 # Pinned per PHASE1_PLAN §7 risk mitigation: API surface still evolving (PRD §8.1).
 # Bump deliberately and re-run the M0 spike before changing.
-litertlm = "0.10.2"
+# PR #48: bumped 0.10.2 → 0.12.0 to load Gemma's multi-signature (3-resolution)
+# vision encoder — 0.10.2's vision loader rejects it ("must have exactly one
+# signature but got 3"). Re-validate text generation, tool calling, and the
+# cancellation primitive (CLAUDE.md invariant #29) on-device after this bump.
+litertlm = "0.12.0"
 
 # Play Services-delivered TFLite runtime + GPU delegate. LiteRT-LM 0.10.2's
 # Backend.GPU() resolves OpenCL through this; without it the GPU backend fails
@@ -66,7 +70,13 @@ playServicesTflite = "16.4.0"
 # + vendor plugins) and is what ai-edge-quantizer's export tooling targets.
 # The Android version 2.1.4 matches Python's 2.1.2 family. LiteRT-LM keeps
 # using its own runtime via Play Services for the Gemma 4 path.
-aiEdgeLitert = "2.1.4"
+# PR #48: bumped 2.1.4 → 2.1.5 to align libLiteRt.so / libLiteRtClGlAccelerator.so
+# with LiteRT-LM 0.12.0 (which now ships those natives standalone). With both on
+# 2.1.5-era libs the duplicate .so files reconcile cleanly; a version skew made
+# pickFirst package a libLiteRtClGlAccelerator.so that liblitertlm_jni.so 0.12.0
+# crashed against (SIGSEGV in GPU init). Re-validate the classifier numerics
+# (invariant #18) on-device after this bump.
+aiEdgeLitert = "2.1.5"
 
 # Test
 junit = "4.13.2"

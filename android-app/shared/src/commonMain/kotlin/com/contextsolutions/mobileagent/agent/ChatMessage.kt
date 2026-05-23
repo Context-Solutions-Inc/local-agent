@@ -17,7 +17,18 @@ sealed interface ChatMessage {
     val text: String
 
     data class System(override val text: String) : ChatMessage
-    data class User(override val text: String) : ChatMessage
+
+    /**
+     * A user turn. [imageBytes] (PR #48) is a downscaled JPEG attached to *this*
+     * turn only; it is ephemeral — sent to the model and shown in the live
+     * bubble but never persisted, so it is always null on history loaded back
+     * from the DB. A [ByteArray] member makes the generated equality
+     * array-identity based; nothing depends on structural equality of User.
+     */
+    data class User(
+        override val text: String,
+        val imageBytes: ByteArray? = null,
+    ) : ChatMessage
 
     /**
      * Assistant turn produced by the model. Carries any leading text the model

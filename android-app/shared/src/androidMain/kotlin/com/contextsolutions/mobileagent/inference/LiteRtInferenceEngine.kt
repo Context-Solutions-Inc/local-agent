@@ -133,9 +133,24 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
     }
 
     private fun newEngine(modelPath: String, config: InferenceConfig, accelerator: Accelerator): Engine {
+        // PR #48 — vision is gated at engine init. Route the vision tower to GPU
+        // per the official LiteRT-LM Gemma sample (visionBackend = Backend.GPU);
+        // maxNumImages = 1 matches the single-image PR #48 scope. Left null/0
+        // when disabled so non-vision loads (spike harness, tests) pay no extra
+        // init cost. NOTE (on-device finding): LiteRT-LM 0.10.2's vision loader
+        // rejects this model's encoder with "Vision Encoder model must have
+        // exactly one signature but got 3" — the encoder exposes 3 image
+        // resolutions and 0.10.2 wants one. Testing whether GPU vision dodges it;
+        // the real fix is likely a runtime bump (0.12.0).
+        val visionBackend = if (config.enableVision) Backend.GPU() else null
+        if (config.enableVision) {
+            android.util.Log.i(TAG, "vision enabled: visionBackend=GPU maxNumImages=1 (textBackend=$accelerator)")
+        }
         val engineConfig = EngineConfig(
             modelPath = modelPath,
             backend = backendFor(accelerator),
+            visionBackend = visionBackend,
+            maxNumImages = if (config.enableVision) 1 else null,
             // PRD §4.2 sizes the KV cache for 8K-token contexts; LiteRT-LM exposes
             // this as a model-level cap on prefill + decode tokens.
             maxNumTokens = config.kvCacheTokens,
@@ -339,7 +354,18 @@ class LiteRtInferenceEngine(private val context: Context) : InferenceEngine {
      * generic Message conversion.
      */
     private fun HistoryMessage.toCurrentMessage(): Any = when (role) {
-        HistoryRole.USER -> text
+        // PR #48 — a photo on the current user turn is sent as a multi-part
+        // Contents (image + text) via Message.user(Contents); the dispatch in
+        // `generate` already routes a Message through sendMessageAsync(Message).
+        // Image presence requires the engine to have been loaded with
+        // InferenceConfig.enableVision (visionBackend set); otherwise LiteRT-LM
+        // silently ignores the image bytes.
+        HistoryRole.USER -> if (imageBytes != null) {
+            android.util.Log.i(TAG, "current user turn carries image: ${imageBytes.size} bytes")
+            Message.user(Contents.of(Content.ImageBytes(imageBytes), Content.Text(text)))
+        } else {
+            text
+        }
         else -> toLiteRtMessage()
     }
 
