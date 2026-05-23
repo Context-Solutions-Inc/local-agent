@@ -205,9 +205,12 @@ Notes:
 - **Image turns skip web search.** A photo question is answered from the image
   itself — the pre-flight classifier and search verticals are bypassed for that
   turn.
-- **Images are ephemeral.** The photo is sent to the model and shown in the live
-  bubble, but it is **not** persisted: it isn't written to the conversation
-  database and won't reappear if you reload the chat (only the text is kept).
+- **Photos persist in the thread.** The image is saved with the conversation, so
+  it reappears in your chat bubble when you resume that conversation from history.
+- **The model only sees the current photo.** Earlier images are kept for display
+  only — they are **not** re-sent to the model on later turns (that would waste
+  context and memory). Each turn, the model sees at most the photo you just
+  attached.
 - **All on-device.** The image never leaves the phone — it is not uploaded
   anywhere (Brave Search is not involved in an image turn).
 

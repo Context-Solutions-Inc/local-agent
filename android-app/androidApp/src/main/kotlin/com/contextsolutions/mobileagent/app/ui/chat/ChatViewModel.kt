@@ -268,7 +268,10 @@ class ChatViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 conversationRepository.appendMessage(
                     conversationId = convId,
-                    message = ChatMessage.User(trimmed),
+                    // PR #49 — persist the attached photo (downscaled JPEG) so it
+                    // re-renders in the bubble on resume. Display-only: the model
+                    // still only sees the current turn's image (invariant #39).
+                    message = ChatMessage.User(trimmed, imageBytes = imageBytes),
                     nowEpochMs = now,
                 )
 
@@ -461,7 +464,9 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun ChatMessage.toUiMessage(): UiMessage? = when (this) {
-        is ChatMessage.User -> UiMessage.User(text)
+        // PR #49 — carry the persisted JPEG so a resumed conversation re-renders
+        // the photo. UserBubble decodes it lazily (decode-on-demand).
+        is ChatMessage.User -> UiMessage.User(text, imageBytes = imageBytes)
         is ChatMessage.Assistant -> {
             // Skip intermediate tool-call turns. The fresh-conversation path
             // surfaces only the FINAL Assistant on Done (the one with the
@@ -754,11 +759,17 @@ data class ChatUiState(
 
 sealed interface UiMessage {
     /**
-     * A user turn. [thumbnail] (PR #48) is the attached photo rendered in the
-     * bubble for the live session only — it is not persisted, so a reloaded
-     * conversation shows the text without the image (ephemeral, by design).
+     * A user turn with an optional attached photo. [thumbnail] (PR #48) is the
+     * already-decoded bitmap set on a live send. [imageBytes] (PR #49) is the
+     * persisted JPEG carried back on a reloaded conversation; [UserBubble]
+     * decodes it on demand so a long thread doesn't hold every bitmap at once.
+     * At most one is set: live sends use [thumbnail], reloads use [imageBytes].
      */
-    data class User(val text: String, val thumbnail: ImageBitmap? = null) : UiMessage
+    data class User(
+        val text: String,
+        val thumbnail: ImageBitmap? = null,
+        val imageBytes: ByteArray? = null,
+    ) : UiMessage
     data class Assistant(
         val text: String,
         val citations: List<SearchSource>,

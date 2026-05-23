@@ -48,11 +48,11 @@ class MemoriesMigrationTest {
         // SQLDelight derives Schema.version from the highest .sqm filename + 1.
         // M6 Phase A added 1.sqm (memories.access_count), Phase C added 2.sqm
         // (telemetry tables), PR#13 added 3.sqm (conversations.truncation_
-        // acknowledged_at), PR#15 added 4.sqm (todos table) — current
-        // version must be 5. If this fails after a new schema change,
-        // either the SQLDelight build didn't regenerate the schema or the
-        // new .sqm is misnamed.
-        assertEquals(5L, MobileAgentDatabase.Schema.version)
+        // acknowledged_at), PR#15 added 4.sqm (todos table), PR#49 added 5.sqm
+        // (messages.image_bytes) — current version must be 6. If this fails
+        // after a new schema change, either the SQLDelight build didn't
+        // regenerate the schema or the new .sqm is misnamed.
+        assertEquals(6L, MobileAgentDatabase.Schema.version)
     }
 
     @Test

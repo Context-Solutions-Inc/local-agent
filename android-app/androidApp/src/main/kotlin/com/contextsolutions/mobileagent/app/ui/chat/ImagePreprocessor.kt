@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.app.ui.chat
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
@@ -66,4 +67,15 @@ object ImagePreprocessor {
             null
         }
     }
+
+    /**
+     * Decode a persisted JPEG (already downscaled to [TARGET_LONGEST_EDGE_PX] by
+     * [prepare]) back into an [ImageBitmap] for the bubble on conversation
+     * resume (PR #49). `BitmapFactory` is enough here — the bytes are our own
+     * re-encoded, EXIF-normalised JPEG, so there's no orientation to reapply.
+     * Returns null on any decode failure (the bubble then shows text only).
+     */
+    fun decodeThumbnail(bytes: ByteArray): ImageBitmap? =
+        runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+            .getOrNull()
 }

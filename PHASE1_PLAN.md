@@ -1092,6 +1092,31 @@ version → **0.0.2-beta**. See CLAUDE.md invariants #39–#40.
   `FireSearch p=0.418 subtype=NEWS` (classifier sane) + correct image description,
   no crash.
 
+### M2.25 — Persist attached photos for display ✅ COMPLETE 2026-05-23
+
+PR #49 (branch `pr49-persist-conversation-images`). Reverses M2.24's full
+ephemerality for DISPLAY only; version → **0.0.3-beta**. See CLAUDE.md invariant #39.
+
+- **Feature:** an attached photo now persists with the conversation, so resuming
+  from history re-renders it in the bubble (previously only text survived a reload).
+- **Storage:** inline `messages.image_bytes` BLOB (migration `5.sqm`, v5→v6) — the
+  repo lives in `commonMain` with no filesystem access, so a BLOB maps 1:1 to
+  `ChatMessage.User.imageBytes` and FK `ON DELETE CASCADE` makes cleanup free (no
+  orphan-file logic; 8K-token truncation bounds images-per-conversation). Chosen
+  over a file + `image_path` column for exactly these reasons.
+- **Model behavior unchanged (invariant #39):** `PromptAssembler.assembleStructured`
+  strips `imageBytes` from every non-trailing turn, so a loaded image-bearing turn
+  is never re-fed to the LLM; the engine's history path stays text-only. Only the
+  current turn's image reaches the model.
+- **Reload display:** `ChatViewModel.send` persists the bytes; `toUiMessage` carries
+  them on `UiMessage.User.imageBytes`; `UserBubble` decodes on demand via
+  `produceState` (off-main), bounded by LazyColumn windowing so a long thread
+  doesn't hold every bitmap. Live sends keep the already-decoded `thumbnail`.
+- **Tests:** `5.sqm` migration (`ConversationsMigrationTest`), repo BLOB round-trip
+  (`ConversationRepositoryTest`), PromptAssembler trailing-turn scoping
+  (`PromptAssemblerTest`). `:androidApp:testDebugUnitTest` + `assembleDebug` green;
+  on-device validation pending (attach → send → kill+reopen → resume → photo present).
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

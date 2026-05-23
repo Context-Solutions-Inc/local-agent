@@ -1,0 +1,13 @@
+-- Migration v5 -> v6 (PR #49, persist attached photo for display).
+--
+-- Adds a nullable BLOB holding the downscaled JPEG attached to a user turn
+-- (PR #48 vision input). It exists so the photo re-renders in the chat bubble
+-- when a conversation is resumed from history; the MODEL still only ever sees
+-- the CURRENT turn's image (invariant #39) — this column is display-only and
+-- is never re-fed to the LLM.
+--
+-- Appended at the END of the messages table per CLAUDE.md invariant #20 so
+-- verifyMigrations doesn't flag column-order drift between Schema.create()
+-- (fresh installs at v6) and Schema.migrate() (upgrades from v5 to v6).
+
+ALTER TABLE messages ADD COLUMN image_bytes BLOB;

@@ -9,6 +9,7 @@ import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -150,6 +151,23 @@ class ConversationRepositoryTest {
         assertEquals("web_search", tool.toolName)
         assertEquals("sunny", tool.text)
         assertEquals(ChatMessage.Assistant(text = "It's sunny today."), loaded[3])
+    }
+
+    @Test
+    fun loadMessages_round_trips_user_image_bytes() = runTest {
+        // PR #49 — an attached photo (BLOB) persists and re-loads on a user turn.
+        repo.create("c1", "title", 100L)
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0x10, 0x20, 0x30)
+        repo.appendMessage("c1", ChatMessage.User("look at this", imageBytes = jpeg), 101L)
+        repo.appendMessage("c1", ChatMessage.User("text only"), 102L)
+
+        val loaded = repo.loadMessages("c1")
+        val withImage = loaded[0] as ChatMessage.User
+        assertEquals("look at this", withImage.text)
+        assertNotNull("image bytes should round-trip", withImage.imageBytes)
+        assertArrayEquals(jpeg, withImage.imageBytes)
+        // A text-only user turn keeps null bytes (no empty BLOB written).
+        assertNull((loaded[1] as ChatMessage.User).imageBytes)
     }
 
     @Test

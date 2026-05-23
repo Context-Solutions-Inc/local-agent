@@ -89,7 +89,7 @@ class SqlDelightConversationRepository(
     override suspend fun loadMessages(conversationId: String): List<ChatMessage> =
         withContext(ioDispatcher) {
             queries.selectMessagesByConversation(conversationId).executeAsList()
-                .map { row -> rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json) }
+                .map { row -> rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json, row.image_bytes) }
         }
 
     override suspend fun appendMessage(
@@ -107,16 +107,17 @@ class SqlDelightConversationRepository(
                 .maxOfOrNull { it.sequence_index }
                 ?.plus(1L)
                 ?: 0L
-            val (role, content, toolCallJson, toolResultJson) = chatMessageToColumns(message)
+            val cols = chatMessageToColumns(message)
             queries.insertMessage(
                 id = newMessageId(),
                 conversation_id = conversationId,
-                role = role,
-                content = content,
-                tool_call_json = toolCallJson,
-                tool_result_json = toolResultJson,
+                role = cols.role,
+                content = cols.content,
+                tool_call_json = cols.toolCallJson,
+                tool_result_json = cols.toolResultJson,
                 created_at_epoch_ms = nowEpochMs,
                 sequence_index = nextSeq,
+                image_bytes = cols.imageBytes,
             )
             queries.touchUpdatedAt(nowEpochMs = nowEpochMs, id = conversationId)
             nextSeq
@@ -177,7 +178,7 @@ class SqlDelightConversationRepository(
     private fun newMessageId(): String = "msg-${Uuid.random()}"
 
     private fun chatMessageToColumns(message: ChatMessage): MessageColumns = when (message) {
-        is ChatMessage.User -> MessageColumns(ROLE_USER, message.text, null, null)
+        is ChatMessage.User -> MessageColumns(ROLE_USER, message.text, null, null, message.imageBytes)
         is ChatMessage.System -> MessageColumns(ROLE_SYSTEM, message.text, null, null)
         is ChatMessage.Assistant -> {
             val callJson = message.toolCall?.let {
@@ -215,8 +216,12 @@ class SqlDelightConversationRepository(
         content: String,
         toolCallJson: String?,
         toolResultJson: String?,
+        imageBytes: ByteArray?,
     ): ChatMessage = when (role) {
-        ROLE_USER -> ChatMessage.User(content)
+        // PR #49 — image_bytes (if present) re-renders the photo in the bubble
+        // on resume. It is display-only: PromptAssembler scopes it to the
+        // trailing turn and the engine's history path is text-only (invariant #39).
+        ROLE_USER -> ChatMessage.User(content, imageBytes = imageBytes)
         ROLE_SYSTEM -> ChatMessage.System(content)
         ROLE_ASSISTANT -> {
             val call = toolCallJson?.let { raw ->
@@ -288,6 +293,9 @@ class SqlDelightConversationRepository(
         val content: String,
         val toolCallJson: String?,
         val toolResultJson: String?,
+        // PR #49 — downscaled JPEG attached to a user turn, persisted for
+        // display on resume. null on every non-user row.
+        val imageBytes: ByteArray? = null,
     )
 
     companion object {

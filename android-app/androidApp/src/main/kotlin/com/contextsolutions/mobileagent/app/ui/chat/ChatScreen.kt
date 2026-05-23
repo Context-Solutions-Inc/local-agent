@@ -68,9 +68,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -331,7 +334,7 @@ fun ChatScreen(
                 }
                 items(ui.messages) { message ->
                     when (message) {
-                        is UiMessage.User -> UserBubble(message.text, message.thumbnail)
+                        is UiMessage.User -> UserBubble(message.text, message.thumbnail, message.imageBytes)
                         is UiMessage.Assistant -> AssistantBubble(
                             text = message.text,
                             citations = message.citations,
@@ -572,7 +575,17 @@ private fun ClockIconButton(
 }
 
 @Composable
-private fun UserBubble(text: String, thumbnail: ImageBitmap? = null) {
+private fun UserBubble(text: String, thumbnail: ImageBitmap? = null, imageBytes: ByteArray? = null) {
+    // PR #48 set a decoded [thumbnail] on a live send. PR #49 persists the
+    // photo, so a resumed conversation arrives with JPEG [imageBytes] instead —
+    // decoded on demand here (off the main thread). LazyColumn disposes
+    // off-screen items, so the decoded bitmap is released when the bubble
+    // scrolls away; only currently-visible photos hold a bitmap at once.
+    val decoded: ImageBitmap? = thumbnail ?: imageBytes?.let { bytes ->
+        produceState<ImageBitmap?>(initialValue = null, bytes) {
+            value = withContext(Dispatchers.Default) { ImagePreprocessor.decodeThumbnail(bytes) }
+        }.value
+    }
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
@@ -584,8 +597,9 @@ private fun UserBubble(text: String, thumbnail: ImageBitmap? = null) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Column {
-                // PR #48 — attached photo (live session only; not persisted).
-                thumbnail?.let { thumb ->
+                // Attached photo: live thumbnail (PR #48) or the persisted JPEG
+                // decoded on resume (PR #49).
+                decoded?.let { thumb ->
                     Image(
                         bitmap = thumb,
                         contentDescription = "Attached image",

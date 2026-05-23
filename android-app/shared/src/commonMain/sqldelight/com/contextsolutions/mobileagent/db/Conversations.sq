@@ -22,7 +22,8 @@ CREATE TABLE messages (
     tool_call_json TEXT,                      -- function call payload when role='assistant' emits one
     tool_result_json TEXT,                    -- when role='tool'
     created_at_epoch_ms INTEGER NOT NULL,
-    sequence_index INTEGER NOT NULL           -- monotonically increasing within conversation
+    sequence_index INTEGER NOT NULL,          -- monotonically increasing within conversation
+    image_bytes BLOB                          -- 5.sqm (PR #49): downscaled JPEG, display-only; never re-fed to the model
 );
 
 CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);
@@ -56,8 +57,8 @@ acknowledgeTruncation:
 UPDATE conversations SET truncation_acknowledged_at = :nowEpochMs WHERE id = :id;
 
 insertMessage:
-INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessagesByConversation:
 SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_index ASC;

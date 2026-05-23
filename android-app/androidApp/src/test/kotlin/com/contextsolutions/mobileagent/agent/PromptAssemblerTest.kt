@@ -2,8 +2,10 @@ package com.contextsolutions.mobileagent.agent
 
 import com.contextsolutions.mobileagent.inference.HistoryRole
 import kotlinx.datetime.LocalDateTime
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,6 +45,32 @@ class PromptAssemblerTest {
         val block = assembler(ctx).temporalContextBlock(ctx)
         assertTrue("Date: 2026-01-03 (Saturday)" in block)
         assertTrue("Time: 04:05 EDT" in block)
+    }
+
+    @Test
+    fun `image bytes ride only on the trailing user turn`() {
+        // PR #49 — images persist in history for DISPLAY, so a loaded prior
+        // user turn can carry imageBytes. The model must only ever see the
+        // CURRENT turn's image (invariant #39): assembleStructured strips bytes
+        // from every non-trailing turn.
+        val priorImg = byteArrayOf(1, 2, 3)
+        val currentImg = byteArrayOf(9, 8, 7)
+        val history = listOf(
+            ChatMessage.User("first photo", imageBytes = priorImg),
+            ChatMessage.Assistant("that's a cat"),
+            ChatMessage.User("and this one?", imageBytes = currentImg),
+        )
+
+        val out = assembler().assembleStructured(history)
+
+        val userTurns = out.history.filter { it.role == HistoryRole.USER }
+        assertEquals(2, userTurns.size)
+        assertNull("prior user turn must NOT carry image bytes", userTurns[0].imageBytes)
+        assertArrayEquals(
+            "trailing user turn keeps its image bytes",
+            currentImg,
+            userTurns[1].imageBytes,
+        )
     }
 
     @Test

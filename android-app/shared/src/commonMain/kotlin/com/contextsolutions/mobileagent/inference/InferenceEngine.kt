@@ -183,10 +183,13 @@ data class HistoryMessage(
     val toolCalls: List<HistoryToolCall> = emptyList(),
     /**
      * Optional image attached to a [HistoryRole.USER] turn (PR #48). Holds a
-     * downscaled JPEG. Only the *current* (trailing) turn ever carries bytes —
-     * image input is ephemeral (PR #48 scope), so prior turns stay null and the
-     * image never round-trips through persisted history. The engine wraps these
-     * bytes as a `Content.ImageBytes` on the current message.
+     * downscaled JPEG. Only the *current* (trailing) turn ever carries bytes to
+     * the engine: [PromptAssembler] strips imageBytes from every non-trailing
+     * turn (PR #49 persists the photo for DISPLAY, so a loaded prior turn could
+     * otherwise arrive with bytes), and the engine's history path
+     * (`toLiteRtMessage`) is text-only — only `toCurrentMessage` wraps bytes as
+     * a `Content.ImageBytes`. So the model never re-sees a historical image
+     * (invariant #39).
      *
      * Note: a [ByteArray] member makes this data class's generated
      * `equals`/`hashCode`/`copy` use array identity, not content. Nothing relies

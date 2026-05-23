@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.db
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -83,6 +84,105 @@ class ConversationsMigrationTest {
         // The new column exists and is NULL for pre-existing rows.
         val ack = selectTruncationAckForId(driver, "c1")
         assertNull(ack)
+    }
+
+    @Test
+    fun migrate_five_to_six_adds_image_bytes_column_with_null_default() {
+        // PR #49 — 5.sqm adds messages.image_bytes BLOB (persisted photo).
+        createV5Schema(driver)
+        insertV5Message(driver, id = "m1", convId = "c1", content = "hello")
+
+        val result = MobileAgentDatabase.Schema.migrate(driver, oldVersion = 5, newVersion = 6)
+        assertEquals(QueryResult.Unit, result)
+
+        val bytes = selectImageBytesForMessage(driver, "m1")
+        assertNull("image_bytes should default to NULL on existing rows", bytes)
+    }
+
+    @Test
+    fun migrated_messages_table_accepts_image_bytes_writes() {
+        createV5Schema(driver)
+        MobileAgentDatabase.Schema.migrate(driver, oldVersion = 5, newVersion = 6)
+
+        val jpeg = byteArrayOf(1, 2, 3, 4, 5)
+        driver.execute(
+            identifier = null,
+            sql = "INSERT INTO messages(id, conversation_id, role, content, created_at_epoch_ms, sequence_index, image_bytes) " +
+                "VALUES ('m2', 'c1', 'user', 'look', 1700000000000, 0, ?);",
+            parameters = 1,
+        ) {
+            bindBytes(0, jpeg)
+        }
+
+        val bytes = selectImageBytesForMessage(driver, "m2")
+        assertNotNull("image_bytes must round-trip after migration", bytes)
+        assertArrayEquals(jpeg, bytes)
+    }
+
+    // -- v5 fixture (post-4.sqm, pre-5.sqm) ---------------------------------
+    // Only `messages` + its parent `conversations` are needed for 5.sqm's ALTER.
+
+    private fun createV5Schema(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            """
+                CREATE TABLE conversations (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at_epoch_ms INTEGER NOT NULL,
+                    updated_at_epoch_ms INTEGER NOT NULL,
+                    truncation_acknowledged_at INTEGER
+                );
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+                CREATE TABLE messages (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    tool_call_json TEXT,
+                    tool_result_json TEXT,
+                    created_at_epoch_ms INTEGER NOT NULL,
+                    sequence_index INTEGER NOT NULL
+                );
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(null, "CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);", 0)
+        driver.execute(
+            null,
+            "INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms) " +
+                "VALUES ('c1', 'photo chat', 1700000000000, 1700000000000);",
+            0,
+        )
+    }
+
+    private fun insertV5Message(driver: JdbcSqliteDriver, id: String, convId: String, content: String) {
+        driver.execute(
+            null,
+            "INSERT INTO messages(id, conversation_id, role, content, created_at_epoch_ms, sequence_index) " +
+                "VALUES ('$id', '$convId', 'user', '$content', 1700000000000, 0);",
+            0,
+        )
+    }
+
+    private fun selectImageBytesForMessage(driver: JdbcSqliteDriver, id: String): ByteArray? {
+        return driver.executeQuery(
+            identifier = null,
+            sql = "SELECT image_bytes FROM messages WHERE id = '$id';",
+            parameters = 0,
+            mapper = { cursor ->
+                if (cursor.next().value) {
+                    QueryResult.Value(cursor.getBytes(0))
+                } else {
+                    QueryResult.Value(null)
+                }
+            },
+        ).value
     }
 
     // -- v3 fixture (post-2.sqm, pre-3.sqm) ---------------------------------

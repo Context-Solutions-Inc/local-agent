@@ -81,7 +81,17 @@ class PromptAssembler(
             responseLanguage = responseLanguage,
         )
 
-        val fullHistory = history.flatMap(::toHistoryMessages)
+        val mapped = history.flatMap(::toHistoryMessages)
+        // PR #49 — images now persist in history for DISPLAY, so a loaded prior
+        // USER turn can carry imageBytes. The model must only ever see the
+        // CURRENT turn's image (invariant #39), and carrying historical JPEGs
+        // would bloat the request, so strip imageBytes from every turn except
+        // the trailing one (always the current user message — AgentLoop appends
+        // it last). This is the load-bearing guarantee that loaded history
+        // images are never re-fed to the LLM.
+        val fullHistory = mapped.mapIndexed { i, m ->
+            if (i != mapped.lastIndex && m.imageBytes != null) m.copy(imageBytes = null) else m
+        }
         // On a search-grounded turn, scope to just the current user turn so
         // prior turns' numbers can't bleed into the RAG answer (see KDoc).
         val scopedHistory = if (searchContext.isNullOrBlank()) {
@@ -196,8 +206,9 @@ class PromptAssembler(
      */
     private fun toHistoryMessages(message: ChatMessage): List<HistoryMessage> = when (message) {
         is ChatMessage.System -> listOf(HistoryMessage(HistoryRole.SYSTEM, message.text))
-        // PR #48 — carry any attached photo onto the USER history message. Only
-        // the current (trailing) turn ever has bytes; prior turns are null.
+        // PR #48 — carry any attached photo onto the USER history message.
+        // Prior turns' bytes are stripped by [assembleStructured] (PR #49) so
+        // only the trailing (current) turn reaches the engine with an image.
         is ChatMessage.User -> listOf(
             HistoryMessage(HistoryRole.USER, message.text, imageBytes = message.imageBytes),
         )
