@@ -38,15 +38,31 @@ object VerticalSearchDispatcherFactory {
         val rssParser = RssParser()
         val readability = HtmlReadabilityExtractor()
         val adapters: Map<SearchSubtype, VerticalSearchAdapter> = mapOf(
-            // NEWS uses its own LLM-context service ([newsSearchService],
-            // maxUrls = 10) and surfaces up to 10 citation chips (PR #42 follow-up).
-            // maxDomains stays at the default (3) so the multi-site OR filter
-            // covers the shipped US defaults (apnews.com + reuters.com) plus any
-            // source the user adds.
-            SearchSubtype.NEWS to BraveSiteFilterAdapter(
-                searchService = newsSearchService,
-                subtype = SearchSubtype.NEWS,
-                maxCitations = 10,
+            // NEWS routes per-source-kind through a composite (PR #47): the
+            // FeedAdapter handles RSS/DWML/HTML/JSON sources, the
+            // BraveSiteFilterAdapter handles BRAVE_SITE_FILTER sources, and
+            // NewsKindRoutingAdapter merges. This lets NEWS exercise all five
+            // SourceKind parsers — pre-#47 it was Brave-only and silently
+            // dropped the other four kinds (see invariant #31). The Brave side
+            // keeps its own LLM-context service ([newsSearchService], maxUrls =
+            // 10) and up to 10 citation chips (PR #42); maxDomains stays at the
+            // default (3) so the multi-site OR filter covers the shipped US
+            // defaults (apnews.com + reuters.com) plus any source the user adds.
+            SearchSubtype.NEWS to NewsKindRoutingAdapter(
+                feedAdapter = FeedAdapter(
+                    subtype = SearchSubtype.NEWS,
+                    httpClient = client,
+                    rssParser = rssParser,
+                    readability = readability,
+                    logger = logger,
+                ),
+                braveAdapter = BraveSiteFilterAdapter(
+                    searchService = newsSearchService,
+                    subtype = SearchSubtype.NEWS,
+                    maxCitations = 10,
+                    logger = logger,
+                ),
+                maxMergedCitations = 10,
                 logger = logger,
             ),
             SearchSubtype.WEATHER to FeedAdapter(

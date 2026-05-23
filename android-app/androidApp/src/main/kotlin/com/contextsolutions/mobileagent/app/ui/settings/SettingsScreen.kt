@@ -332,13 +332,15 @@ fun SettingsScreen(
 
             SectionHeader("HuggingFace token")
             val hfTokensUrl = "https://huggingface.co/settings/tokens"
+            val hfModelCardUrl = "https://huggingface.co/google/gemma-4-E2B-it"
             Text(
                 buildAnnotatedString {
-                    append("The google/gemma-4-E2B-it model weights live in a gated HuggingFace ")
-                    append("repository. Provide a read-scoped access token from ")
+                    append("The AI model weights are located in a HuggingFace ")
+                    append("repository. Create a read-scoped access token from ")
                     withLink(LinkAnnotation.Url(hfTokensUrl, linkStyles)) { append(hfTokensUrl) }
-                    append(" and accept the google/gemma-4-E2B-it license on the model card ")
-                    append("before downloading.")
+                    append(" and accept the ")
+                    withLink(LinkAnnotation.Url(hfModelCardUrl, linkStyles)) { append(hfModelCardUrl) }
+                    append(" license on the model card before downloading.")
                 },
                 style = MaterialTheme.typography.bodySmall,
             )

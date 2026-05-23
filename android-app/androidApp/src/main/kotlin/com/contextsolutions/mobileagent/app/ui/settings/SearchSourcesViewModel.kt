@@ -72,6 +72,43 @@ class SearchSourcesViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Replace the source identified by [originalDomain] in-place (preserving
+     * its position in the list). The domain itself may change; if the new
+     * domain collides with a *different* existing entry, that older duplicate
+     * is dropped so the just-edited entry wins.
+     */
+    fun editSite(
+        subtype: SearchSubtype,
+        originalDomain: String,
+        domain: String,
+        displayName: String,
+        kind: SourceKind,
+        endpointTemplate: String,
+    ) {
+        val cleaned = domain.trim()
+        if (cleaned.isEmpty()) return
+        viewModelScope.launch {
+            val current = repository.snapshot().sitesFor(subtype)
+            val index = current.indexOfFirst { it.domain.equals(originalDomain, ignoreCase = true) }
+            if (index < 0) return@launch
+            val newSite = SiteConfig(
+                domain = cleaned,
+                displayName = displayName.ifBlank { cleaned },
+                kind = kind,
+                endpointTemplate = endpointTemplate.ifBlank {
+                    if (kind == SourceKind.BRAVE_SITE_FILTER) cleaned else "https://$cleaned"
+                },
+            )
+            val updated = current.toMutableList().apply { this[index] = newSite }
+            // Drop any OTHER entry the rename now duplicates (keep the edited one).
+            val deduped = updated.filterIndexed { i, site ->
+                i == index || !site.domain.equals(cleaned, ignoreCase = true)
+            }
+            repository.setSites(subtype, deduped)
+        }
+    }
+
     data class State(
         val prefs: VerticalPreferences = VerticalPreferences(),
         val location: UserLocation? = null,

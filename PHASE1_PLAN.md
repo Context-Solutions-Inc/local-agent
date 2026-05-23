@@ -1024,6 +1024,44 @@ user action.
   `MemoryViewModelTest.onImport_over_cap_shows_dialog_without_error_event`.
   `:androidApp:testDebugUnitTest` + `assembleDebug` green.
 
+### M2.23 — News multi-kind sources + editable sources + URL-keyboard fix ✅ COMPLETE 2026-05-23
+
+PR #47 (branch `feature/news-multi-kind-sources`). Makes the **News** vertical
+able to exercise all five `SourceKind` parsers, plus two Settings UX fixes.
+
+- **`NewsKindRoutingAdapter`** (`:shared`): News no longer maps to a single
+  adapter. The composite fans the News site list out by kind — `RSS`/`DWML`/
+  `HTML`/`JSON` → `FeedAdapter(subtype = NEWS)`, `BRAVE_SITE_FILTER` →
+  `BraveSiteFilterAdapter` — and merges. Pre-#47 News was Brave-only and
+  silently dropped the other four kinds (the Add-source dialog let you pick
+  them, but nothing consumed them). **Anti-pollution rule:** the Brave side
+  runs only when ≥1 `BRAVE_SITE_FILTER` source exists, because
+  `BraveSiteFilterAdapter` with zero domains issues an *unfiltered* full-web
+  search and returns Success. One side present → its outcome passes through
+  untouched (default News is Brave-only, so the common path is unchanged);
+  both → chips concatenated/deduped-by-url/capped at 10 and the two
+  `payload.json` blocks wrapped in a parseable envelope
+  `{"subtype":"news","query":…,"feeds":…,"web":…}`. One-site wiring change in
+  `VerticalSearchDispatcherFactory.create` (no DI change). See CLAUDE.md
+  invariants #31 (NEWS exception) + #37.
+- **Editable search sources (`SearchSourcesScreen`/`ViewModel`):** each source
+  row gains an Edit (pencil) action alongside Remove; Add and Edit share one
+  `SiteDialog` (driven by `SiteDialogRequest`). `editSite` replaces the entry
+  in place (preserves list order), supports domain renames, and drops an older
+  duplicate on a rename collision.
+- **IME auto-capitalization fix:** the Domain/Endpoint fields use
+  `KeyboardType.Uri` + `KeyboardCapitalization.None`, so the keyboard no longer
+  upper-cases the letter typed after a `.`/`:` (it was default
+  sentence-capitalization on a plain text field, not an Android-global setting).
+- **Docs:** README gains a "Configuring search sources" section with the
+  five-kind example table (NewsAPI `/v2/everything` for JSON, NPR RSS, NWS DWML,
+  AP HTML, BBC Brave-site-filter). Bundles the HF-token blurb wording polish.
+- **Tests:** `NewsKindRoutingAdapterTest` (routing/anti-pollution/merge/dedupe/
+  error cases — 7) and `SearchSourcesViewModelTest` (in-place edit,
+  blank-endpoint defaulting, rename-collision dedupe, missing-domain no-op — 4).
+  `:androidApp:testDebugUnitTest` + `assembleDebug` green; merged after
+  on-device validation on the Pixel 7.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

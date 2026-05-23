@@ -132,6 +132,59 @@ adb shell "run-as com.contextsolutions.mobileagent.debug \
 
 See `docs/SPIKE_RUNBOOK.md` for instructions on running the M0 inference benchmark on a Pixel 7.
 
+## Configuring search sources
+
+**Settings → Search sources** lets you control which sites each search vertical
+(General, News, Weather, Sports, Finance) draws from. Each row shows a source's
+display name, domain, and kind; tap the **pencil** to edit it in place or the
+**✗** to remove it. **Add source** opens the same dialog for a new entry.
+
+A source has four fields:
+
+| Field | Notes |
+|---|---|
+| **Domain** | Bare host, e.g. `cbc.ca`. Used as the citation-chip label and (for `BRAVE_SITE_FILTER`) the `site:` filter. |
+| **Display name** | Optional human label; defaults to the domain. |
+| **Kind** | How the result is fetched + parsed (see below). |
+| **Endpoint URL or template** | Hidden for `BRAVE_SITE_FILTER`. Supports the placeholders `{query}`, `{country}`, `{region}`, `{city}` (and `{lat}`/`{lon}` for coordinate-driven weather feeds), substituted at query time. |
+
+### Source kinds
+
+- **`BRAVE_SITE_FILTER`** — reuses the Brave Search backend with a `site:<domain>`
+  filter (no endpoint needed). The default for General/News/Sports/Finance.
+- **`RSS`** — fetches an RSS 2.0 / Atom feed URL and parses `title`/`link`/`description`/`pubDate`.
+- **`DWML`** — fetches NWS Digital Weather Markup Language XML (US weather; coordinate-driven).
+- **`HTML`** — fetches a web page and extracts readable `<article>`/`<p>` text.
+- **`JSON`** — fetches a JSON endpoint; the raw body (truncated) is handed to the model.
+
+> **Routing note:** the **News** vertical runs a composite adapter (PR #47) that
+> routes each source to the parser for its kind — `BRAVE_SITE_FILTER` sources go
+> through Brave, and `RSS`/`DWML`/`HTML`/`JSON` sources are fetched + parsed
+> directly — so News can exercise **all five kinds at once**. Weather uses the
+> direct-fetch feed path; Sports/Finance/General run the Brave `site:` path. See
+> CLAUDE.md invariants #31–#37 for the full per-vertical wiring.
+
+### Example: testing each kind under News
+
+Add these under **Settings → Search sources → News → Add source** to exercise
+every parser (then ask a news query and watch logcat
+`-s VerticalSearch:I BraveApi:I` for the `[vertical:NEWS] GET <domain> kind=<KIND>`
+or `brave query=` line):
+
+| Kind | Domain | Endpoint URL or template |
+|---|---|---|
+| JSON | `newsapi.org` | `https://newsapi.org/v2/everything?q={query}&language=en&sortBy=publishedAt&apiKey=YOUR_NEWSAPI_KEY` |
+| RSS | `npr.org` | `https://feeds.npr.org/1001/rss.xml` |
+| DWML | `forecast.weather.gov` | `https://forecast.weather.gov/MapClick.php?lat=40.71&lon=-74.01&unit=0&lg=english&FcstType=dwml` |
+| HTML | `apnews.com` | `https://apnews.com/hub/world-news` |
+| BRAVE_SITE_FILTER | `bbc.com` | *(endpoint hidden — domain used as the `site:` filter)* |
+
+Notes: `{query}` is substituted into the JSON URL — the NewsAPI key must be
+hardcoded in the URL (the fetcher sends no custom headers). The DWML example
+hardcodes coordinates so it doesn't need a saved location. To isolate one parser
+per turn, configure only that one kind under News (the composite runs only the
+side(s) with matching sources).
+
 ## Privacy
 
 User conversations and memories never leave the device. Only Brave Search queries (and optional opt-in aggregate counters routed through Firebase Analytics, default OFF) generate outbound traffic. The telemetry pipeline reads only aggregate tables, has a memory-exclusion canary test, and routes Crashlytics non-fatals through a `SafeCrashReporter` facade with `ContentRedactor` scrubbing. See [PRD.md](PRD.md) §4.4, [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md), and [docs/DATA_SAFETY_NOTES.md](docs/DATA_SAFETY_NOTES.md).
