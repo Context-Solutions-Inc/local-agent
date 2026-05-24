@@ -478,6 +478,7 @@ class ChatViewModel @Inject constructor(
                 text = text,
                 citations = citations,
                 fromCache = false,
+                renderMarkdown = renderMarkdown,
             )
         }
         is ChatMessage.Tool -> null // tool turns aren't shown in the UI bubble list
@@ -504,6 +505,7 @@ class ChatViewModel @Inject constructor(
                             text = event.message.text,
                             citations = event.message.citations,
                             fromCache = cacheHit,
+                            renderMarkdown = event.message.renderMarkdown,
                         ),
                         partialText = "",
                         searchStatus = SearchStatus.None,
@@ -774,6 +776,8 @@ sealed interface UiMessage {
         val text: String,
         val citations: List<SearchSource>,
         val fromCache: Boolean = false,
+        // PR #50 — true: render markdown + LaTeX; false: plain (weather/finance cards).
+        val renderMarkdown: Boolean = true,
     ) : UiMessage
 
     /**

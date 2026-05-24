@@ -450,6 +450,8 @@ class AgentLoop(
                         val finalMsg = ChatMessage.Assistant(
                             text = rendered,
                             citations = outcome.payload.sources,
+                            // Deterministic card — render plain, not markdown (PR #50).
+                            renderMarkdown = false,
                         )
                         send(AgentEvent.TokenChunk(rendered))
                         send(
@@ -484,6 +486,8 @@ class AgentLoop(
                         val finalMsg = ChatMessage.Assistant(
                             text = rendered,
                             citations = outcome.payload.sources,
+                            // Deterministic card — render plain, not markdown (PR #50).
+                            renderMarkdown = false,
                         )
                         send(AgentEvent.TokenChunk(rendered))
                         send(
@@ -748,9 +752,17 @@ class AgentLoop(
             finalText.append(descaffolded)
         }
 
+        // Markdown/LaTeX rendering is reserved for answers the model composes
+        // freely (math, prose). Search-grounded turns — the preflight
+        // [SEARCH CONTEXT] path (GENERAL/NEWS/SPORTS, FINANCE snippet fallback)
+        // or a web_search tool round-trip — render plain: their value is the
+        // verbatim figures/citations, and markdown reflow mangles them (news
+        // line breaks collapse, finance `$` is read as a math delimiter).
+        val searchGrounded = searchContextBlock != null || citationsForTurn.isNotEmpty()
         val finalMessage = ChatMessage.Assistant(
             text = finalText.toString(),
             citations = citationsForTurn.toList(),
+            renderMarkdown = !searchGrounded,
         )
         turnAppendix.add(finalMessage)
         logger(
@@ -1069,7 +1081,8 @@ class AgentLoop(
         )
 
         val rendered = ClockResponseFormatter.format(toolName, result)
-        val finalMessage = ChatMessage.Assistant(text = rendered)
+        // Deterministic handler output — render plain, not markdown (PR #50).
+        val finalMessage = ChatMessage.Assistant(text = rendered, renderMarkdown = false)
 
         send(AgentEvent.TokenChunk(rendered))
         send(
@@ -1102,7 +1115,7 @@ class AgentLoop(
     private suspend fun ProducerScope<AgentEvent>.emitClockGuidance(userMessageText: String) {
         val message = CLOCK_GUIDANCE_TEXT
         val userMessage = ChatMessage.User(userMessageText)
-        val finalMessage = ChatMessage.Assistant(text = message)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
         send(
             AgentEvent.Done(
@@ -1122,7 +1135,7 @@ class AgentLoop(
     private suspend fun ProducerScope<AgentEvent>.emitWeatherLocationPrompt(userMessageText: String) {
         val message = WEATHER_LOCATION_PROMPT_TEXT
         val userMessage = ChatMessage.User(userMessageText)
-        val finalMessage = ChatMessage.Assistant(text = message)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
         send(
             AgentEvent.Done(
@@ -1193,7 +1206,8 @@ class AgentLoop(
         )
 
         val rendered = todoResponseFormatter.format(toolName, result)
-        val finalMessage = ChatMessage.Assistant(text = rendered)
+        // Deterministic handler output — render plain, not markdown (PR #50).
+        val finalMessage = ChatMessage.Assistant(text = rendered, renderMarkdown = false)
 
         send(AgentEvent.TokenChunk(rendered))
         send(
@@ -1233,7 +1247,7 @@ class AgentLoop(
             RememberForgetDetector.Command.None -> return
         }
         val userMessage = ChatMessage.User(userMessageText)
-        val finalMessage = ChatMessage.Assistant(text = message)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
         send(
             AgentEvent.Done(
@@ -1252,7 +1266,7 @@ class AgentLoop(
     private suspend fun ProducerScope<AgentEvent>.emitTodoGuidance(userMessageText: String) {
         val message = TODO_GUIDANCE_TEXT
         val userMessage = ChatMessage.User(userMessageText)
-        val finalMessage = ChatMessage.Assistant(text = message)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
         send(
             AgentEvent.Done(

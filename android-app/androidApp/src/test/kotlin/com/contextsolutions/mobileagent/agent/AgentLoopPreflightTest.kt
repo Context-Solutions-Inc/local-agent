@@ -125,6 +125,8 @@ class AgentLoopPreflightTest {
         assertEquals(1, done.message.citations.size)
         assertEquals("https://espn.com/x", done.message.citations.single().url)
         assertTrue(done.message.text.contains("Eagles won"))
+        // Search-grounded answers render plain — no markdown/LaTeX rewrite (PR #50).
+        assertFalse("search-grounded turn must not render markdown", done.message.renderMarkdown)
 
         // The [SEARCH CONTEXT] block + pre-flight notice ride on the current
         // user turn (recency), NOT the system instruction.
@@ -174,7 +176,7 @@ class AgentLoopPreflightTest {
             searchService = service,
             preflightLogits = floatArrayOf(1f, 1f, 1f), // uniform → middle band
         )
-        loop.run(
+        val events = loop.run(
             AgentTurnInput(userMessage = "explain photosynthesis", history = emptyList()),
         ).toList()
         // No pre-flight search, no notice block.
@@ -185,6 +187,9 @@ class AgentLoopPreflightTest {
         assertEquals(HistoryRole.USER, request.history.last().role)
         // Non-search turn keeps the engine's warm default sampling (no override).
         assertNull(request.sampling)
+        // Model-composed answer (no search) renders markdown/LaTeX (PR #50).
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertTrue("model-only turn should render markdown", done.message.renderMarkdown)
     }
 
     @Test

@@ -99,6 +99,39 @@ val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
 
+val appVersionName = "0.0.3-beta"
+
+// Short HEAD SHA with a `-dirty` suffix when the working tree has uncommitted
+// edits. versionCode (above) only changes when HEAD changes, so during dev a
+// working-tree rebuild keeps the SAME versionCode as the last commit — this
+// SHA/dirty marker is what actually distinguishes "the build I just made" from
+// the committed one. Surfaced in BuildConfig (on-device About dialog) and
+// printed at build time so a stale install is obvious. `--always` falls back to
+// the SHA when there are no tags; empty (no git) → "unknown".
+val gitDescribe: String =
+    providers.exec { commandLine("git", "describe", "--always", "--dirty", "--abbrev=7") }
+        .standardOutput.asText.get().trim().ifEmpty { "unknown" }
+
+// Echo the build identity after assembling/installing the debug app so it can be
+// compared at a glance against the app's About dialog (tap the brand logo). A
+// stale install shows a different versionCode/SHA on the phone than what printed.
+val buildIdentityBanner = """
+    |────────────────────────────────────────────────────────
+    |  Mobile Agent (debug) build
+    |    versionName : $appVersionName
+    |    versionCode : $gitCommitTimestamp   <- 'Build' in the About dialog
+    |    git         : $gitDescribe
+    |────────────────────────────────────────────────────────
+""".trimMargin()
+val printBuildIdentity = tasks.register("printBuildIdentity") {
+    // Capture a plain String local (not the script-level val) so the doLast
+    // action stays configuration-cache compatible.
+    val banner = buildIdentityBanner
+    doLast { println(banner) }
+}
+tasks.matching { it.name == "assembleDebug" || it.name == "installDebug" }
+    .configureEach { finalizedBy(printBuildIdentity) }
+
 android {
     namespace = "com.contextsolutions.mobileagent.app"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -108,7 +141,12 @@ android {
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = gitCommitTimestamp
-        versionName = "0.0.3-beta"
+        versionName = appVersionName
+
+        // Git SHA + dirty marker; shown in the About dialog so an on-device
+        // build can be matched to a working-tree build whose versionCode is
+        // unchanged. All variants get it.
+        buildConfigField("String", "GIT_DESCRIBE", "\"$gitDescribe\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -354,6 +392,11 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.navigation)
     debugImplementation(libs.compose.ui.tooling)
+
+    // Markdown + LaTeX rendering in the assistant bubble (PR #50)
+    implementation(libs.markwon.core)
+    implementation(libs.markwon.ext.latex)
+    implementation(libs.markwon.inline.parser)
 
     // Hilt
     implementation(libs.hilt.android)

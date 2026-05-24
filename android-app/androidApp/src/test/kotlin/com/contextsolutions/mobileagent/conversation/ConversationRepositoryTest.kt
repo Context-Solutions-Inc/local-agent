@@ -292,6 +292,23 @@ class ConversationRepositoryTest {
     }
 
     @Test
+    fun loadMessages_round_trips_render_markdown_flag() = runTest {
+        // PR #50 — a deterministic card (renderMarkdown=false) persists and
+        // reloads as plain; a normal LLM answer keeps the default true.
+        repo.create("c1", "title", 100L)
+        repo.appendMessage("c1", ChatMessage.Assistant(text = "**bold** answer"), 101L)
+        repo.appendMessage(
+            "c1",
+            ChatMessage.Assistant(text = "Weather card", renderMarkdown = false),
+            102L,
+        )
+
+        val loaded = repo.loadMessages("c1").filterIsInstance<ChatMessage.Assistant>()
+        assertTrue("LLM answer defaults to markdown", loaded[0].renderMarkdown)
+        assertFalse("card persists as plain", loaded[1].renderMarkdown)
+    }
+
+    @Test
     fun loadMessages_returns_empty_citations_for_pre_pr13_rows() = runTest {
         // Simulates a row written before citations persistence shipped:
         // tool_result_json is NULL on an assistant row, which used to be the

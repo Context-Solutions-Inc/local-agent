@@ -27,6 +27,11 @@ compose-bom = "2024.12.01"
 compose-compiler = "1.5.15"
 compose-navigation = "2.8.5"
 
+# Markdown + LaTeX rendering (PR #50). Markwon renders markdown into a TextView;
+# ext-latex pulls io.noties:jlatexmath-android (native canvas, offline — no WebView).
+# inline-parser is required for inline `$…$` math. All on Maven Central.
+markwon = "4.6.2"
+
 # DI
 hilt = "2.59.2"
 hilt-navigation-compose = "1.2.0"
@@ -141,6 +146,11 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 compose-navigation = { module = "androidx.navigation:navigation-compose", version.ref = "compose-navigation" }
+
+# Markwon (markdown + LaTeX in the chat bubble; PR #50)
+markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
+markwon-ext-latex = { module = "io.noties.markwon:ext-latex", version.ref = "markwon" }
+markwon-inline-parser = { module = "io.noties.markwon:inline-parser", version.ref = "markwon" }
 
 # DI
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }

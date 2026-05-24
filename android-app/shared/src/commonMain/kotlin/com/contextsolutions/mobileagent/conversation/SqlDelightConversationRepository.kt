@@ -89,7 +89,7 @@ class SqlDelightConversationRepository(
     override suspend fun loadMessages(conversationId: String): List<ChatMessage> =
         withContext(ioDispatcher) {
             queries.selectMessagesByConversation(conversationId).executeAsList()
-                .map { row -> rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json, row.image_bytes) }
+                .map { row -> rowToChatMessage(row.role, row.content, row.tool_call_json, row.tool_result_json, row.image_bytes, row.render_markdown) }
         }
 
     override suspend fun appendMessage(
@@ -118,6 +118,7 @@ class SqlDelightConversationRepository(
                 created_at_epoch_ms = nowEpochMs,
                 sequence_index = nextSeq,
                 image_bytes = cols.imageBytes,
+                render_markdown = if (cols.renderMarkdown) 1L else 0L,
             )
             queries.touchUpdatedAt(nowEpochMs = nowEpochMs, id = conversationId)
             nextSeq
@@ -195,7 +196,9 @@ class SqlDelightConversationRepository(
                     PersistedCitations(sources = list),
                 )
             }
-            MessageColumns(ROLE_ASSISTANT, message.text, callJson, citationsJson)
+            // renderMarkdown=false for deterministic weather/finance cards
+            // (invariant #32/#33) so they render plain on resume, not markdown.
+            MessageColumns(ROLE_ASSISTANT, message.text, callJson, citationsJson, renderMarkdown = message.renderMarkdown)
         }
         is ChatMessage.Tool -> {
             val resultJson = json.encodeToString(
@@ -217,6 +220,7 @@ class SqlDelightConversationRepository(
         toolCallJson: String?,
         toolResultJson: String?,
         imageBytes: ByteArray?,
+        renderMarkdown: Long,
     ): ChatMessage = when (role) {
         // PR #49 — image_bytes (if present) re-renders the photo in the bubble
         // on resume. It is display-only: PromptAssembler scopes it to the
@@ -237,7 +241,12 @@ class SqlDelightConversationRepository(
                     .getOrNull()
                     ?.sources
             }.orEmpty()
-            ChatMessage.Assistant(text = content, toolCall = call, citations = citations)
+            ChatMessage.Assistant(
+                text = content,
+                toolCall = call,
+                citations = citations,
+                renderMarkdown = renderMarkdown != 0L,
+            )
         }
         ROLE_TOOL -> {
             // tool_call_json holds the toolName; tool_result_json holds metadata.
@@ -296,6 +305,10 @@ class SqlDelightConversationRepository(
         // PR #49 — downscaled JPEG attached to a user turn, persisted for
         // display on resume. null on every non-user row.
         val imageBytes: ByteArray? = null,
+        // PR #50 — render the bubble as markdown+LaTeX (true) or plain text
+        // (false, for deterministic weather/finance cards). Only meaningful on
+        // assistant rows; harmless default on the rest.
+        val renderMarkdown: Boolean = true,
     )
 
     companion object {

@@ -1,0 +1,6 @@
+-- 6.sqm (PR #50): per-message render-mode flag.
+-- LLM assistant answers render as markdown + LaTeX math; deterministic
+-- weather/finance cards must render plain. 1 = render markdown (default),
+-- 0 = render plain text. Appended at the END of the table per the
+-- ALTER ... ADD COLUMN constraint (CLAUDE.md invariant #20).
+ALTER TABLE messages ADD COLUMN render_markdown INTEGER NOT NULL DEFAULT 1;

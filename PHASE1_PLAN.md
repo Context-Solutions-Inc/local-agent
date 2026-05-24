@@ -1117,6 +1117,40 @@ ephemerality for DISPLAY only; version → **0.0.3-beta**. See CLAUDE.md invaria
   (`PromptAssemblerTest`). `:androidApp:testDebugUnitTest` + `assembleDebug` green;
   on-device validation pending (attach → send → kill+reopen → resume → photo present).
 
+### M2.26 — Markdown + LaTeX rendering in assistant bubbles ⏳ PR OPEN (on-device validation pending)
+
+PR #50 (branch `feat/markdown-math-rendering`). See CLAUDE.md invariant #41.
+**Do NOT merge until on-device Pixel 7 validation** (per [[feedback_pr_merge]]).
+
+- **Feature:** finalized answers the MODEL composes render as markdown (bold/lists/
+  code) + LaTeX math (`$…$` inline, `$$…$$` block) via Markwon + ext-latex
+  (jlatexmath — native canvas, offline, no WebView), in an `AndroidView` TextView
+  (`MarkdownMathText`). The streaming partial stays plain `Text` (final-message-only;
+  per-token reparse would jank).
+- **`$$`-only gotcha:** ext-latex 4.6.2 matches `$$…$$` only, so `LatexNormalizer`
+  rewrites the model's `$…$` / `\(…\)` / `\[…\]` → `$$…$$` first, leaving prose
+  currency (`$5 and $10`) alone via a math-vs-currency heuristic.
+- **Search-grounded turns render PLAIN** (`renderMarkdown=false`): GENERAL/NEWS/SPORTS,
+  FINANCE snippet fallback, any `web_search` round-trip — markdown reflow mangles
+  verbatim figures/citations (news newlines collapse, finance `$`). Deterministic
+  clock/todo/weather/finance cards are plain too. Markdown is reserved for
+  model-composed answers (signal: `searchContextBlock != null || citations`).
+- **Persisted flag:** `ChatMessage.Assistant.renderMarkdown` → `messages.render_markdown`
+  (migration `6.sqm`, v6→v7) so cards/search answers stay plain on resume.
+- **Typography/color parity with the raw path:** TextView mirrors `bodyMedium`
+  (size, `lineHeight` 20sp, `letterSpacing` 0.25sp, `includeFontPadding=false`) and
+  uses `LocalContentColor` (onSurface), so markdown text + equations match the plain
+  bubble in both themes; same shared `AssistantBubble` (`surfaceVariant` Box).
+- **Build identity (dev-tooling):** `assemble/installDebug` print versionName /
+  versionCode / `git describe --dirty`; About dialog shows `Git` (BuildConfig.
+  GIT_DESCRIBE) to catch stale installs (versionCode = commit timestamp doesn't
+  bump on working-tree edits).
+- **Tests:** `LatexNormalizerTest`, `ConversationRepositoryTest` (renderMarkdown
+  round-trip), `AgentLoopPreflightTest` (search→plain, model→markdown),
+  `MemoriesMigrationTest` (schema v7). `:androidApp:testDebugUnitTest` +
+  `assembleDebug` green; on-device math (typed + image) + news/weather color &
+  line-spacing validation pending.
+
 ### M3 — Datasets & classifier training ✅ COMPLETE 2026-05-09 — see `docs/M3_PLAN.md`
 
 Detailed phase-by-phase plan, ratified decisions, and exit criteria live in

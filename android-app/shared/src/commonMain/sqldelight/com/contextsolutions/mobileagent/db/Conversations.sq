@@ -23,7 +23,8 @@ CREATE TABLE messages (
     tool_result_json TEXT,                    -- when role='tool'
     created_at_epoch_ms INTEGER NOT NULL,
     sequence_index INTEGER NOT NULL,          -- monotonically increasing within conversation
-    image_bytes BLOB                          -- 5.sqm (PR #49): downscaled JPEG, display-only; never re-fed to the model
+    image_bytes BLOB,                         -- 5.sqm (PR #49): downscaled JPEG, display-only; never re-fed to the model
+    render_markdown INTEGER NOT NULL DEFAULT 1 -- 6.sqm (PR #50): 1 = render markdown+LaTeX, 0 = plain (weather/finance cards)
 );
 
 CREATE INDEX messages_by_conversation ON messages(conversation_id, sequence_index);
@@ -57,8 +58,8 @@ acknowledgeTruncation:
 UPDATE conversations SET truncation_acknowledged_at = :nowEpochMs WHERE id = :id;
 
 insertMessage:
-INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes, render_markdown)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessagesByConversation:
 SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_index ASC;

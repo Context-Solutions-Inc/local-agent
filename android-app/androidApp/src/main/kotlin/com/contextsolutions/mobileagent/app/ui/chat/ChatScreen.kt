@@ -339,6 +339,7 @@ fun ChatScreen(
                             text = message.text,
                             citations = message.citations,
                             fromCache = message.fromCache,
+                            renderMarkdown = message.renderMarkdown,
                         )
                         is UiMessage.MemoryPrompt -> MemoryPromptCard(
                             text = message.text,
@@ -544,14 +545,20 @@ fun ChatScreen(
         // for the condition.
 
         // PR #32 — About dialog. Version name is the semantic release tag;
-        // build number is VERSION_CODE, wired to the git commit count in
-        // androidApp/build.gradle.kts so it bumps every build.
+        // build number is VERSION_CODE = HEAD's commit timestamp (see
+        // androidApp/build.gradle.kts). GIT_DESCRIBE (SHA + `-dirty`) added in
+        // PR #50 disambiguates working-tree dev builds whose versionCode hasn't
+        // bumped; the same identity prints at build time for easy comparison.
         if (showAbout) {
             AlertDialog(
                 onDismissRequest = { showAbout = false },
                 title = { Text("Mobile Agent") },
                 text = {
-                    Text("Version ${BuildConfig.VERSION_NAME}\nBuild ${BuildConfig.VERSION_CODE}")
+                    Text(
+                        "Version ${BuildConfig.VERSION_NAME}\n" +
+                            "Build ${BuildConfig.VERSION_CODE}\n" +
+                            "Git ${BuildConfig.GIT_DESCRIBE}",
+                    )
                 },
                 confirmButton = {
                     TextButton(onClick = { showAbout = false }) {
@@ -624,7 +631,12 @@ private fun UserBubble(text: String, thumbnail: ImageBitmap? = null, imageBytes:
 }
 
 @Composable
-private fun AssistantBubble(text: String, citations: List<SearchSource>, fromCache: Boolean) {
+private fun AssistantBubble(
+    text: String,
+    citations: List<SearchSource>,
+    fromCache: Boolean,
+    renderMarkdown: Boolean,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -635,8 +647,15 @@ private fun AssistantBubble(text: String, citations: List<SearchSource>, fromCac
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            SelectionContainer {
-                Text(text, style = MaterialTheme.typography.bodyMedium)
+            // LLM answers render as markdown + LaTeX math (PR #50); the
+            // deterministic weather/finance cards (renderMarkdown=false) keep
+            // the plain selectable Text so their layout/`$` aren't reparsed.
+            if (renderMarkdown) {
+                MarkdownMathText(text)
+            } else {
+                SelectionContainer {
+                    Text(text, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
         if (fromCache) {

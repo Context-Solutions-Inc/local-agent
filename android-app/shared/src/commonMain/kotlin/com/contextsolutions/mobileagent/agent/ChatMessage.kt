@@ -49,6 +49,13 @@ sealed interface ChatMessage {
          * subsequent assistant message that consumed the tool result).
          */
         val citations: List<SearchSource> = emptyList(),
+        /**
+         * Whether the UI should render this turn as markdown + LaTeX math
+         * (PR #50). True for normal LLM answers; false for the deterministic
+         * weather/finance cards (invariant #32/#33), whose hand-built layout
+         * (single-newline structure, literal `$` prices) must render plain.
+         */
+        val renderMarkdown: Boolean = true,
     ) : ChatMessage
 
     /** Tool result fed back into the model's context after a tool call. */
