@@ -1355,6 +1355,38 @@ GPU-re-export option.
 - Address Play Store review feedback (Data Safety, content rating, on-device LLM disclosure).
 - Public Play Store launch.
 
+#### Deferred — Multi-Token Prediction (MTP) speculative decoding
+
+**Status: DEFERRED, blocked on runtime support (assessed 2026-05-24).** Google
+shipped MTP drafters for the Gemma 4 family — a lightweight 4-layer assistant
+checkpoint (e.g. `gemma-4-E2B-it-assistant`) that proposes tokens the target
+verifies in one forward pass. Claimed **up to 3× decode speedup, no quality
+loss**, explicitly pitched for on-device/low-latency — directly on-mission, and
+would pair cleanly with our greedy search-grounded turns (CLAUDE.md inv. #36;
+greedy verification is the highest accept-rate case).
+
+Not actionable today:
+- **No LiteRT-LM API for it.** Every demo path is server-side — HuggingFace
+  Transformers/PyTorch (`generate(assistant_model=…)`) and vLLM. LiteRT-LM
+  0.12.0 exposes no drafter / speculative-decoding hook; we drive
+  `Conversation.sendMessageAsync` and have nothing to register a drafter
+  against. The speedup depends on the runtime sharing the embedding table + KV
+  cache between target and drafter — can't be bolted on from the app layer
+  behind `LiteRtInferenceEngine`.
+- **Checkpoint format gap.** The `-it-assistant` drafters are PyTorch/safetensors;
+  there is no `.litertlm` drafter artifact to bundle.
+- **Memory headroom.** E4B was already ruled out on the 8 GB Pixel 7 (LMKD
+  thrash); a second model loaded without runtime-level weight/KV sharing adds
+  pressure on a device that already fights GPU-saturation freezes (inv. #29) and
+  thermal throttling (inv. #4).
+
+**Trigger to revisit:** LiteRT-LM (or MediaPipe LLM Inference) shipping a
+speculative-decoding/drafter API **plus** a Gemma 4 assistant checkpoint in
+`.litertlm` format. Do not hand-roll a two-engine speculative loop on-device —
+brittle, memory-hostile, and wouldn't deliver the KV-sharing that makes MTP
+fast. Refs: <https://ai.google.dev/gemma/docs/mtp/overview>,
+<https://ai.google.dev/gemma/docs/mtp/mtp>.
+
 ---
 
 ## 6. Pixel 7 + Android 16 specifics
