@@ -103,11 +103,13 @@ The first invocation of `./gradlew` downloads Gradle 9.3.1 (~150 MB) into `~/.gr
 
 ### Docker dev container
 
-A `Dockerfile` + `docker-compose.yml` at the repo root provide a self-contained Linux dev environment with JDK 17, the Android SDK (platform 36, build-tools 36.0.0, platform-tools), Node 22, and the Claude Code CLI — all pinned to versions known to work together. Use it when you'd rather not install the Android SDK on the host, or when running Claude Code in headless / auto mode.
+A `Dockerfile` + `docker-compose.yml` at the repo root provide a self-contained Linux dev environment with JDK 17, the Android SDK (platform 36, build-tools 36.0.0, platform-tools), Node 22, the Claude Code CLI, the GitHub CLI (`gh`), and **Python 3.11 + the full `classifier-training` stack** — all pinned to versions known to work together. Use it when you'd rather not install the Android SDK or the Python ML stack on the host, or when running Claude Code in headless / auto mode.
 
-**What's NOT included:** adb-to-device passthrough (produce the APK in the container, then `adb install` from the host) and the Python `classifier-training` stack (that stays a host workflow — see the next section). iOS / Kotlin-Native compile fails on Linux (Phase-1 limitation, same as on a Linux host), so `./gradlew check` needs `-x :shared:compileKotlinIosX64 -x :shared:compileKotlinIosSimulatorArm64` to go green inside the container.
+The Python deps are baked into a venv at `/opt/venv` (on `PATH`), and the `classifier-training` package is installed **editable** against the bind-mounted source — so the `ct-*` CLIs run against your live working tree with every dependency already resolved.
 
-**One-time setup** (~10 min, downloads the SDK + cmdline-tools and bakes them into the image):
+**What's NOT included:** adb-to-device passthrough (produce the APK in the container, then `adb install` from the host). iOS / Kotlin-Native compile fails on Linux (Phase-1 limitation, same as on a Linux host), so `./gradlew check` needs `-x :shared:compileKotlinIosX64 -x :shared:compileKotlinIosSimulatorArm64` to go green inside the container.
+
+**One-time setup** (~15 min, downloads the SDK + cmdline-tools + the Python ML stack and bakes them into the image — note this makes the image large, ~34 GB, since the `[training]` extra pulls a CUDA-capable PyTorch):
 
 ```bash
 docker compose build
@@ -122,6 +124,16 @@ docker compose run --rm dev ./gradlew test                             # JVM uni
 docker compose run --rm dev ./gradlew test --rerun-tasks               # force a real rerun
 docker compose run --rm dev claude                                     # Claude Code (host login)
 docker compose run --rm dev claude --dangerously-skip-permissions      # Claude auto mode
+docker compose run --rm dev ct-stats                                   # classifier-training CLI (Python)
+docker compose run --rm dev python -m pytest classifier-training       # classifier-training tests
+docker compose run --rm dev gh pr list                                 # GitHub CLI (needs GH_TOKEN, below)
+```
+
+**GitHub CLI auth:** the host keeps its token in the system keyring (not in `~/.config/gh/hosts.yml`), so the mounted config alone can't authenticate. Export the token first and compose forwards it as `GH_TOKEN`:
+
+```bash
+export GH_TOKEN=$(gh auth token)
+docker compose run --rm dev gh auth status
 ```
 
 The APK lands on the host at `android-app/androidApp/build/outputs/apk/debug/androidApp-debug.apk` — bind-mounted, so it's instantly visible. From there:
@@ -136,6 +148,8 @@ adb install -r android-app/androidApp/build/outputs/apk/debug/androidApp-debug.a
 |---|---|---|
 | `./` (project root) | same path inside the container | Live source — Claude Code's per-project memory keys keep matching. |
 | `~/.claude` | `/home/dev/.claude` | Reuses your host OAuth login for the Claude Code CLI. |
+| `~/.gitconfig` (RO) | `/home/dev/.gitconfig` | Commits in the container use your host git identity (name/email/aliases). |
+| `~/.config/gh` (RO) | `/home/dev/.config/gh` | `gh` uses your host account / git-protocol config (the token itself rides in via `GH_TOKEN`). |
 | `~/.android/debug.keystore` | `/home/dev/.android/debug.keystore` | Shared debug-signing key so APKs built here and on the host install over each other on the same device (otherwise `INSTALL_FAILED_UPDATE_INCOMPATIBLE`). |
 | named volume `gradle-cache` | `/home/dev/.gradle` | Persists the Gradle wrapper + dependency cache across runs. |
 | named volume `android-user-cache` | `/home/dev/.android` | Persists SDK / build-cache state. |
@@ -148,6 +162,8 @@ The named volumes mean the first `assembleDebug` takes ~3 min (downloads Gradle 
 - The container runs as user `dev` with UID/GID `1000` (matches the typical Linux host). If your host UID differs, rebuild with `docker compose build --build-arg USER_UID=$(id -u) --build-arg USER_GID=$(id -g)` and `docker compose down -v` to drop the cache volumes so they re-init with the new owner.
 - If `android-app/local.properties` pins `sdk.dir=` to a host path, the container can't see it. The entrypoint prints a clear warning; the fix is to remove that line (Gradle falls back to `ANDROID_HOME` on both host and container).
 - `ANTHROPIC_API_KEY` is passed through if set on the host — Claude Code will use it as a fallback if the mounted `~/.claude` login isn't available.
+- `GH_TOKEN` is passed through if set on the host — without it `gh` is unauthenticated (see the GitHub CLI auth note above).
+- The bundled PyTorch is the CUDA build (transitively pinned to 2.9.x by `ai-edge-torch`). It runs on CPU by default — compose requests no GPU — and is GPU-ready if you launch with `--gpus all`. `litert-torch` logs a benign `Skipping import of cpp extensions` (it wants torch ≥2.11 while `ai-edge-torch` holds 2.9.1); the pure-Python path the `ct-*` CLIs use is unaffected.
 
 ### Classifier training pipeline
 

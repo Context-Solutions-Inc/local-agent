@@ -7,12 +7,26 @@
 #   docker compose run --rm dev ./gradlew test
 #   docker compose run --rm dev claude                # Claude Code (uses host OAuth)
 #   docker compose run --rm dev claude --dangerously-skip-permissions   # auto mode
+#   docker compose run --rm dev ct-stats              # classifier-training CLI (Python)
+#   docker compose run --rm dev gh pr list            # GitHub CLI (needs GH_TOKEN, below)
+#
+# GitHub CLI auth: the host stores its token in the system keyring (not in
+# ~/.config/gh/hosts.yml), so the mounted config alone can't authenticate. Export
+# the token before launching and compose forwards it as GH_TOKEN:
+#   export GH_TOKEN=$(gh auth token)
+#   docker compose run --rm dev gh auth status
 #
 # What's mounted:
 #   - Project dir mounts at the SAME path as on host (/home/lawrenceley/src/mobile-agent)
 #     so Claude Code per-project memory keys keep matching.
 #   - ~/.claude is mounted RW so the container reuses your host login session.
+#   - ~/.gitconfig is mounted RO so commits use your host git identity.
+#   - ~/.config/gh is mounted RO so gh uses your host account/protocol config.
 #   - Gradle and Android caches live in named volumes (faster, no perm churn).
+#
+# Python: 3.11 + the classifier-training stack are baked into a venv at /opt/venv
+# (on PATH), installed editable against the bind-mounted source — the ct-* CLIs run
+# against your live working tree.
 #
 # Memory: the host needs ~6 GB free for the build (gradle.properties pins -Xmx4g).
 
@@ -26,11 +40,14 @@ services:
         USER_GID: "1000"
     image: mobile-agent-dev:latest
     hostname: mobile-agent-dev
-    working_dir: /home/lawrenceley/src/mobile-agent/android-app
+    working_dir: /home/lawrenceley/src/mobile-agent
     environment:
       # Optional API key fallback for Claude Code if you'd rather use it instead
       # of the mounted OAuth session. Leave unset to use the host login.
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # GitHub CLI auth. The host keeps its token in the keyring, so export it
+      # first: `export GH_TOKEN=$(gh auth token)`. Unset = gh is unauthenticated.
+      GH_TOKEN: "${GH_TOKEN:-}"
       TERM: "${TERM:-xterm-256color}"
     volumes:
       # Project source — same path inside the container as on the host.
@@ -47,6 +64,22 @@ services:
       - type: bind
         source: ${HOME}/.android/debug.keystore
         target: /home/dev/.android/debug.keystore
+      # Host git identity (user.name/email, aliases) so commits made in the
+      # container are attributed correctly — no per-launch `git config`. Read-only
+      # so the container can't mutate your host gitconfig. Assumes the host has a
+      # ~/.gitconfig (like the keystore above); if not, Docker would create an
+      # empty dir at that path — `touch ~/.gitconfig` on the host first if needed.
+      - type: bind
+        source: ${HOME}/.gitconfig
+        target: /home/dev/.gitconfig
+        read_only: true
+      # Host gh config (account, git_protocol). Read-only — the actual token
+      # rides in via GH_TOKEN (see environment above), since the host keeps it
+      # in the keyring, not in this file.
+      - type: bind
+        source: ${HOME}/.config/gh
+        target: /home/dev/.config/gh
+        read_only: true
       # Persisted caches across container runs.
       - gradle-cache:/home/dev/.gradle
       - android-user-cache:/home/dev/.android
