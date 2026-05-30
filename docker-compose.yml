@@ -1,0 +1,61 @@
+# Mobile-agent dev container.
+#
+# Quickstart:
+#   docker compose build                              # first time, ~10 min
+#   docker compose run --rm dev                       # interactive shell
+#   docker compose run --rm dev ./gradlew :androidApp:assembleDebug
+#   docker compose run --rm dev ./gradlew test
+#   docker compose run --rm dev claude                # Claude Code (uses host OAuth)
+#   docker compose run --rm dev claude --dangerously-skip-permissions   # auto mode
+#
+# What's mounted:
+#   - Project dir mounts at the SAME path as on host (/home/lawrenceley/src/mobile-agent)
+#     so Claude Code per-project memory keys keep matching.
+#   - ~/.claude is mounted RW so the container reuses your host login session.
+#   - Gradle and Android caches live in named volumes (faster, no perm churn).
+#
+# Memory: the host needs ~6 GB free for the build (gradle.properties pins -Xmx4g).
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_UID: "1000"
+        USER_GID: "1000"
+    image: mobile-agent-dev:latest
+    hostname: mobile-agent-dev
+    working_dir: /home/lawrenceley/src/mobile-agent/android-app
+    environment:
+      # Optional API key fallback for Claude Code if you'd rather use it instead
+      # of the mounted OAuth session. Leave unset to use the host login.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      TERM: "${TERM:-xterm-256color}"
+    volumes:
+      # Project source — same path inside the container as on the host.
+      - type: bind
+        source: .
+        target: /home/lawrenceley/src/mobile-agent
+      # Claude Code state (OAuth tokens, settings, per-project memory).
+      - type: bind
+        source: ${HOME}/.claude
+        target: /home/dev/.claude
+      # Share the host debug keystore so APKs built here and on the host sign
+      # identically — otherwise re-installing across host/container hits
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE on the connected device.
+      - type: bind
+        source: ${HOME}/.android/debug.keystore
+        target: /home/dev/.android/debug.keystore
+      # Persisted caches across container runs.
+      - gradle-cache:/home/dev/.gradle
+      - android-user-cache:/home/dev/.android
+      - npm-cache:/home/dev/.npm
+    tty: true
+    stdin_open: true
+    # No restart policy — this is an on-demand dev shell, not a service.
+
+volumes:
+  gradle-cache:
+  android-user-cache:
+  npm-cache:

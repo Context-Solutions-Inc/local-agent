@@ -1,0 +1,32 @@
+# The Dockerfile doesn't COPY the project (it's bind-mounted at runtime), so
+# this only trims the build context sent to the daemon — kept small for speed.
+
+.git
+.idea
+.vscode
+**/.gradle
+**/build
+android-app/.gradle
+android-app/build
+android-app/**/build
+android-app/local.properties
+
+# Multi-GB assets that should never enter the build context.
+models
+datasets
+eval
+spike-results
+classifier-training/.venv
+classifier-training/**/__pycache__
+**/*.pyc
+.pytest_cache
+
+# Secrets — extra belt-and-suspenders even though we don't COPY them.
+android-app/secrets.properties
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs and OS cruft.
+*.log
+.DS_Store

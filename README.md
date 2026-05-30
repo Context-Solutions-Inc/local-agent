@@ -80,11 +80,11 @@ Post-M6 increments tracked as M2.1–M2.24 in [PHASE1_PLAN.md](PHASE1_PLAN.md) �
   - Android SDK Platform 36 (Android 16)
   - Android SDK Build-Tools 36.0.0+
   - Android SDK Platform-Tools (for `adb`)
-- **`local.properties`** in `android-app/` pointing Gradle at the SDK. Create it manually (it's gitignored):
+- **`local.properties`** in `android-app/` pointing Gradle at the SDK — *or* an `ANDROID_HOME` env var. With neither, Gradle has nothing to point at. Android Studio writes `local.properties` automatically the first time you open the project; otherwise create it manually (it's gitignored):
   ```properties
   sdk.dir=/home/<user>/Android/Sdk
   ```
-  (Android Studio writes this file automatically the first time you open the project.)
+  If you also use the Docker dev container below, prefer the `ANDROID_HOME` env-var route — a host-path `sdk.dir=` will be wrong inside the container. Either omit `sdk.dir` and let env take over on both sides, or simply don't add it.
 - **`secrets.properties`** in `android-app/` (NOT the repo root — see `android-app/secrets.properties.example`). Holds the optional dev-channel Brave key; production builds use BYOK and don't need it.
 - **Pixel 7** with USB or wireless debugging enabled if you want to install on device. Wireless adb pairing instructions are in [CLAUDE.md](CLAUDE.md) under "Build & run".
 
@@ -100,6 +100,54 @@ cd android-app
 ```
 
 The first invocation of `./gradlew` downloads Gradle 9.3.1 (~150 MB) into `~/.gradle/wrapper/dists/`. The toolchain is Gradle 9.3.1 + AGP 9.1.1 + Kotlin 2.3.21 + KSP 2.3.7 + Hilt 2.59.2.
+
+### Docker dev container
+
+A `Dockerfile` + `docker-compose.yml` at the repo root provide a self-contained Linux dev environment with JDK 17, the Android SDK (platform 36, build-tools 36.0.0, platform-tools), Node 22, and the Claude Code CLI — all pinned to versions known to work together. Use it when you'd rather not install the Android SDK on the host, or when running Claude Code in headless / auto mode.
+
+**What's NOT included:** adb-to-device passthrough (produce the APK in the container, then `adb install` from the host) and the Python `classifier-training` stack (that stays a host workflow — see the next section). iOS / Kotlin-Native compile fails on Linux (Phase-1 limitation, same as on a Linux host), so `./gradlew check` needs `-x :shared:compileKotlinIosX64 -x :shared:compileKotlinIosSimulatorArm64` to go green inside the container.
+
+**One-time setup** (~10 min, downloads the SDK + cmdline-tools and bakes them into the image):
+
+```bash
+docker compose build
+```
+
+**Common workflows** (each is a one-shot `run --rm`; the image is the same):
+
+```bash
+docker compose run --rm dev                                            # interactive shell
+docker compose run --rm dev ./gradlew :androidApp:assembleDebug        # build the debug APK
+docker compose run --rm dev ./gradlew test                             # JVM unit tests
+docker compose run --rm dev ./gradlew test --rerun-tasks               # force a real rerun
+docker compose run --rm dev claude                                     # Claude Code (host login)
+docker compose run --rm dev claude --dangerously-skip-permissions      # Claude auto mode
+```
+
+The APK lands on the host at `android-app/androidApp/build/outputs/apk/debug/androidApp-debug.apk` — bind-mounted, so it's instantly visible. From there:
+
+```bash
+adb install -r android-app/androidApp/build/outputs/apk/debug/androidApp-debug.apk
+```
+
+**What's mounted:**
+
+| Host | Container | Why |
+|---|---|---|
+| `./` (project root) | same path inside the container | Live source — Claude Code's per-project memory keys keep matching. |
+| `~/.claude` | `/home/dev/.claude` | Reuses your host OAuth login for the Claude Code CLI. |
+| `~/.android/debug.keystore` | `/home/dev/.android/debug.keystore` | Shared debug-signing key so APKs built here and on the host install over each other on the same device (otherwise `INSTALL_FAILED_UPDATE_INCOMPATIBLE`). |
+| named volume `gradle-cache` | `/home/dev/.gradle` | Persists the Gradle wrapper + dependency cache across runs. |
+| named volume `android-user-cache` | `/home/dev/.android` | Persists SDK / build-cache state. |
+| named volume `npm-cache` | `/home/dev/.npm` | Persists npm cache (Claude Code updates). |
+
+The named volumes mean the first `assembleDebug` takes ~3 min (downloads Gradle 9.3.1 + the full dep graph) but subsequent runs are fast — the config-cache + dep-cache are reused.
+
+**Caveats:**
+
+- The container runs as user `dev` with UID/GID `1000` (matches the typical Linux host). If your host UID differs, rebuild with `docker compose build --build-arg USER_UID=$(id -u) --build-arg USER_GID=$(id -g)` and `docker compose down -v` to drop the cache volumes so they re-init with the new owner.
+- If `android-app/local.properties` pins `sdk.dir=` to a host path, the container can't see it. The entrypoint prints a clear warning; the fix is to remove that line (Gradle falls back to `ANDROID_HOME` on both host and container).
+- `ANTHROPIC_API_KEY` is passed through if set on the host — Claude Code will use it as a fallback if the mounted `~/.claude` login isn't available.
 
 ### Classifier training pipeline
 
