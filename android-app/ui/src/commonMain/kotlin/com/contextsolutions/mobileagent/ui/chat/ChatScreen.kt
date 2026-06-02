@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -80,7 +82,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.inference.SessionState
@@ -490,12 +499,22 @@ fun ChatScreen(
             val thermal by viewModel.thermalStatus.collectAsState()
             ThermalBanner(thermal)
 
-            // Enter inserts a newline (multiline prompts). Only the Send
-            // button submits — KeyboardOptions intentionally omitted so the
-            // IME shows its default newline key. `ChatViewModel.send` trims
-            // leading/trailing whitespace; internal newlines are preserved
-            // and Gemma handles them natively (chat templating already
-            // expects multiline user turns).
+            // Enter submits; Shift+Enter inserts a newline (multiline prompts).
+            // Two mechanisms cover both platforms: `onPreviewKeyEvent` catches
+            // the physical Enter key (desktop + Android hardware keyboards),
+            // and `KeyboardOptions(imeAction = Send)` + `KeyboardActions` covers
+            // Android soft keyboards (which commit text via the IME rather than
+            // delivering key events). `ChatViewModel.send` trims leading/trailing
+            // whitespace; internal newlines (Shift+Enter) are preserved and Gemma
+            // handles them natively (chat templating expects multiline turns).
+            val canSend = !ui.isGenerating && !thermal.isBlocking &&
+                (input.isNotBlank() || ui.pendingImageBytes != null)
+            val submit = {
+                if (canSend) {
+                    viewModel.send(input)
+                    input = ""
+                }
+            }
             // PR #48 — staged-image chip: thumbnail + remove button, shown
             // above the input while a photo is attached to the next send.
             ui.pendingImageBytes?.let { bytes ->
@@ -522,11 +541,25 @@ fun ChatScreen(
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Enter || event.key == Key.NumPadEnter) &&
+                            !event.isShiftPressed
+                        ) {
+                            submit()
+                            true // consume — don't insert a newline
+                        } else {
+                            false // Shift+Enter (and everything else) falls through
+                        }
+                    },
                 placeholder = { Text("Ask anything…") },
                 enabled = !ui.isGenerating && !thermal.isBlocking,
                 minLines = 1,
                 maxLines = 6,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { submit() }),
             )
             Spacer(Modifier.height(8.dp))
             Row(
@@ -592,13 +625,9 @@ fun ChatScreen(
                 }
                 Spacer(Modifier.weight(1f))
                 Button(
-                    onClick = {
-                        viewModel.send(input)
-                        input = ""
-                    },
+                    onClick = submit,
                     // Allow an image-only send (no text) when a photo is staged.
-                    enabled = !ui.isGenerating && !thermal.isBlocking &&
-                        (input.isNotBlank() || ui.pendingImageBytes != null),
+                    enabled = canSend,
                 ) {
                     Text("Send")
                 }

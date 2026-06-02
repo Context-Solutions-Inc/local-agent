@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.ui.markdown
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -38,18 +39,25 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
         }
     }
 
-    Column(modifier) {
-        segments.forEachIndexed { index, (segment, bitmap) ->
-            key(index) {
-                when (segment) {
-                    is MdSegment.Markdown -> if (segment.text.isNotBlank()) Markdown(content = segment.text)
-                    is MdSegment.Math ->
-                        if (bitmap != null) {
-                            Image(bitmap = bitmap, contentDescription = null)
-                        } else {
-                            // Unparseable formula — show it verbatim as inline code.
-                            Markdown(content = "`${segment.latex}`")
-                        }
+    // mikepenz's `Markdown(...)` renders plain Compose `Text` that isn't
+    // selectable on its own; wrap the column so LLM answers can be selected +
+    // copied like the deterministic plain-text path (which uses its own
+    // SelectionContainer in AssistantBubble). Android's markdown path gets
+    // selection for free via its native TextView, so this is desktop-only.
+    SelectionContainer {
+        Column(modifier) {
+            segments.forEachIndexed { index, (segment, bitmap) ->
+                key(index) {
+                    when (segment) {
+                        is MdSegment.Markdown -> if (segment.text.isNotBlank()) Markdown(content = segment.text)
+                        is MdSegment.Math ->
+                            if (bitmap != null) {
+                                Image(bitmap = bitmap, contentDescription = null)
+                            } else {
+                                // Unparseable formula — show it verbatim as inline code.
+                                Markdown(content = "`${segment.latex}`")
+                            }
+                    }
                 }
             }
         }
