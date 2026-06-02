@@ -118,8 +118,11 @@ kotlin {
                 implementation(libs.ktor.client.cio)
                 // JDBC SQLite driver for the desktop SQLDelight driver (Phase 6).
                 implementation(libs.sqldelight.sqlite.driver)
-                // llama.cpp JNI — desktop Gemma runtime (GGUF, CUDA/Metal/Vulkan/CPU).
-                implementation(libs.llama.jni)
+                // Desktop LLM runtime is llama.cpp's `llama-server` subprocess over HTTP
+                // (PR #55 Option 3, LlamaServerInferenceEngine via ktor-client-cio above) —
+                // NOT a JNI binding. The net.ladenthin:llama JNI dep was removed: it drops
+                // images before the vision encoder and ships CPU-only natives. The server
+                // binary is downloaded/cached on first run (LlamaServerBinaryStore).
                 // ONNX Runtime (Java) — desktop classifier + embedder (Phase 5). The
                 // Android ai-edge-litert stack is Android-only (invariant #18), so the
                 // DistilBERT 3-head classifier + MiniLM embedder are re-exported to ONNX.

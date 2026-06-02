@@ -172,7 +172,7 @@ New `shared/src/desktopMain/.../inference/LlamaCppInferenceEngine.kt` implementi
 | Risk | Mitigation |
 |---|---|
 | **DI migration (Hilt→Koin)** touches everything | Hilt↔Koin coexistence bridge; migrate subsystem-by-subsystem with full Android tests between each |
-| **llama.cpp Gemma vision** uncertain | De-risk text-first in Phase 0; gate behind `enableVision`; ship text-only if needed |
+| **llama.cpp Gemma vision** uncertain | ~~ship text-only / fix the JNI binding~~ **RESOLVED (PR #55):** the `net.ladenthin:llama` JNI binding drops images before the vision encoder (broken multimodal in every version), so desktop inference moved to llama.cpp's reference **`llama-server` subprocess** over HTTP — correct vision + GPU. See `docs/DESKTOP_LLAMA_SERVER_PLAN.md`. |
 | **Native packaging + CUDA bundling** | CPU-default always works; GPU optional download; per-OS CI matrix |
 | **MarkdownMathText / pickers** CMP migration | expect/actual renderer; CMP markdown + JLaTeXMath-to-image; Android path verbatim |
 | **GGUF ≠ .litertlm** acquisition | separate desktop GGUF download spec; reuse portable `ModelDownloader` |
@@ -471,7 +471,19 @@ Desktop platform features + the seams Phase 6 deferred. Increment order (lowest-
 **Increment 9 — vision image pipeline (`ImagePreprocessor` + `FilePicker`):**
 - **Seam interfaces (`:shared` commonMain `vision/`):** `FilePicker.pickImage(): ByteArray?` (raw bytes of the chosen file) → `ImagePreprocessor.toModelJpeg(bytes): ByteArray?` (decode + downscale longest edge to 768 px + JPEG re-encode). Both `ByteArray`-based — no platform image type — so they sit in `commonMain` (invariant #39); the Android actuals land in Phase 9.
 - **Desktop actuals (`:shared` desktopMain):** `DesktopImagePreprocessor` (`javax.imageio.ImageIO` decode → bilinear scale onto opaque RGB → JPEG via `ImageWriter` at q0.85; EXIF auto-orientation not applied by ImageIO — noted, deferred); `DesktopFilePicker` (Swing `JFileChooser` on the EDT via `invokeAndWait`, image-extension filter, reads bytes off the EDT).
-- **Engine vision stays OFF (text-only).** Per the RISK register / #39, llama.cpp Gemma `mmproj` maturity is uncertain, so `WarmModel` keeps `enableVision=false`; the pipeline is wired (the Phase-9 Chat UI can capture + downscale images) but the bytes only reach the model once vision is validated — desktop ships text-only until then.
+- **Engine vision ON (PR #55) — via `llama-server`, not JNI.** Superseded twice: the
+  `net.ladenthin:llama` JNI binding (any version) **drops images before the vision encoder**
+  (confirmed in `jllama.cpp`: extracted `files` discarded, mtmd ctx passed as `nullptr` to
+  `tokenize_input_prompts`), and ships CPU-only natives. So desktop inference was rebuilt on
+  llama.cpp's reference **`llama-server` subprocess** over localhost HTTP
+  (`LlamaServerInferenceEngine`, `docs/DESKTOP_LLAMA_SERVER_PLAN.md`): correct multimodal
+  (`/v1/chat/completions` `image_url` → `mtmd`) AND GPU, maintained upstream, model loaded
+  once in the server. `WarmModel` keeps `enableVision=true` (→ `--mmproj`); the prebuilt
+  server binary is downloaded/cached on first run. *(Historical: the JNI path below — typed
+  `ChatMessage.userMultimodal` on the 5.0.2 snapshot — never worked because of the native
+  bug; it's retained only as a record.)* — `ChatMessage.userMultimodal(ContentPart.imageBytes(jpeg, "image/jpeg"), ContentPart.text(userText))` (image FIRST, matching Android's `Contents.of(ImageBytes, Text)`) → `InferenceParameters.setMessages(List<ChatMessage>)` → `model.chatComplete(...)` (the `/v1/chat/completions` handler) → `oaicompat_chat_params_parse` → `mtmd`. See `buildVisionMessages`.
+  - **Required a binding bump: `net.ladenthin:llama` 5.0.1 → 5.0.2.** 5.0.1 loads the mmproj fine (`srv load_model: loaded multimodal model`) but its `handleChatCompletions` **never feeds the image to mtmd** — the typed `ContentPart`/`ChatMessage` API and the image→mtmd JNI glue are unreleased. On 5.0.1 an image turn leaks the server's `<__media_…__>` placeholder into the prompt as text (≈108-token prompt, no image embedding) and the model hallucinates. 5.0.2 (llama.cpp b9172) adds the glue. Only a SNAPSHOT exists, so we pin the **immutable timestamped build** (`5.0.2-20260531.133137-8`) from the Sonatype snapshots repo (group-restricted, wired in `settings.gradle.kts`); swap to the `5.0.2` release when published. Desktop-only — Android uses LiteRT-LM.
+  - The mmproj GGUF (`mmproj-F16.gguf`, ~990 MB, `DesktopModelInventory.MMPROJ_DEFAULT`, verified LFS sha256/size) downloads in the background alongside the LLM; `MOBILEAGENT_MMPROJ_GGUF` overrides the path for dev. A minimal **vision system prompt** replaces the heavy text/search-assistant instruction on image turns (with the full prompt the model frames itself as a text agent and replies "provide the text from the media file" instead of reading the image). A `<__media` leak-guard logs loudly if mtmd ever fails to splice. **Degrades gracefully:** no mmproj on disk ⇒ text-only load + a clear warning when an image arrives. Image turns are one-shot (the chat handler returns the whole completion, not a token stream). The bundled native is CPU-only (`no usable GPU found`); a `cuda13-linux-x86-64` classifier exists for a later GPU pass. Real vision inference is the operator's on-device check.
 - **Wired in `desktopModule`:** `FilePicker`→`DesktopFilePicker`, `ImagePreprocessor`→`DesktopImagePreprocessor`.
 - **Fix during impl:** `ImageWriteParam.canWriteCompressed` is a protected *field*; called the public `canWriteCompressed()` method instead.
 - **Verified:** `:shared:compileKotlinDesktop` + `:desktopHarness:compileKotlin` + `DI_CHECK=1 :desktopApp:run` + `:shared:desktopTest` + **`:androidApp:assembleDebug`** green. Real image decode / vision inference = the operator's check (no display / vision model in CI).

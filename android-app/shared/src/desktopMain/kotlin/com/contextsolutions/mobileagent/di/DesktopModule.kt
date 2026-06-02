@@ -20,7 +20,8 @@ import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
-import com.contextsolutions.mobileagent.inference.LlamaCppInferenceEngine
+import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
+import com.contextsolutions.mobileagent.inference.LlamaServerInferenceEngine
 import com.contextsolutions.mobileagent.memory.DesktopMemoryPreferences
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
@@ -159,13 +160,36 @@ private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}
  * packaging, Phase 9 UI cutover).
  */
 val desktopModule: Module = module {
-    single<InferenceEngine> { LlamaCppInferenceEngine(logger = { System.err.println("[LlamaCpp] $it") }) }
+    // PR #55 (Option 3) — desktop inference runs through llama.cpp's reference
+    // `llama-server` subprocess over localhost HTTP, NOT the net.ladenthin:llama JNI
+    // binding (which drops images before the vision encoder and ships CPU-only natives).
+    // The binary is downloaded/cached on first run; the mmproj resolver (read lazily at
+    // loadModel) enables vision via `--mmproj`.
+    single { LlamaServerBinaryStore(logger = { System.err.println("[LlamaServer] $it") }) }
+    single<InferenceEngine> {
+        LlamaServerInferenceEngine(
+            binaryStore = get(),
+            mmprojPathProvider = { DesktopModelInventory.resolveMmprojPath() },
+            logger = { System.err.println("[LlamaServer] $it") },
+        )
+    }
 
     // GGUF acquisition (Phase 4): inventory resolves the OS app-data model path; the
     // downloader fetches/verifies/promotes it. Phase 7's tray/chat drives download() and
     // loads from inventory.localFile() — replacing the harness's GEMMA_GGUF_PATH env var.
     single { DesktopModelInventory(DesktopModelInventory.DEFAULT) }
     single { DesktopModelDownloader(inventory = get(), logger = { System.err.println("[ModelDownload] $it") }) }
+
+    // PR #55 — vision projector (mmproj) acquisition. A second inventory + downloader
+    // for the ~990 MB mmproj GGUF; the desktop app fetches it in the background
+    // alongside the main GGUF. Named to disambiguate from the LLM inventory/downloader.
+    single(named("mmproj")) { DesktopModelInventory(DesktopModelInventory.MMPROJ_DEFAULT) }
+    single(named("mmproj")) {
+        DesktopModelDownloader(
+            inventory = get(named("mmproj")),
+            logger = { System.err.println("[MmprojDownload] $it") },
+        )
+    }
 
     // ONNX classifier + embedder (Phase 5). Re-exports of the Android .tflite
     // models (ai-edge-litert is Android-only, invariant #18). Model files come
@@ -228,12 +252,12 @@ val desktopModule: Module = module {
     // Theme-mode persistence for the shared :ui ThemeModeViewModel (Phase 9 inc 8d).
     single<ThemePreferences> { DesktopThemePreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "theme_prefs.json"))) }
 
-    // -- Vision (Phase 7, invariant #39). The image pipeline — Swing file
-    //    chooser + ImageIO decode/downscale → JPEG ByteArray — is wired so the
-    //    Phase-9 Chat UI can capture images. Engine vision stays OFF
-    //    (WarmModel loads enableVision=false): llama.cpp Gemma mmproj maturity
-    //    is uncertain (RISK register), so desktop ships text-only until it's
-    //    validated; the downscaled bytes only reach the model once enabled. --
+    // -- Vision (Phase 7 + PR #55, invariant #39). The image pipeline — Swing file
+    //    chooser + ImageIO decode/downscale → JPEG ByteArray — feeds the Chat UI.
+    //    Engine vision is now ON: WarmModel loads enableVision=true and the engine
+    //    loads the mmproj (above) when present, routing an image turn through
+    //    llama.cpp's mtmd pipeline. Without the mmproj the engine degrades to
+    //    text-only (logged), so the graph still resolves on a fresh install. --
     single<FilePicker> { DesktopFilePicker() }
     single<ImagePreprocessor> { DesktopImagePreprocessor() }
 

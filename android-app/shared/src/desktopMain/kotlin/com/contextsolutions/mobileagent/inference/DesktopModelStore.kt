@@ -89,12 +89,51 @@ class DesktopModelInventory(
          * `secrets.properties` MODEL_SHA256/MODEL_SIZE_BYTES). The downloader refuses to run
          * with an unconfigured spec rather than write an unverifiable file.
          */
+        // Desktop uses Gemma 4 **E2B** (not E4B): ~2x the decode throughput of E4B and ~3.1 GB
+        // vs 5 GB, a deliberate speed trade on the desktop's modest iGPU (PR #55). Same family +
+        // vision. (Android already uses E2B — E4B thrashes LMKD on the 8 GB Pixel 7.)
         val DEFAULT: DesktopModelSpec = DesktopModelSpec(
-            filename = "gemma-4-E4B-it-Q4_K_M.gguf",
-            downloadUrl = "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf",
-            sha256 = "519b9793ed6ce0ff530f1b7c96e848e08e49e7af4d57bb97f76215963a54146d",
-            sizeBytes = 4977169568L,
+            filename = "gemma-4-E2B-it-Q4_K_M.gguf",
+            downloadUrl = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+            sha256 = "9378bc471710229ef165709b62e34bfb62231420ddaf6d729e727305b5b8672d",
+            sizeBytes = 3106736256L,
         )
+
+        /**
+         * Vision projector (mmproj) GGUF for the [DEFAULT] E2B model (PR #55). Passed to
+         * `llama-server --mmproj` so an image turn routes through the native `mtmd`
+         * pipeline — the desktop analogue of Gemma's vision tower on Android (invariant
+         * #39). F16 (~986 MB) is the accuracy/size sweet spot from the same
+         * `unsloth/gemma-4-E2B-it-GGUF` repo; sha256/size are the verified Git-LFS pointer
+         * values (same provenance as [DEFAULT]). Fetched + verified through
+         * [DesktopModelDownloader] like the GGUF; loaded only when present, so it's
+         * optional — text chat works without it.
+         */
+        val MMPROJ_DEFAULT: DesktopModelSpec = DesktopModelSpec(
+            filename = "gemma-4-E2B-it-mmproj-F16.gguf",
+            downloadUrl = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf",
+            sha256 = "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa",
+            sizeBytes = 985654080L,
+        )
+
+        /**
+         * Absolute-path override for the mmproj GGUF (PR #55) — point straight at a
+         * locally staged projector for dev/testing without waiting for the download
+         * (the BYO-coordinates analogue of [DesktopAuxModels]' env overrides).
+         */
+        const val MMPROJ_ENV: String = "MOBILEAGENT_MMPROJ_GGUF"
+
+        /**
+         * Resolves the mmproj path the engine should load, or null when none is
+         * available: the [MMPROJ_ENV] override if set, else the verified download
+         * location if it's on disk. Null ⇒ the engine loads text-only.
+         */
+        fun resolveMmprojPath(baseDir: File = DesktopAppDirs.dataDir()): String? {
+            System.getenv(MMPROJ_ENV)?.takeIf { it.isNotBlank() }?.let { override ->
+                return File(override).takeIf { it.isFile }?.absolutePath
+            }
+            return DesktopModelInventory(MMPROJ_DEFAULT, baseDir).localFile().takeIf { it.isFile }?.absolutePath
+        }
     }
 }
 

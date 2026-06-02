@@ -43,27 +43,20 @@ configurations.all {
     }
 }
 
-// Opt-in GPU offload for the LLM (deferred-by-default, BYO native — see
-// docs/DESKTOP_PACKAGING.md "GPU acceleration"). The bundled net.ladenthin:llama
-// libjllama is CPU-only; `-PllamaLibPath=/abs/dir` points the binding's loader
-// (system property `net.ladenthin.llama.lib.path`) at a GPU-enabled libjllama.so
-// the operator built/supplied. The engine already requests full offload
-// (InferenceConfig.accelerator defaults to AUTO → setGpuLayers(999)), so dropping
-// in a CUDA/Metal/Vulkan native is all that's needed — no code change. Applies to
-// both `:desktopApp:run` and the packaged app (compose jvmArgs cover both).
-//   ./gradlew :desktopApp:run -PllamaLibPath=/abs/dir/with/libjllama.so
-val llamaLibPath = (project.findProperty("llamaLibPath") as String?)?.takeIf { it.isNotBlank() }
+// GPU offload (PR #55, Option 3): the LLM runs in a separate `llama-server` process
+// (LlamaServerInferenceEngine), so GPU is selected by which prebuilt server archive is
+// downloaded (CPU today; Vulkan/Metal/CUDA is the follow-up in LlamaServerRelease), NOT
+// a JVM system property. The old `-PllamaLibPath` JNI hook is gone with the binding.
 
 compose.desktop {
     application {
         mainClass = "com.contextsolutions.mobileagent.desktop.app.MainKt"
 
-        // The GGUF model + ONNX classifier/embedder run in NATIVE (off-heap) memory via
-        // llama.cpp / ONNX Runtime, so the JVM heap stays modest — 2 GB covers the Compose
+        // The GGUF runs in the llama-server child process and ONNX classifier/embedder in
+        // NATIVE (off-heap) memory, so the JVM heap stays modest — 2 GB covers the Compose
         // UI, image preprocessing, and ONNX tensor marshalling with headroom. Bump only if
         // a future on-heap path (e.g. large in-memory caches) needs it.
         jvmArgs += listOf("-Xmx2g", "-Dfile.encoding=UTF-8")
-        llamaLibPath?.let { jvmArgs += "-Dnet.ladenthin.llama.lib.path=$it" }
 
         nativeDistributions {
             // jpackage builds ONLY for the host OS, so a CI matrix (Phase 8 increment 2)

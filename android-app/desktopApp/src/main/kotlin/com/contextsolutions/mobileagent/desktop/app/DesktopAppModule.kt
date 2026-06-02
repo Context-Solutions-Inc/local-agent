@@ -19,7 +19,10 @@ import org.koin.dsl.module
  * the headless `DI_CHECK` is safe.
  */
 val desktopAppModule: Module = module {
-    single { WarmModel(engine = get(), inventory = get<DesktopModelInventory>()) }
+    // enableVision=true (PR #55): the engine loads the mmproj when present and routes
+    // image turns through llama.cpp's mtmd pipeline; it degrades to text-only (logged)
+    // when no projector is on disk, so this is safe even before the mmproj download.
+    single { WarmModel(engine = get(), inventory = get<DesktopModelInventory>(), enableVision = true) }
     // Bound as the concrete type AND the shared interface (one instance): the
     // shared `:ui` ChatViewModel resolves ChatSessionController, while [Main]
     // resolves the concrete type to drive the startup warm-up ([warmUp]).

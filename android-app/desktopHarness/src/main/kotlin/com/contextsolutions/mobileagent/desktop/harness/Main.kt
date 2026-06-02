@@ -18,7 +18,8 @@ import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.InferenceConfig
 import com.contextsolutions.mobileagent.inference.InferenceEngine
-import com.contextsolutions.mobileagent.inference.LlamaCppInferenceEngine
+import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
+import com.contextsolutions.mobileagent.inference.LlamaServerInferenceEngine
 import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
 import com.contextsolutions.mobileagent.platform.AgentClock
@@ -33,8 +34,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * Phase-0 headless slice (docs/DESKTOP_PORT_PLAN.md): drive the real, unchanged
- * [AgentLoop] from commonMain on the JVM, generating with [LlamaCppInferenceEngine]
- * (llama.cpp / GGUF Gemma). Search + memory are disabled (NoOp aux engines,
+ * [AgentLoop] from commonMain on the JVM, generating with [LlamaServerInferenceEngine]
+ * (llama.cpp `llama-server` subprocess / GGUF Gemma). Search + memory are disabled (NoOp aux engines,
  * search-unavailable), so this exercises the LLM path end-to-end with zero UI/DI.
  *
  * Run:
@@ -47,7 +48,7 @@ fun main(args: Array<String>): Unit = runBlocking {
     val clock = AgentClock()
     val locale = LocaleProvider()
 
-    val engine: InferenceEngine = LlamaCppInferenceEngine()
+    val engine: InferenceEngine = LlamaServerInferenceEngine(binaryStore = LlamaServerBinaryStore())
 
     // --- Build the real AgentLoop with search/memory disabled. ---
     val assembler = PromptAssembler(timeContextProvider = { currentTimeContext(clock, locale) })
@@ -81,7 +82,7 @@ fun main(args: Array<String>): Unit = runBlocking {
     if (modelPath.isNullOrBlank()) {
         println(
             """
-            |[desktopHarness] Wiring constructed OK — AgentLoop + LlamaCppInferenceEngine are desktop-portable.
+            |[desktopHarness] Wiring constructed OK — AgentLoop + LlamaServerInferenceEngine are desktop-portable.
             |Set GEMMA_GGUF_PATH to run real inference:
             |  GEMMA_GGUF_PATH=/path/to/gemma-3-4b-it-Q4_K_M.gguf ./gradlew :desktopHarness:run --args="capital of France?"
             """.trimMargin()
@@ -112,9 +113,8 @@ fun main(args: Array<String>): Unit = runBlocking {
             else -> {}
         }
     }
-    engine.unload(handle)
-    // net.ladenthin:llama keeps native server threads alive after close(), so the JVM
-    // won't exit on its own — force a clean exit for the headless CLI.
+    engine.unload(handle) // stops the llama-server subprocess
+    // Ktor/CIO keeps a selector thread pool alive; force a clean exit for the headless CLI.
     kotlin.system.exitProcess(0)
 }
 

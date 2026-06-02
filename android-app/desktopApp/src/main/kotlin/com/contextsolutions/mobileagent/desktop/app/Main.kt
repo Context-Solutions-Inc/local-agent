@@ -42,6 +42,8 @@ import com.contextsolutions.mobileagent.di.desktopModule
 import com.contextsolutions.mobileagent.inference.DesktopModelDownloader
 import com.contextsolutions.mobileagent.inference.DesktopModelInventory
 import com.contextsolutions.mobileagent.inference.InferenceEngine
+import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
+import com.contextsolutions.mobileagent.inference.LlamaServerRelease
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.notification.MutableNotificationPresenter
 import com.contextsolutions.mobileagent.platform.AgentClock
@@ -56,8 +58,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -153,10 +158,45 @@ fun main() {
         scope = appScope,
     )
 
+    val modelInventory = koin.get<DesktopModelInventory>()
     val modelDownload = DesktopModelDownloadController(
-        inventory = koin.get<DesktopModelInventory>(),
+        inventory = modelInventory,
         downloader = koin.get<DesktopModelDownloader>(),
         notifications = presenter,
+        scope = appScope,
+    )
+
+    // PR #55 — vision projector (mmproj) acquisition. Fetched in the background like
+    // the GGUF; the engine loads it on the next cold model load when present (so an
+    // image turn can route through llama.cpp's mtmd pipeline). Optional: text chat
+    // works without it, and the engine logs a clear degrade when an image arrives
+    // before the projector is downloaded.
+    val mmprojInventory = koin.get<DesktopModelInventory>(named("mmproj"))
+    val mmprojDownload = DesktopModelDownloadController(
+        inventory = mmprojInventory,
+        downloader = koin.get<DesktopModelDownloader>(named("mmproj")),
+        notifications = presenter,
+        scope = appScope,
+        logger = { System.err.println("[MmprojDownload] $it") },
+    )
+
+    // PR #55 (Option 3) — prebuilt llama-server acquisition, with its own status flow so the
+    // chat banner can reflect it alongside the GGUF + mmproj. GPU (Vulkan) variant by
+    // default; the engine falls back to CPU at load if the GPU server can't start.
+    // `MOBILEAGENT_LLAMA_SERVER_VARIANT=cpu` prefetches CPU instead.
+    val wantGpu = System.getenv("MOBILEAGENT_LLAMA_SERVER_VARIANT")?.trim()?.lowercase() != "cpu"
+    val serverBinaryStore = koin.get<LlamaServerBinaryStore>()
+    val serverAssetBytes = LlamaServerRelease.assetForHost(wantGpu)?.sizeBytes ?: 0L
+    val serverStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)
+
+    // Surface ALL first-run downloads on the chat banner ("Downloading model… N%", aggregate
+    // across the GGUF + vision projector + server binary) instead of "next prompt cold-loads".
+    koin.get<DesktopChatSessionController>().bindDownloads(
+        sources = listOf(
+            DownloadSource(modelInventory.spec.sizeBytes, modelDownload.status),
+            DownloadSource(mmprojInventory.spec.sizeBytes, mmprojDownload.status),
+            DownloadSource(serverAssetBytes, serverStatus),
+        ),
         scope = appScope,
     )
 
@@ -167,6 +207,23 @@ fun main() {
     koin.get<DesktopTelemetryScheduler>().start()
     taskQueue.start()
     modelDownload.ensurePresent()
+    mmprojDownload.ensurePresent()
+    // Server binary in the background, driving serverStatus (loadModel also ensures it lazily).
+    appScope.launch {
+        if (serverBinaryStore.isPresent(wantGpu)) {
+            serverStatus.value = ModelDownloadStatus.Present
+            return@launch
+        }
+        serverStatus.value = ModelDownloadStatus.Downloading(0f, 0L, serverAssetBytes)
+        runCatching {
+            serverBinaryStore.ensure(wantGpu) { done, total ->
+                serverStatus.value = ModelDownloadStatus.Downloading(
+                    if (total > 0L) done.toFloat() / total else 0f, done, total,
+                )
+            }
+        }.onSuccess { serverStatus.value = ModelDownloadStatus.Present }
+            .onFailure { serverStatus.value = ModelDownloadStatus.Failed(it.message ?: "server download failed", retryable = true) }
+    }
 
     // Eagerly warm the ONNX aux engines (preflight classifier + memory embedder).
     // Both are inert until warmUp() runs — classify()/embed() return null while
@@ -180,17 +237,24 @@ fun main() {
         koin.get<EmbedderEngine>().warmUp()
     }
 
-    // Eagerly load the GGUF to the GPU at startup so the first chat turn doesn't
-    // pay the multi-second cold-load, and the banner shows the real accelerator
-    // up front (Unloaded → Loading → Loaded(GPU)). Desktop-only: Android keeps
-    // Gemma lazy (loads on first generate, invariant #22). Gated on the model
-    // being present so a fresh-install background download (above) isn't
-    // pre-empted by a load that would just fail; the first turn loads it once the
-    // download completes. warmUp() is idempotent and swallows failures.
+    // Eagerly load the GGUF to the GPU so the first chat turn doesn't pay the multi-second
+    // cold-load, and the banner shows the real accelerator (Downloading → Loading →
+    // Loaded(GPU)). The desktop default is to warm once the model is available — at startup
+    // for a returning user, or **right after the first-run download completes**. Android keeps
+    // Gemma lazy (loads on first prompt, invariant #22). A model load is one-shot, so we wait
+    // for the projector + server too, so it loads with vision on the right backend.
+    // warmUp() is idempotent and swallows failures.
     appScope.launch {
-        if (warmModel.isModelPresent()) {
-            koin.get<DesktopChatSessionController>().warmUp()
+        if (!warmModel.isModelPresent()) {
+            if (!modelInventory.spec.isConfigured) return@launch // no model to warm
+            modelDownload.status.first { it is ModelDownloadStatus.Present || it is ModelDownloadStatus.Failed }
+            if (!warmModel.isModelPresent()) return@launch // download failed
         }
+        if (mmprojInventory.spec.isConfigured && !mmprojInventory.isPresent()) {
+            mmprojDownload.status.first { it is ModelDownloadStatus.Present || it is ModelDownloadStatus.Failed }
+        }
+        serverStatus.first { it is ModelDownloadStatus.Present || it is ModelDownloadStatus.Failed }
+        koin.get<DesktopChatSessionController>().warmUp()
     }
 
     application {

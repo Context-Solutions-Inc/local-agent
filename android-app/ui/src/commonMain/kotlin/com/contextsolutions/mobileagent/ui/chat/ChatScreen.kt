@@ -933,6 +933,10 @@ private fun SessionBanner(state: SessionState) {
     val (text, isWarning) = when (state) {
         is SessionState.Unloaded ->
             "Model unloaded — next prompt cold-loads in 4–8 s." to false
+        is SessionState.Downloading -> {
+            val pct = state.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+            "Downloading model files…$pct" to false
+        }
         is SessionState.Loading ->
             "Loading model…" to false
         is SessionState.Loaded -> {

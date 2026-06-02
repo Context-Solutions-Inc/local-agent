@@ -34,9 +34,18 @@ class DesktopImagePreprocessor(
 
     override suspend fun toModelJpeg(imageBytes: ByteArray): ByteArray? = withContext(ioDispatcher) {
         try {
-            val source = ImageIO.read(ByteArrayInputStream(imageBytes)) ?: return@withContext null
+            val source = ImageIO.read(ByteArrayInputStream(imageBytes))
+                ?: run {
+                    logger("ImageIO.read returned null (unsupported/corrupt format), ${imageBytes.size} bytes in")
+                    return@withContext null
+                }
             val rgb = scaleToRgb(source)
-            encodeJpeg(rgb)
+            val jpeg = encodeJpeg(rgb)
+            logger(
+                "processed image: in=${imageBytes.size}B ${source.width}x${source.height} → " +
+                    "out=${jpeg.size}B ${rgb.width}x${rgb.height} (longestEdge≤$targetLongestEdgePx)",
+            )
+            jpeg
         } catch (t: Throwable) {
             logger("failed to process image: ${t.message}")
             null
