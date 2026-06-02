@@ -25,9 +25,9 @@ On-device AI assistant for Android. **Pixel 7 + Android 16 only** for Phase 1.
 - **Classifier + embedder runtime:** `com.google.ai.edge.litert:litert:2.1.5` — a *different* runtime from LiteRT-LM (see #18, #40).
 - **Classifier:** shared DistilBERT-base encoder + 3 task heads, INT8 → `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB), bundled in `:androidApp/src/main/assets/`. 3 outputs/pass.
 - **Embedder:** all-MiniLM-L6-v2 INT8 (23.5 MB), bundled. Mean-pool + L2-norm baked in; output is one 384-dim vector.
-- **Architecture:** KMP `:shared` agent core + Compose-Multiplatform `:ui` (every screen, incl. Chat) + thin `:androidApp` / `:desktopApp` shells. DI is **Koin** (Hilt removed on `feature/desktop-cmp`). iOS stubbed for Phase 2. On `main` (Android-only, pre-desktop) the UI still lives in `:androidApp` and DI is Hilt — the desktop port (branch `feature/desktop-cmp`) is the CMP+Koin reality; check your branch.
-- **Toolchain:** JDK 17, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.3.21, KSP 2.3.7. Hilt 2.59.2 on `main`; Koin 4.2.1 on `feature/desktop-cmp`.
-- **Status:** M0–M6 complete (`PHASE1_PLAN.md` §5). M7 (closed beta → Play Store) not started. **Desktop port (Linux/macOS/Windows via llama.cpp + Compose Desktop): Phases 0–9 complete on `feature/desktop-cmp`, v0.1.0, awaiting validation + merge** — see `docs/DESKTOP_PORT_PLAN.md`.
+- **Architecture:** KMP `:shared` agent core + Compose-Multiplatform `:ui` (every screen, incl. Chat) + thin `:androidApp` / `:desktopApp` shells. DI is **Koin** (Hilt fully removed). iOS stubbed for Phase 2. The desktop port (CMP + Koin) is now on `main` — merged via PR #53 (v0.1.0); `main` is the CMP+Koin reality.
+- **Toolchain:** JDK 17, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.3.21. DI is Koin 4.2.1 (Hilt + KSP both removed in the Phase-3 Hilt elimination).
+- **Status:** M0–M6 complete (`PHASE1_PLAN.md` §5). M7 (closed beta → Play Store) not started. **Desktop port (Linux/macOS/Windows via llama.cpp + Compose Desktop): Phases 0–9 complete, MERGED to `main` via PR #53 (v0.1.0, merge `8963a06`, 2026-06-02); on-device-validated on Linux + Pixel 7. `v0.1.0` git tag still pending.** — see `docs/DESKTOP_PORT_PLAN.md`.
 
 ## Hard invariants
 

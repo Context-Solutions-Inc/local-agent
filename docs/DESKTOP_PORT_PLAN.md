@@ -570,4 +570,20 @@ UI cutover, screen-by-screen, simplest first, **Chat LAST**, with `:androidApp:a
 
 **Increment 9 (`4e4f2f9`) — shell shrink + release prep.** The screen-by-screen cutover already shrank `:androidApp` to the thin shell — `MainActivity`, `MobileAgentApplication`, `AndroidKoinModule`, the thin `MainScreen` wrapper + `MainViewModel`, the Android-only WorkManager `DownloadScreen`/`DownloadViewModel`, `Theme` + `SharedPreferencesThemePreferences`, `SpikeActivity`/`SpikeViewModel`, and the Android-only services + actuals. No dead `app.ui.*` `.kt` files remained (the moves removed them; empty package dirs are untracked). `:desktopApp` hosts the real shared `AppNavHost` in its window (inc 8d) with the tray + warm-model runtime intact. Bumped `appVersionName` `0.0.3-beta` → `0.1.0` (`androidApp/build.gradle.kts`) for the `feature/desktop-cmp` → `main` merge. `:androidApp:assembleDebug` green (prints `versionName : 0.1.0`).
 
-**PHASE 9 COMPLETE.** UI cutover done — all screens (incl. Chat) live in shared `:ui`; both shells render the same `AppNavHost`. **Operator-verify (headless CI has no display):** the desktop on-screen render is the first time the migrated screens actually compose on desktop (`koinViewModel()` relies on Compose-Desktop's window `ViewModelStoreOwner`); the live Android Chat surface; and llama.cpp text-only generation through the desktop chat window. **The `v0.1.0` tag + the `feature/desktop-cmp` → `main` merge await the user's explicit go-ahead** (nothing pushed).
+**PHASE 9 COMPLETE.** UI cutover done — all screens (incl. Chat) live in shared `:ui`; both shells render the same `AppNavHost`.
+
+---
+
+## MERGED to `main` — v0.1.0 (PR #53, 2026-06-02)
+
+`feature/desktop-cmp` → `main` merged via **PR #53** (merge commit `8963a06`, 2026-06-02). `main` is now the CMP + Koin desktop-port reality. **The `v0.1.0` git tag is still pending** (release-tag the merge commit when ready; the installer `packageVersion` stays `1.0.0` per the Phase-8 note).
+
+**On-device validation done (Linux desktop + Pixel 7) — post-merge / late-branch fixes:**
+- **Desktop aux engines never warmed** (`139120f`): classifier/embedder are inert until `warmUp()`; Android drives it from the Chat RESUME hook (#22) but desktop had no call site → eager warm on the app scope at startup.
+- **Android `libLiteRt.so` native collision** (`329f37b`, invariant #40): moving the litert deps into `:shared` flipped AGP's non-deterministic `pickFirst` to litertlm's symbol-less copy → `UnsatisfiedLinkError: Environment.nativeCreate`. Fixed by extracting litert's natives into project-local jniLibs (which always win `pickFirst`).
+- **`MemoryViewModel` DI crash** (`e8e16f9`): `viewModelOf` doesn't honour ctor defaults, so its `CoroutineDispatcher = Dispatchers.IO` param (bound nowhere) threw at first render → bound with an explicit `viewModel { }` lambda.
+- **Desktop chat accelerator banner** (`d0a0800`): `DesktopChatSessionController` hardcoded `Loaded(CPU)` → now reports the resident handle's real accelerator (GPU on a GPU-capable native).
+- **Desktop eager GGUF-to-GPU load at startup** (`75c6190`): `Main` warms the LLM on the app scope (gated on model presence) so the first turn doesn't cold-load and the banner shows the accelerator up front; Android stays lazy (#22).
+- **CI:** the classifier `regression-gate` workflow is now `workflow_dispatch`-only (`a88590e`) — its frozen splits + checkpoint are gitignored, so it never ran on a stock PR checkout.
+
+**Still operator-verify going forward:** real llama.cpp GPU offload throughput; installer packaging on macOS/Windows runners; voice/vision round-trips.
