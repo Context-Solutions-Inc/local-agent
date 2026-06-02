@@ -1,7 +1,10 @@
 package com.contextsolutions.mobileagent.platform
 
+import platform.Foundation.NSLocale
 import platform.Foundation.NSTimeZone
 import platform.Foundation.abbreviation
+import platform.Foundation.countryCode
+import platform.Foundation.currentLocale
 import platform.Foundation.localTimeZone
 import platform.Foundation.secondsFromGMT
 
@@ -23,4 +26,7 @@ actual class LocaleProvider {
         val minutes = (absSeconds % 3600) / 60
         return "$sign${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}"
     }
+
+    actual fun countryCode(): String =
+        NSLocale.currentLocale.countryCode?.uppercase() ?: ""
 }

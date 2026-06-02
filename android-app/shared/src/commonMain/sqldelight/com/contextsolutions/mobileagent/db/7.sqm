@@ -1,0 +1,27 @@
+-- Migration v7 -> v8 (desktop port Phase 7, queued agent-task system).
+--
+-- Adds a fresh `tasks` table backing the desktop TaskQueue — no ALTERs to
+-- existing tables. Column order matches Tasks.sq exactly so verifyMigrations
+-- doesn't flag drift between Schema.create() (fresh installs at v8) and
+-- Schema.migrate() (upgrades from v7 to v8). CLAUDE.md invariant #20.
+--
+-- `status` is TEXT ('QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED')
+-- so the column survives a future re-ordering of the Kotlin enum. `progress`
+-- is REAL (0.0..1.0). `result` holds the final assistant text on success;
+-- `error` the message on failure; `attachments` a JSON array of attachment
+-- refs (image paths) for a future vision-enabled task — nullable for text tasks.
+-- New columns appended at the END per invariant #20.
+
+CREATE TABLE tasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL,
+    progress REAL NOT NULL DEFAULT 0.0,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    result TEXT,
+    error TEXT,
+    attachments TEXT
+);
+
+CREATE INDEX tasks_by_status_created ON tasks(status, created_at_epoch_ms);

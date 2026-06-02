@@ -1,12 +1,17 @@
 package com.contextsolutions.mobileagent.app.ui.memory
 
+import com.contextsolutions.mobileagent.memory.BackupReader
+import com.contextsolutions.mobileagent.memory.BackupWriter
 import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.memory.MemoryBackupController
+import com.contextsolutions.mobileagent.memory.MemoryBackupOps
 import com.contextsolutions.mobileagent.memory.MemoryCategory
 import com.contextsolutions.mobileagent.memory.MemoryHit
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
 import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.platform.AgentClock
-import android.net.Uri
+import com.contextsolutions.mobileagent.ui.memory.BackupEvent
+import com.contextsolutions.mobileagent.ui.memory.MemoryViewModel
 import app.cash.turbine.test
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -43,17 +48,16 @@ class MemoryViewModelTest {
     // -- Initial load ----------------------------------------------------
 
     private fun buildViewModel(store: MemoryStore, prefs: MemoryPreferences = StubPrefs()): MemoryViewModel =
-        MemoryViewModel(store, prefs, AgentClock(), NoOpBackupOps)
-            .also { it.ioDispatcher = testDispatcher }
+        MemoryViewModel(store, prefs, AgentClock(), NoOpBackupOps, testDispatcher)
 
     private object NoOpBackupOps : MemoryBackupOps {
-        override suspend fun export(destination: Uri): MemoryBackupController.ExportResult =
+        override suspend fun export(destination: BackupWriter): MemoryBackupController.ExportResult =
             error("export should not be called in this test")
-        override suspend fun import(source: Uri): MemoryBackupController.ImportResult =
+        override suspend fun import(source: BackupReader): MemoryBackupController.ImportResult =
             error("import should not be called in this test")
     }
 
-    /** Captures the URIs handed to the controller; returns canned results. */
+    /** Captures the writer/reader handed to the controller; returns canned results. */
     private class RecordingBackupOps(
         private val exportResult: MemoryBackupController.ExportResult = MemoryBackupController.ExportResult(memoryCount = 0),
         private val importResult: MemoryBackupController.ImportResult = MemoryBackupController.ImportResult(importedCount = 0, skippedCount = 0, replacedCount = 0),
@@ -61,14 +65,14 @@ class MemoryViewModelTest {
         private val importThrows: MemoryBackupController.BackupException? = null,
         private val importCapThrows: MemoryBackupController.ImportCapExceededException? = null,
     ) : MemoryBackupOps {
-        val exportedTo = mutableListOf<Uri>()
-        val importedFrom = mutableListOf<Uri>()
-        override suspend fun export(destination: Uri): MemoryBackupController.ExportResult {
+        val exportedTo = mutableListOf<BackupWriter>()
+        val importedFrom = mutableListOf<BackupReader>()
+        override suspend fun export(destination: BackupWriter): MemoryBackupController.ExportResult {
             exportedTo += destination
             exportThrows?.let { throw it }
             return exportResult
         }
-        override suspend fun import(source: Uri): MemoryBackupController.ImportResult {
+        override suspend fun import(source: BackupReader): MemoryBackupController.ImportResult {
             importedFrom += source
             importCapThrows?.let { throw it }
             importThrows?.let { throw it }
@@ -80,8 +84,7 @@ class MemoryViewModelTest {
         store: MemoryStore,
         ops: MemoryBackupOps,
         prefs: MemoryPreferences = StubPrefs(),
-    ): MemoryViewModel = MemoryViewModel(store, prefs, AgentClock(), ops)
-        .also { it.ioDispatcher = testDispatcher }
+    ): MemoryViewModel = MemoryViewModel(store, prefs, AgentClock(), ops, testDispatcher)
 
     @Test
     fun refresh_loads_grouped_memories_and_creation_flag() = runTest {
@@ -267,16 +270,16 @@ class MemoryViewModelTest {
             exportResult = MemoryBackupController.ExportResult(memoryCount = 3),
         )
         val vm = buildViewModelWith(InMemoryStore(), ops)
-        val uri = mockk<Uri>(relaxed = true)
+        val writer = mockk<BackupWriter>(relaxed = true)
 
         vm.backupEvents.test {
-            vm.onExport(uri)
+            vm.onExport(writer)
             val event = awaitItem()
             assertTrue(event is BackupEvent.Exported)
             assertEquals(3, (event as BackupEvent.Exported).count)
             cancelAndIgnoreRemainingEvents()
         }
-        assertEquals(listOf(uri), ops.exportedTo)
+        assertEquals(listOf(writer), ops.exportedTo)
         assertTrue(!vm.isBackupBusy.value)
     }
 
@@ -291,7 +294,7 @@ class MemoryViewModelTest {
         advanceUntilIdle()
 
         vm.backupEvents.test {
-            vm.onImport(mockk<Uri>(relaxed = true))
+            vm.onImport(mockk<BackupReader>(relaxed = true))
             val event = awaitItem()
             assertTrue(event is BackupEvent.Imported)
             assertEquals(5, (event as BackupEvent.Imported).imported)
@@ -307,7 +310,7 @@ class MemoryViewModelTest {
         )
         val vm = buildViewModelWith(InMemoryStore(), ops)
 
-        vm.onImport(mockk<Uri>(relaxed = true))
+        vm.onImport(mockk<BackupReader>(relaxed = true))
         advanceUntilIdle()
 
         val info = vm.importCapExceeded.value
@@ -327,7 +330,7 @@ class MemoryViewModelTest {
         val vm = buildViewModelWith(InMemoryStore(), ops)
 
         vm.backupEvents.test {
-            vm.onExport(mockk<Uri>(relaxed = true))
+            vm.onExport(mockk<BackupWriter>(relaxed = true))
             val event = awaitItem()
             assertTrue(event is BackupEvent.Error)
             assertEquals("Disk full", (event as BackupEvent.Error).message)

@@ -54,6 +54,7 @@ training = [
     "scikit-learn>=1.5,<2",
     "onnx>=1.16,<2",
     "onnxruntime>=1.18,<2",
+    "onnxscript>=0.1",  # torch>=2.x `torch.onnx.export` imports it unconditionally (ct-export-onnx)
     "ai-edge-torch>=0.2",  # LiteRT conversion (formerly TFLite)
 ]
 
@@ -70,6 +71,7 @@ ct-train-classifier = "classifier_training.training.train:main"
 ct-eval-classifier = "classifier_training.training.eval:main"
 ct-quantize = "classifier_training.training.quantize:main"
 ct-export-litert = "classifier_training.training.export_litert:main"
+ct-export-onnx = "classifier_training.training.export_onnx:main"
 ct-bench-pixel7 = "classifier_training.training.benchmark_pixel7:main"
 ct-regression-check = "classifier_training.ci.regression_check:main"
 

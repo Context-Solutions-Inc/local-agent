@@ -3,11 +3,8 @@ package com.contextsolutions.mobileagent.app.service
 import android.content.Context
 import androidx.annotation.WorkerThread
 import com.contextsolutions.mobileagent.app.BuildConfig
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.security.MessageDigest
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -25,9 +22,8 @@ import kotlinx.coroutines.withContext
  * The spec is hardcoded for v1 (single model). Multi-model lands when we ever
  * support runtime swapping; for now, [SPEC] is constant per build.
  */
-@Singleton
-class ModelInventory @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class ModelInventory(
+    private val context: Context,
 ) {
 
     /** The one model artifact this build will download / load. */

@@ -1,6 +1,7 @@
 package com.contextsolutions.mobileagent.app.service
 
 import com.contextsolutions.mobileagent.inference.Accelerator
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.InferenceConfig
@@ -9,8 +10,6 @@ import com.contextsolutions.mobileagent.inference.ModelHandle
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineDispatcher
@@ -56,8 +55,7 @@ import kotlinx.coroutines.withContext
  * handle is unloaded and the new path is loaded — but in practice WS-1 only ever
  * passes the one production path.
  */
-@Singleton
-class InferenceSessionManager @Inject constructor(
+class InferenceSessionManager(
     private val engine: InferenceEngine,
     private val foregroundServiceController: ForegroundServiceController,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -317,17 +315,5 @@ enum class UnloadReason {
      * Increments [com.contextsolutions.mobileagent.telemetry.CounterNames.INFERENCE_UNLOADED_LOW_MEMORY_TOTAL].
      */
     LowMemory,
-}
-
-/**
- * The lifecycle state of the loaded model. Subscribed by UI (degraded-mode
- * banner when [Loaded.activeAccelerator] is CPU; "loading…" overlay during
- * cold load; "model unloaded" hint after idle reclaim).
- */
-sealed interface SessionState {
-    data object Unloaded : SessionState
-    data object Loading : SessionState
-    data class Loaded(val activeAccelerator: Accelerator) : SessionState
-    data class Failed(val message: String, val cause: Throwable?) : SessionState
 }
 

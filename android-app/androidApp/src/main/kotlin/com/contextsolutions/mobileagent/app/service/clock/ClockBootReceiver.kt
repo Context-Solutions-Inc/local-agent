@@ -4,8 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.contextsolutions.mobileagent.clock.ClockService
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Re-arms every persisted timer + alarm after a device reboot. Without this,
@@ -16,10 +16,9 @@ import javax.inject.Inject
  * scheduled alarms either — Android drops them on package replacement just
  * like on reboot.
  */
-@AndroidEntryPoint
-class ClockBootReceiver : BroadcastReceiver() {
+class ClockBootReceiver : BroadcastReceiver(), KoinComponent {
 
-    @Inject lateinit var clockService: ClockService
+    private val clockService: ClockService by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {

@@ -13,10 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.contextsolutions.mobileagent.telemetry.TelemetryUploader
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
+import org.koin.mp.KoinPlatform.getKoin
 import java.util.concurrent.TimeUnit
 
 /**
@@ -27,11 +24,9 @@ import java.util.concurrent.TimeUnit
  * convenient (PRD §4.3 — no aggressive background work; PRD §4.4 — UNMETERED
  * only).
  *
- * Why a CoroutineWorker (not @HiltWorker): same reasoning as
- * [ModelDownloadWorker] — the worker pulls [TelemetryUploader] via
- * [EntryPointAccessors] so the hilt-work artifact stays out of the
- * dependency graph. The uploader does the consent check itself, so this
- * worker is a thin wrapper.
+ * A plain CoroutineWorker (not a DI-instantiated worker): the worker pulls
+ * [TelemetryUploader] from the global Koin graph in a `by lazy`. The uploader
+ * does the consent check itself, so this worker is a thin wrapper.
  *
  * Cancellation: failures (network blip, partial flush) return `Result.retry`
  * so WorkManager re-enqueues with the request's backoff policy. The
@@ -43,11 +38,9 @@ class TelemetryUploadWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
 
-    private val uploader: TelemetryUploader by lazy {
-        EntryPointAccessors
-            .fromApplication(applicationContext, TelemetryUploadEntryPoint::class.java)
-            .telemetryUploader()
-    }
+    // Phase 3: resolved from the global Koin graph (Hilt's @EntryPoint is gone). A Worker is
+    // framework-instantiated, so it pulls its dependency rather than getting it injected.
+    private val uploader: TelemetryUploader by lazy { getKoin().get() }
 
     override suspend fun doWork(): Result = try {
         val includeCurrent = inputData.getBoolean(KEY_INCLUDE_CURRENT_WINDOW, false)
@@ -64,11 +57,6 @@ class TelemetryUploadWorker(
         Result.retry()
     }
 
-    @EntryPoint
-    @InstallIn(SingletonComponent::class)
-    interface TelemetryUploadEntryPoint {
-        fun telemetryUploader(): TelemetryUploader
-    }
 
     companion object {
         private const val TAG = "TelemetryWorker"

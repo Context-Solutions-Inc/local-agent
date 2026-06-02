@@ -5,16 +5,13 @@ import com.contextsolutions.mobileagent.app.service.DownloadState
 import com.contextsolutions.mobileagent.app.service.ModelDownloadController
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.app.service.ModelSpec
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Pass-through over [ModelDownloadController]. The controller is the singleton;
  * this VM exists only to bind it into Compose's lifecycle.
  */
-@HiltViewModel
-class DownloadViewModel @Inject constructor(
+class DownloadViewModel(
     private val controller: ModelDownloadController,
     private val inventory: ModelInventory,
 ) : ViewModel() {

@@ -15,17 +15,13 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.contextsolutions.mobileagent.app.R
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
+import org.koin.mp.KoinPlatform.getKoin
 
 /**
  * WorkManager wrapper around [ModelDownloader].
  *
- * Why no @HiltWorker: avoiding the hilt-work artifact keeps DI surface minimal.
- * The Worker grabs its dependencies via [EntryPointAccessors] from the
- * application context — same effect, one fewer dependency.
+ * A plain CoroutineWorker (not a DI-instantiated worker): it grabs
+ * [ModelDownloader] from the global Koin graph in a `by lazy`.
  *
  * Lifecycle:
  *  - Runs as a typed foreground worker (FOREGROUND_SERVICE_TYPE_DATA_SYNC) so
@@ -42,9 +38,9 @@ class ModelDownloadWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
 
-    private val downloader: ModelDownloader by lazy {
-        EntryPointAccessors.fromApplication(applicationContext, DownloadEntryPoint::class.java).downloader()
-    }
+    // Phase 3: resolved from the global Koin graph (Hilt's @EntryPoint is gone). A Worker is
+    // framework-instantiated, so it pulls its dependency rather than getting it injected.
+    private val downloader: ModelDownloader by lazy { getKoin().get() }
 
     override suspend fun getForegroundInfo(): ForegroundInfo = createForegroundInfo(0L, 0L)
 
@@ -139,12 +135,6 @@ class ModelDownloadWorker(
         KEY_ERROR_TYPE to error.toType().name,
         KEY_ERROR_MESSAGE to error.message,
     )
-
-    @EntryPoint
-    @InstallIn(SingletonComponent::class)
-    interface DownloadEntryPoint {
-        fun downloader(): ModelDownloader
-    }
 
     companion object {
         const val UNIQUE_WORK_NAME = "model-download"

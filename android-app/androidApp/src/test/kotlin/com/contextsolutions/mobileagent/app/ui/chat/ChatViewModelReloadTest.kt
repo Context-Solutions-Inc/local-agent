@@ -1,10 +1,10 @@
-package com.contextsolutions.mobileagent.app.ui.chat
+package com.contextsolutions.mobileagent.ui.chat
 
 import com.contextsolutions.mobileagent.agent.ChatMessage
-import com.contextsolutions.mobileagent.app.di.AgentLoopFactory
-import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
-import com.contextsolutions.mobileagent.app.service.ModelInventory
-import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.di.AgentLoopFactory
+import com.contextsolutions.mobileagent.agent.ChatLogger
+import com.contextsolutions.mobileagent.agent.ChatSessionController
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.conversation.ConversationRecord
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.inference.Accelerator
@@ -47,8 +47,7 @@ class ChatViewModelReloadTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private val agentLoopFactory: AgentLoopFactory = mockk()
-    private val sessionManager: InferenceSessionManager = mockk()
-    private val inventory: ModelInventory = mockk()
+    private val sessionController: ChatSessionController = mockk()
     private val languagePreferences: LanguagePreferences = mockk(relaxed = true)
     private val translationIntentDetector: com.contextsolutions.mobileagent.agent.TranslationIntentDetector =
         mockk(relaxed = true)
@@ -62,10 +61,10 @@ class ChatViewModelReloadTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        every { sessionManager.state } returns sessionStateFlow
+        every { sessionController.state } returns sessionStateFlow
+        coEvery { sessionController.newSession() } returns mockk(relaxed = true)
         every { thermalProvider.statusFlow() } returns flowOf(ThermalStatus.NONE)
         every { thermalProvider.current() } returns ThermalStatus.NONE
-        every { inventory.localFile() } returns File("/data/test/model.litertlm")
     }
 
     @After
@@ -102,8 +101,7 @@ class ChatViewModelReloadTest {
 
     private fun newViewModel(): ChatViewModel = ChatViewModel(
         agentLoopFactory = agentLoopFactory,
-        sessionManager = sessionManager,
-        inventory = inventory,
+        sessionController = sessionController,
         languagePreferences = languagePreferences,
         translationIntentDetector = translationIntentDetector,
         memoryExtractor = memoryExtractor,
@@ -112,7 +110,7 @@ class ChatViewModelReloadTest {
         telemetryCounters = NoOpTelemetryCounters,
         ttsPreferences = mockk(relaxed = true),
         speaker = mockk(relaxed = true),
-        appContext = mockk(relaxed = true),
+        logger = ChatLogger { },
         thermalStatusProvider = thermalProvider,
     )
 }

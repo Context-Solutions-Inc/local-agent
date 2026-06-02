@@ -1,6 +1,6 @@
-# Mobile Agent — On-Device AI Assistant (Android)
+# Mobile Agent — On-Device AI Assistant (Android + Desktop)
 
-Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with Brave Search as the only outbound network dependency. See [PRD.md](PRD.md) for the full product spec and [PHASE1_PLAN.md](PHASE1_PLAN.md) for the implementation plan.
+Privacy-first on-device assistant running Gemma 4 locally, with Brave Search as the only outbound network dependency. The same agent (chat, web search, memory, clock/alarms, voice, vision) ships on **Android** (Gemma 4 E2B via LiteRT-LM) and on the **desktop** — Linux, macOS, and Windows (Gemma 4 via llama.cpp) — from one Kotlin Multiplatform codebase with a shared Compose Multiplatform UI. See [PRD.md](PRD.md) for the full product spec, [PHASE1_PLAN.md](PHASE1_PLAN.md) for the Android implementation plan, and [docs/DESKTOP_PORT_PLAN.md](docs/DESKTOP_PORT_PLAN.md) + [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) for the desktop port.
 
 <img width="1048" height="1220" alt="image" src="agent_loop_state_diagram.svg" />
 
@@ -15,14 +15,23 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 ├── CLAUDE.md                       Context for Claude Code sessions (hard invariants)
 ├── agent_loop_state_diagram.svg    Agent loop reference diagram
 │
-├── android-app/                    KMP shared module + Android Compose shell
+├── android-app/                    KMP shared module + Compose MP UI + Android & desktop shells
 │   ├── shared/                     commonMain (agent loop, prompt, search, classifier,
-│   │                                            memory, telemetry, storage, observability)
+│   │                                            memory, telemetry, storage, observability;
+│   │                                            Koin agentCoreModule)
 │   │                               androidMain (LiteRT-LM JNI, LiteRT classifier/embedder,
-│   │                                            OkHttp engine, EncryptedSharedPrefs)
+│   │                                            OkHttp engine, EncryptedSharedPrefs, voice/vision)
+│   │                               desktopMain (llama.cpp JNI, ONNX classifier/embedder,
+│   │                                            Ktor CIO, SQLite/JDBC, Vosk; desktopModule)
 │   │                               iosMain (stubbed for Phase 2)
-│   └── androidApp/                 Compose UI, Hilt DI, spike harness
-│       └── src/main/assets/        Bundled .tflite + vocab + JSON config
+│   ├── ui/                         Compose Multiplatform UI shared by both shells (android +
+│   │                               jvm desktop): every screen incl. Chat, nav host, uiModule
+│   ├── androidApp/                 Thin Android shell: MainActivity, Koin start, WorkManager
+│   │   │                           download, Android-only services + actuals, spike harness
+│   │   └── src/main/assets/        Bundled .tflite + vocab + JSON config
+│   ├── desktopApp/                 Thin Compose Desktop shell: window + system tray + warm
+│   │                               model + queued-task runtime; jpackage installers
+│   └── desktopHarness/             Headless CLI that drives the real AgentLoop on llama.cpp
 │
 ├── classifier-training/            Python ML — dataset gen, fine-tuning, quantization,
 │   └── src/classifier_training/    LiteRT export, regression-gate CLI
@@ -45,14 +54,25 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 
 ## Targets
 
-- **Devices:** Google Pixel 7 (Phase 1)
-- **OS:** Android 16 (API 36)
-- **Language stack:** Kotlin 2.3.21, Jetpack Compose, Kotlin Multiplatform (Android-only actuals in Phase 1)
+- **Language stack:** Kotlin 2.3.21, Compose Multiplatform, Kotlin Multiplatform, Koin DI. One `:shared` agent core + one `:ui` Compose Multiplatform UI, behind thin `:androidApp` / `:desktopApp` shells.
+
+**Android (Phase 1):**
+
+- **Devices:** Google Pixel 7 · **OS:** Android 16 (API 36)
 - **Inference runtime:** LiteRT-LM 0.12.0 (Gemma, incl. vision) + `com.google.ai.edge.litert:litert:2.1.5` (classifier + embedder)
 - **Models:**
   - Gemma 4 E2B (`litert-community/gemma-4-E2B-it-litert-lm`, ~2.58 GB, downloaded on first run) — text **and** image input
   - Pre-flight + memory classifier: shared DistilBERT-base encoder + 3 task heads (INT8, 67.7 MB, bundled)
   - Sentence embedder: all-MiniLM-L6-v2 (INT8, 23.5 MB, bundled)
+
+**Desktop (Linux / macOS / Windows):**
+
+- **Inference runtime:** llama.cpp via JNI (`net.ladenthin:llama` 5.0.1, bundling llama.cpp b9151 — the `gemma4` GGUF architecture) + ONNX Runtime 1.20.0 (classifier + embedder). CPU by default; LLM GPU offload (CUDA/Metal/Vulkan) is **opt-in** with a BYO GPU native via `-PllamaLibPath` — see [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) → "Enabling LLM GPU offload".
+- **Models** (downloaded / operator-supplied into the app-data dir at first run, not bundled):
+  - Gemma 4 GGUF (Q4_K_M) — fetched via the tray (operator fills the verified URL + checksum, same BYO policy as Android)
+  - ONNX classifier + embedder — exported by `ct-export-onnx` / `export_minilm_onnx.py`
+  - Vosk acoustic model (optional, for dictation)
+- **Packaging:** jpackage installers (`.deb`/`.rpm`, `.dmg`/`.pkg`, `.msi`/`.exe`), one set per host OS via a CI matrix.
 
 ## Status
 
@@ -70,6 +90,8 @@ Privacy-first on-device assistant running Gemma 4 E2B locally on Android, with B
 | M7 Closed beta → public launch | Not started. See `docs/M7_PLAN.md`. |
 
 Post-M6 increments tracked as M2.1–M2.24 in [PHASE1_PLAN.md](PHASE1_PLAN.md) §5: news.results enhancements, persisted multi-conversation history, on-device TODO list, proactive memory-pressure handling, icon-only header with system-RAM status indicator, an explicit `remember`/`forget` short-circuit, per-vertical search routing (News/Weather/Sports/Finance), and most recently **single-image photo input (vision, M2.24)** — see "Asking about a photo" below.
+
+**Desktop port (v0.1.0, branch `feature/desktop-cmp`).** Hilt was replaced with Koin, the agent core gained a `jvm("desktop")` target (llama.cpp + ONNX), and every screen — including Chat — was migrated into the shared `:ui` Compose Multiplatform module behind expect/actual seams (voice, vision, markdown/LaTeX, file/image pickers, theme, mic permission). Both shells now render the same `AppNavHost`. The desktop shell adds a system tray, a resident warm model, a queued background-task system, and jpackage installers. Phases 0–9 are complete on the branch; see [docs/DESKTOP_PORT_PLAN.md](docs/DESKTOP_PORT_PLAN.md).
 
 ## Building
 
@@ -195,6 +217,70 @@ adb shell "run-as com.contextsolutions.mobileagent.debug \
 - `.github/workflows/prompt-eval-gate.yml` runs the 15-query `CanonicalEvalTest` on PRs touching `SYSTEM_PROMPT.md`, the prompt assembler, or routing-layer code.
 
 See `docs/SPIKE_RUNBOOK.md` for instructions on running the M0 inference benchmark on a Pixel 7.
+
+## Running on desktop
+
+The desktop app (Linux / macOS / Windows) is the `:desktopApp` Compose Desktop
+shell. It needs only **JDK 17** to build and launch — no Android SDK. All Gradle
+commands run from `android-app/`.
+
+### Launch (dev)
+
+```bash
+cd android-app
+./gradlew :desktopApp:run
+```
+
+This opens the chat window and starts the system tray + the warm-model /
+queued-task background runtime. Closing the window **hides to the tray** (the app
+and model stay resident); quit from the tray menu.
+
+> **Headless / CI smoke test:** `DI_CHECK=1 ./gradlew :desktopApp:run`
+> force-resolves the whole Koin graph, prints `Koin agent graph resolved OK`, and
+> exits **without opening a window** — a display-free check of the wiring.
+
+### First-run setup (models + Brave key)
+
+Like the Android build, the desktop ships **no model and no bundled API key** —
+the operator supplies them. Bundled config (vocab, search defaults, locations,
+etc.) rides in the app already; the large artifacts live in the per-OS app-data
+dir:
+
+- Linux: `~/.local/share/MobileAgent/`
+- macOS: `~/Library/Application Support/MobileAgent/`
+- Windows: `%LOCALAPPDATA%\MobileAgent\`
+
+| Artifact | How to provide | Notes |
+|---|---|---|
+| **Gemma 4 GGUF** (Q4_K_M) | Fetched via the tray's download (fill the verified URL + SHA-256 + size in `DesktopModelSpec` — blank by default, like Android `secrets.properties`), or set `GEMMA_GGUF_PATH=/abs/path.gguf` | Loaded lazily on the first chat turn |
+| **ONNX classifier + embedder** | Drop in app-data `models/`, or set `MOBILEAGENT_CLASSIFIER_ONNX` / `MOBILEAGENT_EMBEDDER_ONNX` | Export with `ct-export-onnx` + `export_minilm_onnx.py`. Without them the classifier no-ops (search still works via the explicit `web search …` command) |
+| **Brave Search key** | `BRAVE_API_KEY` env var, or store it via the app's SecureStorage | Without it, search is disabled (the model answers offline) |
+| **Vosk acoustic model** (optional) | app-data `models/vosk`, or `MOBILEAGENT_VOSK_MODEL` | Enables dictation; STT silently no-ops without it |
+
+The model never leaves the machine; only Brave queries (and opt-in telemetry to
+Sentry, default OFF) generate outbound traffic.
+
+### Packaging native installers
+
+jpackage builds **only for the host OS**, so each platform produces its own
+installers (the CI matrix in `.github/workflows/desktop-package.yml` runs one job
+per OS):
+
+```bash
+./gradlew :desktopApp:createDistributable             # runnable app-image (no OS packaging tool needed)
+./gradlew :desktopApp:packageDistributionForCurrentOS # every installer for the host OS (.deb/.rpm, .dmg/.pkg, .msi/.exe)
+./gradlew :desktopApp:packageDeb                       # a single Linux format
+```
+
+`createDistributable` needs no system packaging tool and is the local smoke test;
+the full installers need the host's packaging tools (`fakeroot`/`rpm` on Linux,
+etc.). The shipped build runs llama.cpp on **CPU** ("always works"); **LLM GPU
+offload is opt-in** — build a GPU-enabled `libjllama` and run with
+`-PllamaLibPath=/abs/path/to/libjllama-dir`, where that path is the **directory
+that contains `libjllama.so`** (not the `.so` file itself — the loader appends the
+filename). The engine already requests full offload, so no code change. Full
+native-runtime, GPU, and distribution details — including the build-the-native
+steps — are in [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md).
 
 ## Configuring search sources
 
@@ -398,4 +484,4 @@ transcribed back into the box.
 
 ## Privacy
 
-User conversations and memories never leave the device. Only Brave Search queries (and optional opt-in aggregate counters routed through Firebase Analytics, default OFF) generate outbound traffic. The telemetry pipeline reads only aggregate tables, has a memory-exclusion canary test, and routes Crashlytics non-fatals through a `SafeCrashReporter` facade with `ContentRedactor` scrubbing. See [PRD.md](PRD.md) §4.4, [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md), and [docs/DATA_SAFETY_NOTES.md](docs/DATA_SAFETY_NOTES.md).
+User conversations and memories never leave the device. Only Brave Search queries (and optional opt-in aggregate counters, default OFF — Firebase Analytics on Android, Sentry + a local JSONL sink on desktop) generate outbound traffic. The telemetry pipeline reads only aggregate tables, has a memory-exclusion canary test, and routes crash non-fatals through a `SafeCrashReporter` facade with `ContentRedactor` scrubbing on both platforms. See [PRD.md](PRD.md) §4.4, [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md), and [docs/DATA_SAFETY_NOTES.md](docs/DATA_SAFETY_NOTES.md).

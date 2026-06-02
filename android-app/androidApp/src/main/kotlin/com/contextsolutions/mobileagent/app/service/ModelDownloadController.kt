@@ -8,10 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,9 +35,8 @@ import kotlinx.coroutines.flow.stateIn
  * surfaces a confirmation dialog and re-calls [start] with `allowMetered=true`
  * when the user opts in.
  */
-@Singleton
-class ModelDownloadController @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class ModelDownloadController(
+    private val context: Context,
 ) {
     private val workManager = WorkManager.getInstance(context)
 

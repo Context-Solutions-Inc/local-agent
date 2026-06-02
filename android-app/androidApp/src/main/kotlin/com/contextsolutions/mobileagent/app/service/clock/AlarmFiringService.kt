@@ -17,8 +17,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Foreground service that drives a ringing alarm:
@@ -48,11 +48,10 @@ import javax.inject.Inject
  * `specialUse` type already taken by `InferenceForegroundService` doesn't
  * fit alarm playback per the Android docs.
  */
-@AndroidEntryPoint
-class AlarmFiringService : Service() {
+class AlarmFiringService : Service(), KoinComponent {
 
-    @Inject lateinit var clockNotifications: ClockNotifications
-    @Inject lateinit var alarmScheduler: com.contextsolutions.mobileagent.clock.AlarmScheduler
+    private val clockNotifications: ClockNotifications by inject()
+    private val alarmScheduler: com.contextsolutions.mobileagent.clock.AlarmScheduler by inject()
 
     private val handler = Handler(Looper.getMainLooper())
     private var mediaPlayer: MediaPlayer? = null

@@ -1,13 +1,13 @@
-package com.contextsolutions.mobileagent.app.ui.chat
+package com.contextsolutions.mobileagent.ui.chat
 
 import com.contextsolutions.mobileagent.agent.AgentEvent
 import com.contextsolutions.mobileagent.agent.AgentLoop
 import com.contextsolutions.mobileagent.agent.AgentTurnInput
 import com.contextsolutions.mobileagent.agent.TranslationIntentDetector
-import com.contextsolutions.mobileagent.app.di.AgentLoopFactory
-import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
-import com.contextsolutions.mobileagent.app.service.ModelInventory
-import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.di.AgentLoopFactory
+import com.contextsolutions.mobileagent.agent.ChatLogger
+import com.contextsolutions.mobileagent.agent.ChatSessionController
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.ThermalStatus
@@ -64,8 +64,7 @@ class ChatViewModelCancelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private val agentLoopFactory: AgentLoopFactory = mockk()
-    private val sessionManager: InferenceSessionManager = mockk()
-    private val inventory: ModelInventory = mockk()
+    private val sessionController: ChatSessionController = mockk()
     private val languagePreferences: LanguagePreferences = mockk(relaxed = true)
     private val translationIntentDetector: TranslationIntentDetector = mockk(relaxed = true)
     private val memoryExtractor: MemoryExtractor = mockk(relaxed = true)
@@ -78,10 +77,10 @@ class ChatViewModelCancelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        every { sessionManager.state } returns sessionStateFlow
+        every { sessionController.state } returns sessionStateFlow
+        coEvery { sessionController.newSession() } returns mockk(relaxed = true)
         every { thermalProvider.statusFlow() } returns flowOf(ThermalStatus.NONE)
         every { thermalProvider.current() } returns ThermalStatus.NONE
-        every { inventory.localFile() } returns File("/data/test/model.litertlm")
         every { translationIntentDetector.isTranslationRequest(any(), any()) } returns false
         coEvery { conversationRepository.appendMessage(any(), any(), any()) } returns 0L
     }
@@ -165,8 +164,7 @@ class ChatViewModelCancelTest {
 
     private fun newViewModel(): ChatViewModel = ChatViewModel(
         agentLoopFactory = agentLoopFactory,
-        sessionManager = sessionManager,
-        inventory = inventory,
+        sessionController = sessionController,
         languagePreferences = languagePreferences,
         translationIntentDetector = translationIntentDetector,
         memoryExtractor = memoryExtractor,
@@ -175,7 +173,7 @@ class ChatViewModelCancelTest {
         telemetryCounters = NoOpTelemetryCounters,
         ttsPreferences = mockk(relaxed = true),
         speaker = mockk(relaxed = true),
-        appContext = mockk(relaxed = true),
+        logger = ChatLogger { },
         thermalStatusProvider = thermalProvider,
     )
 }

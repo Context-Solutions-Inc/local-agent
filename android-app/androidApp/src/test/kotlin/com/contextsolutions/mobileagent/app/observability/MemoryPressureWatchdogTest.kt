@@ -2,7 +2,7 @@ package com.contextsolutions.mobileagent.app.observability
 
 import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
-import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider

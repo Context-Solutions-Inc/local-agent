@@ -47,6 +47,11 @@ class RelativeTemporalDetector {
                 // PRESENT / NOW
                 "today|tonight|currently|right\\s+now|at\\s+the\\s+moment|these\\s+days|" +
                 "this\\s+(morning|afternoon|evening|week|weekend|month|year)|" +
+                // RECENCY PHRASES — current-events idioms the v1.0 classifier
+                // under-fires on ("what is the latest news"). Phrase-anchored to
+                // a news/headlines noun so a bare recency adjective on a product
+                // ("upgrade to the latest iphone") stays middle-band, not forced.
+                "(latest|breaking|recent)\\s+(news|headlines)|" +
                 // FUTURE
                 "tomorrow|upcoming|next\\s+(hour|week|weekend|month|year)|" +
                 "later\\s+(today|tonight|this\\s+week)" +

@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 
 /**
  * Brand light scheme — used on Android 11 and below (out of scope here:

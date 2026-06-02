@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.app.service
 
 import app.cash.turbine.test
 import com.contextsolutions.mobileagent.inference.Accelerator
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.inference.FinishReason
 import com.contextsolutions.mobileagent.inference.GenerationEvent
 import com.contextsolutions.mobileagent.inference.GenerationRequest

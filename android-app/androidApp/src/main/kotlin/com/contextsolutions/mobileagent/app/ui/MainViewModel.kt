@@ -8,8 +8,6 @@ import com.contextsolutions.mobileagent.app.service.ModelDownloadController
 import com.contextsolutions.mobileagent.app.service.ModelInventory
 import com.contextsolutions.mobileagent.onboarding.OnboardingPreferences
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -25,8 +23,7 @@ import kotlinx.coroutines.flow.stateIn
  * reactivity — when the Worker renames the partial to the final filename and
  * the controller emits Completed, our flow re-runs and isPresent flips to true.
  */
-@HiltViewModel
-class MainViewModel @Inject constructor(
+class MainViewModel(
     private val inventory: ModelInventory,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     onboardingPreferences: OnboardingPreferences,

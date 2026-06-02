@@ -8,8 +8,6 @@ import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Foreground main-thread responsiveness watchdog.
@@ -53,8 +51,7 @@ import javax.inject.Singleton
  * and Gemma on GPU only causes the system-wide failure mode while
  * SurfaceFlinger is actively compositing the app.
  */
-@Singleton
-class MainThreadHeartbeatWatchdog @Inject constructor(
+class MainThreadHeartbeatWatchdog(
     private val sessionManager: InferenceSessionManager,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     private val crashReporter: SafeCrashReporter,

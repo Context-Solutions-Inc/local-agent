@@ -1,11 +1,9 @@
 [versions]
 # Kotlin and core
 # Kotlin 2.3.x is required because LiteRT-LM 0.10.2 ships Kotlin metadata 2.3.0
-# (older compilers can't read newer metadata). KSP 2.3+ dropped the dual-version
-# scheme and now uses plain SemVer aligned to the KSP API.
+# (older compilers can't read newer metadata).
 kotlin = "2.3.21"
 agp = "9.1.1"
-ksp = "2.3.7"
 coroutines = "1.10.1"
 serialization = "1.7.3"
 datetime = "0.6.1"
@@ -26,6 +24,10 @@ androidx-datastore = "1.1.1"
 compose-bom = "2024.12.01"
 compose-compiler = "1.5.15"
 compose-navigation = "2.8.5"
+# Compose Multiplatform — shared UI for the desktop port (docs/DESKTOP_PORT_PLAN.md).
+# The Compose *compiler* ships with the Kotlin `plugin.compose` at the Kotlin version;
+# this plugin provides the multiplatform runtime/foundation/material3 + desktop packaging.
+compose-multiplatform = "1.10.3"
 
 # Markdown + LaTeX rendering (PR #50). Markwon renders markdown into a TextView;
 # ext-latex pulls io.noties:jlatexmath-android (native canvas, offline — no WebView).
@@ -33,12 +35,21 @@ compose-navigation = "2.8.5"
 markwon = "4.6.2"
 
 # DI
-hilt = "2.59.2"
-hilt-navigation-compose = "1.2.0"
+# Koin — the app's DI across :shared/:androidApp/desktop (docs/DESKTOP_PORT_PLAN.md).
+# Hilt was fully removed in Phase 3.
+koin = "4.2.1"
 
 # Networking
 ktor = "3.0.2"
 okhttp = "4.12.0"
+# Desktop LLM runtime (llama.cpp JNI binding). Verify the resolved API surface
+# with `javap` before wiring (CLAUDE.md working norms) — the binding's API has
+# churned across majors. Switched from de.kherud:llama (latest 4.2.0 → llama.cpp
+# b4916-era, no gemma4) to the bernardladenthin fork net.ladenthin:llama, which tracks
+# llama.cpp far more closely (5.0.1 bundles b9151) — needed for newer GGUF architectures
+# like gemma4. NOTE: the fork RENAMED the package de.kherud.llama → net.ladenthin.llama.
+# Pinning a specific llama.cpp build / GPU natives still requires a custom libjllama (Phase 8).
+llama-jni = "5.0.1"
 
 # Storage
 sqldelight = "2.0.2"
@@ -83,6 +94,31 @@ playServicesTflite = "16.4.0"
 # (invariant #18) on-device after this bump.
 aiEdgeLitert = "2.1.5"
 
+# ONNX Runtime (Java) — desktop classifier + embedder runtime (Phase 5,
+# docs/DESKTOP_PORT_PLAN.md). The Android `.tflite` + ai-edge-litert stack has
+# no desktop runtime (invariant #18), so the DistilBERT 3-head classifier and
+# MiniLM embedder are re-exported to ONNX and run via ORT Java. The `onnxruntime`
+# artifact bundles CPU natives that work headless; `onnxruntime_gpu` (CUDA EP) is
+# an optional swap gated like the LLM GPU path (try, fall back to CPU).
+onnxruntime = "1.20.0"
+# Desktop crash reporting (Phase 7). Sentry JVM core — unlike Firebase Crashlytics
+# it has a beforeSend hook, but the desktop reporter keeps the same redaction-at-
+# callsite discipline (RedactedThrowable, invariant #24) for parity + defense-in-depth.
+sentry = "8.43.0"
+# Desktop Markdown/LaTeX rendering (Phase 7): a Compose-Multiplatform markdown
+# renderer (no WebView) + JLaTeXMath (Java2D → ImageBitmap) for the math the
+# Android path renders via Markwon's ext-latex. Reuses the shared LatexNormalizer.
+# PINNED to 0.39.0: 0.40.0+ compile their JVM artifact to Java 21 (class 65), which
+# throws UnsupportedClassVersionError on our JDK-17 desktop runtime when an answer
+# renders markdown. 0.39.0 is the newest release still built for JVM 17 (class 61);
+# the m3.Markdown(content=…) API we use is unchanged. Bump only alongside JDK 21.
+markdownRenderer = "0.39.0"
+jlatexmath = "1.0.7"
+# Desktop offline STT (Phase 7). Vosk JNI — bundles native libs for Linux/macOS/
+# Windows; the acoustic model is downloaded separately (VoskDictation degrades to
+# no-op when absent, like the ONNX/GGUF engines).
+vosk = "0.3.45"
+
 # Test
 junit = "4.13.2"
 androidx-test-junit = "1.2.1"
@@ -95,12 +131,15 @@ mockk = "1.13.13"
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
 
 # Ktor (HTTP, used in shared)
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+# Desktop (JVM) HTTP engine — pure-Kotlin coroutine engine, no OkHttp/Android dep.
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
@@ -117,6 +156,16 @@ sqldelight-sqlite-dialect = { module = "app.cash.sqldelight:sqlite-3-25-dialect"
 # LiteRT-LM
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 
+# Desktop LLM runtime — llama.cpp via JNI (GGUF Gemma; CUDA/Metal/Vulkan/CPU auto-select).
+# Bundles prebuilt native libs per host. Desktop port v1.0.0 (docs/DESKTOP_PORT_PLAN.md).
+llama-jni = { module = "net.ladenthin:llama", version.ref = "llama-jni" }
+
+# Koin DI
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+
 # Play Services TFLite (runtime + GPU delegate + support helpers).
 play-services-tflite-java = { module = "com.google.android.gms:play-services-tflite-java", version.ref = "playServicesTflite" }
 play-services-tflite-gpu = { module = "com.google.android.gms:play-services-tflite-gpu", version.ref = "playServicesTflite" }
@@ -125,6 +174,20 @@ play-services-tflite-support = { module = "com.google.android.gms:play-services-
 # AI Edge LiteRT — Android Kotlin runtime that matches Python's ai-edge-litert
 # export tooling (M4 classifier path; see comment above).
 ai-edge-litert = { module = "com.google.ai.edge.litert:litert", version.ref = "aiEdgeLitert" }
+
+# ONNX Runtime (Java) — desktop classifier + embedder (Phase 5). CPU natives
+# bundled (headless-safe, the default). `onnxruntime-gpu` is the optional CUDA-EP
+# build, selected at build time with `-PonnxGpu=true` (docs/DESKTOP_PACKAGING.md);
+# the engines try the CUDA EP and fall back to CPU, so the GPU jar is a superset.
+onnxruntime = { module = "com.microsoft.onnxruntime:onnxruntime", version.ref = "onnxruntime" }
+onnxruntime-gpu = { module = "com.microsoft.onnxruntime:onnxruntime_gpu", version.ref = "onnxruntime" }
+# Sentry JVM SDK — desktop SafeCrashReporter backend (Phase 7).
+sentry-jvm = { module = "io.sentry:sentry", version.ref = "sentry" }
+# Desktop Markdown/LaTeX (Phase 7).
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
+jlatexmath = { module = "org.scilab.forge:jlatexmath", version.ref = "jlatexmath" }
+# Desktop offline STT (Phase 7).
+vosk = { module = "com.alphacephei:vosk", version.ref = "vosk" }
 
 # AndroidX
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
@@ -152,11 +215,6 @@ markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
 markwon-ext-latex = { module = "io.noties.markwon:ext-latex", version.ref = "markwon" }
 markwon-inline-parser = { module = "io.noties.markwon:inline-parser", version.ref = "markwon" }
 
-# DI
-hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
-hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "hilt" }
-hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hilt-navigation-compose" }
-
 # Firebase — BoM pins compatible versions for all firebase-* artifacts.
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-analytics = { module = "com.google.firebase:firebase-analytics" }
@@ -182,10 +240,10 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
 google-services = { id = "com.google.gms.google-services", version.ref = "google-services-plugin" }
 firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "firebase-crashlytics-plugin" }

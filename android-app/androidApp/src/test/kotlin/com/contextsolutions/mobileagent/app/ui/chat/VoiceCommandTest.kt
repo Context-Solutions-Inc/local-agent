@@ -1,4 +1,4 @@
-package com.contextsolutions.mobileagent.app.ui.chat
+package com.contextsolutions.mobileagent.ui.chat
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

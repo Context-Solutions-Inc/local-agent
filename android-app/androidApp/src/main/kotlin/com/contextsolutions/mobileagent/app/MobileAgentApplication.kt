@@ -12,12 +12,17 @@ import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
 import com.contextsolutions.mobileagent.app.service.TelemetryUploadWorker
 import com.contextsolutions.mobileagent.app.service.UnloadReason
+import com.contextsolutions.mobileagent.app.di.androidModule
+import com.contextsolutions.mobileagent.di.agentCoreModule
+import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryFlusher
 import com.google.firebase.analytics.FirebaseAnalytics
-import dagger.hilt.android.HiltAndroidApp
-import javax.inject.Inject
+import org.koin.android.ext.android.inject
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.GlobalContext
+import org.koin.core.context.startKoin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,32 +31,18 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
 
-@HiltAndroidApp
 class MobileAgentApplication : Application() {
 
-    @Inject
-    lateinit var sessionManager: InferenceSessionManager
-
-    @Inject
-    lateinit var auxModelCoordinator: AuxModelLifecycleCoordinator
-
-    @Inject
-    lateinit var telemetryConsent: TelemetryConsentManager
-
-    @Inject
-    lateinit var telemetryFlusher: TelemetryFlusher
-
-    @Inject
-    lateinit var crashReporter: SafeCrashReporter
-
-    @Inject
-    lateinit var mainThreadWatchdog: MainThreadHeartbeatWatchdog
-
-    @Inject
-    lateinit var memoryPressureWatchdog: MemoryPressureWatchdog
-
-    @Inject
-    lateinit var systemMemoryMonitor: SystemMemoryMonitor
+    // Phase 3: Hilt is gone — these resolve lazily from Koin (started in onCreate before
+    // they're first touched). All are process singletons in `androidModule`.
+    private val sessionManager: InferenceSessionManager by inject()
+    private val auxModelCoordinator: AuxModelLifecycleCoordinator by inject()
+    private val telemetryConsent: TelemetryConsentManager by inject()
+    private val telemetryFlusher: TelemetryFlusher by inject()
+    private val crashReporter: SafeCrashReporter by inject()
+    private val mainThreadWatchdog: MainThreadHeartbeatWatchdog by inject()
+    private val memoryPressureWatchdog: MemoryPressureWatchdog by inject()
+    private val systemMemoryMonitor: SystemMemoryMonitor by inject()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -63,6 +54,17 @@ class MobileAgentApplication : Application() {
     private var startedActivityCount: Int = 0
 
     override fun onCreate() {
+        // Desktop-port migration (docs/DESKTOP_PORT_PLAN.md Phase 3): Koin owns the whole
+        // graph. Start it before our `by inject()` fields are first touched below. Guarded
+        // so instrumentation tests that re-create the Application don't trip
+        // "KoinApplication already started".
+        if (GlobalContext.getOrNull() == null) {
+            startKoin {
+                androidContext(this@MobileAgentApplication)
+                modules(agentCoreModule, androidModule, uiModule)
+            }
+        }
+
         super.onCreate()
         // Auxiliary models (pre-flight classifier, memory extractor, embedder) will be
         // loaded here at app start in M3+ since their combined footprint is small enough

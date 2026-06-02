@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.app.ui.settings
 
+import com.contextsolutions.mobileagent.ui.settings.SearchSourcesViewModel
 import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.mobileagent.preferences.SiteConfig
 import com.contextsolutions.mobileagent.preferences.SourceKind

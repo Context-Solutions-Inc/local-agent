@@ -1,0 +1,8 @@
+{
+  "_comment": "Pre-flight classifier routing configuration. Per PRD §3.2.1 thresholds are tunable post-launch via app update. See docs/M3_M4_HANDOFF.md §4 for defaults rationale.",
+  "model_version": "preflight_memory_shared_v1.0.0",
+  "thresholds": {
+    "high_band": 0.3,
+    "low_band": 0.15
+  }
+}

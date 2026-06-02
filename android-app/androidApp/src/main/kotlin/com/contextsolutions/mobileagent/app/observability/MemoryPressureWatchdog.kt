@@ -3,12 +3,10 @@ package com.contextsolutions.mobileagent.app.observability
 import android.util.Log
 import com.contextsolutions.mobileagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.mobileagent.app.service.InferenceSessionManager
-import com.contextsolutions.mobileagent.app.service.SessionState
+import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.app.service.UnloadReason
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,8 +49,7 @@ import kotlinx.coroutines.launch
  * because the pressure can build while we're backgrounded too (and the OS
  * is more likely to reclaim us when we're backgrounded with 3 GB resident).
  */
-@Singleton
-class MemoryPressureWatchdog @Inject constructor(
+class MemoryPressureWatchdog(
     private val sessionManager: InferenceSessionManager,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     private val provider: MemoryHeadroomProvider,

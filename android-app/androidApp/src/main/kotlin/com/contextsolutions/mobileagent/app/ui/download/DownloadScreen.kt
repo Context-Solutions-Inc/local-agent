@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.mobileagent.app.service.DownloadErrorType
 import com.contextsolutions.mobileagent.app.service.DownloadState
 
@@ -43,7 +43,7 @@ import com.contextsolutions.mobileagent.app.service.DownloadState
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadScreen(viewModel: DownloadViewModel = hiltViewModel()) {
+fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
     val state by viewModel.state.collectAsState()
     val spec = viewModel.spec()
     val context = LocalContext.current

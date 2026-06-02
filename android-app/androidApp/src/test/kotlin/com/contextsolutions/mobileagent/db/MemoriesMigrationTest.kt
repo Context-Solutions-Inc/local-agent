@@ -49,11 +49,12 @@ class MemoriesMigrationTest {
         // M6 Phase A added 1.sqm (memories.access_count), Phase C added 2.sqm
         // (telemetry tables), PR#13 added 3.sqm (conversations.truncation_
         // acknowledged_at), PR#15 added 4.sqm (todos table), PR#49 added 5.sqm
-        // (messages.image_bytes), PR#50 added 6.sqm (messages.render_markdown)
-        // — current version must be 7. If this fails after a new schema change,
+        // (messages.image_bytes), PR#50 added 6.sqm (messages.render_markdown),
+        // and the desktop port's Phase 7 added 7.sqm (tasks table) — current
+        // version must be 8. If this fails after a new schema change,
         // either the SQLDelight build didn't regenerate the schema or the new
         // .sqm is misnamed.
-        assertEquals(7L, MobileAgentDatabase.Schema.version)
+        assertEquals(8L, MobileAgentDatabase.Schema.version)
     }
 
     @Test

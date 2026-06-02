@@ -24,3 +24,9 @@ rootProject.name = "mobile-agent"
 
 include(":shared")
 include(":androidApp")
+// Headless desktop integration harness — Phase 0 of the desktop port
+// (docs/DESKTOP_PORT_PLAN.md). Drives AgentLoop + llama.cpp with no UI/DI.
+include(":desktopHarness")
+// Phase 1 — shared Compose Multiplatform UI + thin Compose Desktop shell.
+include(":ui")
+include(":desktopApp")

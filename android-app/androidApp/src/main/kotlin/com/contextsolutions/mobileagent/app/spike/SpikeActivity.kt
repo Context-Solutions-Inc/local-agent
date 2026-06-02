@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
+import org.koin.androidx.viewmodel.ext.android.viewModel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +28,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontFamily
 import com.contextsolutions.mobileagent.app.ui.theme.MobileAgentTheme
-import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 
 /**
@@ -37,10 +36,9 @@ import java.io.File
  * Internal-only — release builds disable this Activity via PackageManager
  * (wired in M6 release engineering).
  */
-@AndroidEntryPoint
 class SpikeActivity : ComponentActivity() {
 
-    private val viewModel: SpikeViewModel by viewModels()
+    private val viewModel: SpikeViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

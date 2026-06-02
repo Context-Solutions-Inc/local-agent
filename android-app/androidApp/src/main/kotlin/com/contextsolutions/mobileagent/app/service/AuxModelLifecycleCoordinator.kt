@@ -2,8 +2,6 @@ package com.contextsolutions.mobileagent.app.service
 
 import com.contextsolutions.mobileagent.classifier.ClassifierEngine
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Single fan-out handle for aux-model lifecycle commands. Lets the
@@ -12,16 +10,15 @@ import javax.inject.Singleton
  * instead of holding separate references to the classifier and
  * embedder engines.
  *
- * The constructor takes the `@Singleton` engine bindings; Hilt resolves
+ * The constructor takes the engine singletons; Koin's `androidModule` resolves
  * them to the [ManagedClassifierEngine] / [ManagedEmbedderEngine]
- * instances configured in `ClassifierModule` / `MemoryModule`. The
+ * instances. The
  * coordinator type-checks the binding is the managed flavor at runtime
  * and degrades to a no-op for the raw engines so test wiring (which
  * may inject the raw [com.contextsolutions.mobileagent.classifier.LiteRtClassifierEngine]
  * directly) doesn't crash.
  */
-@Singleton
-class AuxModelLifecycleCoordinator @Inject constructor(
+class AuxModelLifecycleCoordinator(
     private val classifierEngine: ClassifierEngine,
     private val embedderEngine: EmbedderEngine,
 ) {

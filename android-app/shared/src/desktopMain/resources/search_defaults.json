@@ -1,0 +1,79 @@
+{
+  "fallback": "US",
+  "countries": {
+    "CA": {
+      "general": [
+        { "domain": "brave.com", "displayName": "Brave Web Search", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "{query}" }
+      ],
+      "news": [
+        { "domain": "cbc.ca", "displayName": "CBC News", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "cbc.ca" },
+        { "domain": "theglobeandmail.com", "displayName": "Globe and Mail", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "theglobeandmail.com" },
+        { "domain": "ctvnews.ca", "displayName": "CTV News", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ctvnews.ca" }
+      ],
+      "weather": [
+        { "domain": "weather.gc.ca", "displayName": "Environment Canada", "kind": "RSS", "endpointTemplate": "https://weather.gc.ca/rss/weather/{lat}_{lon}_e.xml" }
+      ],
+      "sports": [
+        { "domain": "tsn.ca", "displayName": "TSN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "tsn.ca" }
+      ],
+      "finance": [
+        { "domain": "ca.finance.yahoo.com", "displayName": "Yahoo Finance (CA)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "ca.finance.yahoo.com" }
+      ]
+    },
+    "US": {
+      "general": [
+        { "domain": "brave.com", "displayName": "Brave Web Search", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "{query}" }
+      ],
+      "news": [
+        { "domain": "apnews.com", "displayName": "Associated Press", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "apnews.com" },
+        { "domain": "reuters.com", "displayName": "Reuters", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "reuters.com" }
+      ],
+      "weather": [
+        { "domain": "weather.gov", "displayName": "National Weather Service", "kind": "DWML", "endpointTemplate": "https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}&unit=0&lg=english&FcstType=dwml" }
+      ],
+      "sports": [
+        { "domain": "espn.com", "displayName": "ESPN", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "espn.com" }
+      ],
+      "finance": [
+        { "domain": "finance.yahoo.com", "displayName": "Yahoo Finance", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "finance.yahoo.com" }
+      ]
+    },
+    "GB": {
+      "general": [
+        { "domain": "brave.com", "displayName": "Brave Web Search", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "{query}" }
+      ],
+      "news": [
+        { "domain": "bbc.co.uk", "displayName": "BBC News", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bbc.co.uk" },
+        { "domain": "theguardian.com", "displayName": "The Guardian", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "theguardian.com" },
+        { "domain": "reuters.com", "displayName": "Reuters", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "reuters.com" }
+      ],
+      "weather": [
+        { "domain": "metoffice.gov.uk", "displayName": "Met Office", "kind": "HTML", "endpointTemplate": "https://www.metoffice.gov.uk/weather/forecast/{city}" }
+      ],
+      "sports": [
+        { "domain": "bbc.com", "displayName": "BBC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "bbc.com/sport" }
+      ],
+      "finance": [
+        { "domain": "uk.finance.yahoo.com", "displayName": "Yahoo Finance (UK)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "uk.finance.yahoo.com" }
+      ]
+    },
+    "AU": {
+      "general": [
+        { "domain": "brave.com", "displayName": "Brave Web Search", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "{query}" }
+      ],
+      "news": [
+        { "domain": "abc.net.au", "displayName": "ABC News", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "abc.net.au" },
+        { "domain": "theage.com.au", "displayName": "The Age", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "theage.com.au" }
+      ],
+      "weather": [
+        { "domain": "bom.gov.au", "displayName": "Bureau of Meteorology", "kind": "RSS", "endpointTemplate": "http://www.bom.gov.au/fwo/IDN10064.xml" }
+      ],
+      "sports": [
+        { "domain": "abc.net.au", "displayName": "ABC Sport", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "abc.net.au/news/sport" }
+      ],
+      "finance": [
+        { "domain": "au.finance.yahoo.com", "displayName": "Yahoo Finance (AU)", "kind": "BRAVE_SITE_FILTER", "endpointTemplate": "au.finance.yahoo.com" }
+      ]
+    }
+  }
+}

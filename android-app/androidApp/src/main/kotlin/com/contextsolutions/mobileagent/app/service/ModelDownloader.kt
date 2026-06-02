@@ -2,14 +2,11 @@ package com.contextsolutions.mobileagent.app.service
 
 import android.os.StatFs
 import android.util.Log
-import com.contextsolutions.mobileagent.app.di.ModelDownloadHttp
 import com.contextsolutions.mobileagent.inference.HfAuthTokenProvider
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.security.MessageDigest
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -41,10 +38,9 @@ import okhttp3.Request
  *   - [DownloadError.Misconfigured]: BuildConfig.MODEL_SHA256/SIZE not filled in.
  *     Engineer-side problem; permanent.
  */
-@Singleton
-class ModelDownloader @Inject constructor(
+class ModelDownloader(
     private val inventory: ModelInventory,
-    @param:ModelDownloadHttp private val httpClient: OkHttpClient,
+    private val httpClient: OkHttpClient,
     private val hfAuthTokenProvider: HfAuthTokenProvider,
 ) {
 

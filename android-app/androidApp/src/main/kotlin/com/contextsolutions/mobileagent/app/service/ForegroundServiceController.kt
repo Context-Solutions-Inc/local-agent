@@ -3,9 +3,6 @@ package com.contextsolutions.mobileagent.app.service
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Thin abstraction over [Context.startService] / [Context.stopService] for the
@@ -17,9 +14,8 @@ interface ForegroundServiceController {
     fun stop()
 }
 
-@Singleton
-class AndroidInferenceForegroundServiceController @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class AndroidInferenceForegroundServiceController(
+    private val context: Context,
 ) : ForegroundServiceController {
 
     override fun start() {

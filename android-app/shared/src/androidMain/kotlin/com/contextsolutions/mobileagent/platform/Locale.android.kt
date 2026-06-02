@@ -23,4 +23,6 @@ actual class LocaleProvider {
         val id = offset.id
         return if (id == "Z") "+00:00" else id
     }
+
+    actual fun countryCode(): String = JLocale.getDefault().country.uppercase(JLocale.ROOT)
 }

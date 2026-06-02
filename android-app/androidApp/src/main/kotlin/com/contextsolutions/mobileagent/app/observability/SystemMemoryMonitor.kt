@@ -4,8 +4,6 @@ import android.util.Log
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.MemoryStatus
 import com.contextsolutions.mobileagent.inference.SystemMemoryThresholds
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,8 +25,7 @@ import kotlinx.coroutines.launch
  *
  * Started from [com.contextsolutions.mobileagent.app.MobileAgentApplication.onCreate].
  */
-@Singleton
-class SystemMemoryMonitor @Inject constructor(
+class SystemMemoryMonitor(
     private val provider: MemoryHeadroomProvider,
     private val thresholds: SystemMemoryThresholds,
 ) {

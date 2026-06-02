@@ -5,8 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.contextsolutions.mobileagent.clock.ClockService
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Handles the notification action buttons that the alarm-firing path posts:
@@ -20,11 +20,10 @@ import javax.inject.Inject
  *  - **Dismiss timer** — cancel the timer-fired notification (timers don't
  *    have a repeating service, so this just clears the notification).
  */
-@AndroidEntryPoint
-class ClockActionReceiver : BroadcastReceiver() {
+class ClockActionReceiver : BroadcastReceiver(), KoinComponent {
 
-    @Inject lateinit var clockService: ClockService
-    @Inject lateinit var clockNotifications: ClockNotifications
+    private val clockService: ClockService by inject()
+    private val clockNotifications: ClockNotifications by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(EXTRA_ID) ?: return

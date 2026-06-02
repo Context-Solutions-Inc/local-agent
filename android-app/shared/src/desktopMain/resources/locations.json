@@ -1,0 +1,413 @@
+{
+  "countries": [
+    {
+      "code": "CA",
+      "name": "Canada",
+      "regions": [
+        { "code": "AB", "name": "Alberta", "cities": [
+          { "name": "Calgary", "lat": 51.0447, "lon": -114.0719 },
+          { "name": "Edmonton", "lat": 53.5461, "lon": -113.4938 },
+          { "name": "Red Deer", "lat": 52.2681, "lon": -113.8112 }
+        ] },
+        { "code": "BC", "name": "British Columbia", "cities": [
+          { "name": "Vancouver", "lat": 49.2827, "lon": -123.1207 },
+          { "name": "Victoria", "lat": 48.4284, "lon": -123.3656 },
+          { "name": "Kelowna", "lat": 49.8880, "lon": -119.4960 }
+        ] },
+        { "code": "MB", "name": "Manitoba", "cities": [
+          { "name": "Winnipeg", "lat": 49.8951, "lon": -97.1384 },
+          { "name": "Brandon", "lat": 49.8485, "lon": -99.9501 }
+        ] },
+        { "code": "NB", "name": "New Brunswick", "cities": [
+          { "name": "Fredericton", "lat": 45.9636, "lon": -66.6431 },
+          { "name": "Moncton", "lat": 46.0878, "lon": -64.7782 },
+          { "name": "Saint John", "lat": 45.2733, "lon": -66.0633 }
+        ] },
+        { "code": "NL", "name": "Newfoundland and Labrador", "cities": [
+          { "name": "St. John's", "lat": 47.5615, "lon": -52.7126 }
+        ] },
+        { "code": "NS", "name": "Nova Scotia", "cities": [
+          { "name": "Halifax", "lat": 44.6488, "lon": -63.5752 },
+          { "name": "Sydney", "lat": 46.1351, "lon": -60.1831 }
+        ] },
+        { "code": "NT", "name": "Northwest Territories", "cities": [
+          { "name": "Yellowknife", "lat": 62.4540, "lon": -114.3718 }
+        ] },
+        { "code": "NU", "name": "Nunavut", "cities": [
+          { "name": "Iqaluit", "lat": 63.7467, "lon": -68.5170 }
+        ] },
+        { "code": "ON", "name": "Ontario", "cities": [
+          { "name": "Toronto", "lat": 43.6532, "lon": -79.3832 },
+          { "name": "Ottawa", "lat": 45.4215, "lon": -75.6972 },
+          { "name": "Mississauga", "lat": 43.5890, "lon": -79.6441 },
+          { "name": "Hamilton", "lat": 43.2557, "lon": -79.8711 },
+          { "name": "London", "lat": 42.9849, "lon": -81.2453 },
+          { "name": "Kitchener", "lat": 43.4516, "lon": -80.4925 },
+          { "name": "Windsor", "lat": 42.3149, "lon": -83.0364 }
+        ] },
+        { "code": "PE", "name": "Prince Edward Island", "cities": [
+          { "name": "Charlottetown", "lat": 46.2382, "lon": -63.1311 }
+        ] },
+        { "code": "QC", "name": "Quebec", "cities": [
+          { "name": "Montreal", "lat": 45.5017, "lon": -73.5673 },
+          { "name": "Quebec City", "lat": 46.8139, "lon": -71.2080 },
+          { "name": "Laval", "lat": 45.6066, "lon": -73.7124 },
+          { "name": "Gatineau", "lat": 45.4765, "lon": -75.7013 },
+          { "name": "Sherbrooke", "lat": 45.4040, "lon": -71.8929 }
+        ] },
+        { "code": "SK", "name": "Saskatchewan", "cities": [
+          { "name": "Saskatoon", "lat": 52.1332, "lon": -106.6700 },
+          { "name": "Regina", "lat": 50.4452, "lon": -104.6189 }
+        ] },
+        { "code": "YT", "name": "Yukon", "cities": [
+          { "name": "Whitehorse", "lat": 60.7212, "lon": -135.0568 }
+        ] }
+      ]
+    },
+    {
+      "code": "US",
+      "name": "United States",
+      "regions": [
+        { "code": "AL", "name": "Alabama", "cities": [
+          { "name": "Birmingham", "lat": 33.5186, "lon": -86.8104 },
+          { "name": "Montgomery", "lat": 32.3668, "lon": -86.3000 },
+          { "name": "Huntsville", "lat": 34.7304, "lon": -86.5861 },
+          { "name": "Mobile", "lat": 30.6954, "lon": -88.0399 }
+        ] },
+        { "code": "AK", "name": "Alaska", "cities": [
+          { "name": "Anchorage", "lat": 61.2181, "lon": -149.9003 },
+          { "name": "Juneau", "lat": 58.3019, "lon": -134.4197 },
+          { "name": "Fairbanks", "lat": 64.8378, "lon": -147.7164 }
+        ] },
+        { "code": "AZ", "name": "Arizona", "cities": [
+          { "name": "Phoenix", "lat": 33.4484, "lon": -112.0740 },
+          { "name": "Tucson", "lat": 32.2226, "lon": -110.9747 },
+          { "name": "Mesa", "lat": 33.4152, "lon": -111.8315 },
+          { "name": "Flagstaff", "lat": 35.1983, "lon": -111.6513 }
+        ] },
+        { "code": "AR", "name": "Arkansas", "cities": [
+          { "name": "Little Rock", "lat": 34.7465, "lon": -92.2896 },
+          { "name": "Fayetteville", "lat": 36.0626, "lon": -94.1574 },
+          { "name": "Fort Smith", "lat": 35.3859, "lon": -94.3985 }
+        ] },
+        { "code": "CA", "name": "California", "cities": [
+          { "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437 },
+          { "name": "San Francisco", "lat": 37.7749, "lon": -122.4194 },
+          { "name": "San Diego", "lat": 32.7157, "lon": -117.1611 },
+          { "name": "San Jose", "lat": 37.3382, "lon": -121.8863 },
+          { "name": "Sacramento", "lat": 38.5816, "lon": -121.4944 },
+          { "name": "Fresno", "lat": 36.7378, "lon": -119.7871 }
+        ] },
+        { "code": "CO", "name": "Colorado", "cities": [
+          { "name": "Denver", "lat": 39.7392, "lon": -104.9903 },
+          { "name": "Colorado Springs", "lat": 38.8339, "lon": -104.8214 },
+          { "name": "Boulder", "lat": 40.0150, "lon": -105.2705 },
+          { "name": "Fort Collins", "lat": 40.5853, "lon": -105.0844 }
+        ] },
+        { "code": "CT", "name": "Connecticut", "cities": [
+          { "name": "Hartford", "lat": 41.7658, "lon": -72.6734 },
+          { "name": "New Haven", "lat": 41.3083, "lon": -72.9279 },
+          { "name": "Bridgeport", "lat": 41.1865, "lon": -73.1952 },
+          { "name": "Stamford", "lat": 41.0534, "lon": -73.5387 }
+        ] },
+        { "code": "DE", "name": "Delaware", "cities": [
+          { "name": "Wilmington", "lat": 39.7391, "lon": -75.5398 },
+          { "name": "Dover", "lat": 39.1582, "lon": -75.5244 },
+          { "name": "Newark", "lat": 39.6837, "lon": -75.7497 }
+        ] },
+        { "code": "DC", "name": "District of Columbia", "cities": [
+          { "name": "Washington", "lat": 38.9072, "lon": -77.0369 }
+        ] },
+        { "code": "FL", "name": "Florida", "cities": [
+          { "name": "Miami", "lat": 25.7617, "lon": -80.1918 },
+          { "name": "Orlando", "lat": 28.5383, "lon": -81.3792 },
+          { "name": "Tampa", "lat": 27.9506, "lon": -82.4572 },
+          { "name": "Jacksonville", "lat": 30.3322, "lon": -81.6557 },
+          { "name": "Tallahassee", "lat": 30.4383, "lon": -84.2807 }
+        ] },
+        { "code": "GA", "name": "Georgia", "cities": [
+          { "name": "Atlanta", "lat": 33.7490, "lon": -84.3880 },
+          { "name": "Savannah", "lat": 32.0809, "lon": -81.0912 },
+          { "name": "Augusta", "lat": 33.4735, "lon": -82.0105 },
+          { "name": "Columbus", "lat": 32.4610, "lon": -84.9877 }
+        ] },
+        { "code": "HI", "name": "Hawaii", "cities": [
+          { "name": "Honolulu", "lat": 21.3069, "lon": -157.8583 },
+          { "name": "Hilo", "lat": 19.7297, "lon": -155.0900 },
+          { "name": "Kailua", "lat": 21.4022, "lon": -157.7394 }
+        ] },
+        { "code": "ID", "name": "Idaho", "cities": [
+          { "name": "Boise", "lat": 43.6150, "lon": -116.2023 },
+          { "name": "Idaho Falls", "lat": 43.4666, "lon": -112.0341 },
+          { "name": "Pocatello", "lat": 42.8713, "lon": -112.4455 }
+        ] },
+        { "code": "IL", "name": "Illinois", "cities": [
+          { "name": "Chicago", "lat": 41.8781, "lon": -87.6298 },
+          { "name": "Springfield", "lat": 39.7817, "lon": -89.6501 },
+          { "name": "Peoria", "lat": 40.6936, "lon": -89.5890 },
+          { "name": "Rockford", "lat": 42.2711, "lon": -89.0940 }
+        ] },
+        { "code": "IN", "name": "Indiana", "cities": [
+          { "name": "Indianapolis", "lat": 39.7684, "lon": -86.1581 },
+          { "name": "Fort Wayne", "lat": 41.0793, "lon": -85.1394 },
+          { "name": "Evansville", "lat": 37.9716, "lon": -87.5711 },
+          { "name": "South Bend", "lat": 41.6764, "lon": -86.2520 }
+        ] },
+        { "code": "IA", "name": "Iowa", "cities": [
+          { "name": "Des Moines", "lat": 41.5868, "lon": -93.6250 },
+          { "name": "Cedar Rapids", "lat": 41.9779, "lon": -91.6656 },
+          { "name": "Davenport", "lat": 41.5236, "lon": -90.5776 }
+        ] },
+        { "code": "KS", "name": "Kansas", "cities": [
+          { "name": "Wichita", "lat": 37.6872, "lon": -97.3301 },
+          { "name": "Kansas City", "lat": 39.1141, "lon": -94.6275 },
+          { "name": "Topeka", "lat": 39.0473, "lon": -95.6752 },
+          { "name": "Overland Park", "lat": 38.9822, "lon": -94.6708 }
+        ] },
+        { "code": "KY", "name": "Kentucky", "cities": [
+          { "name": "Louisville", "lat": 38.2527, "lon": -85.7585 },
+          { "name": "Lexington", "lat": 38.0406, "lon": -84.5037 },
+          { "name": "Bowling Green", "lat": 36.9685, "lon": -86.4808 }
+        ] },
+        { "code": "LA", "name": "Louisiana", "cities": [
+          { "name": "New Orleans", "lat": 29.9511, "lon": -90.0715 },
+          { "name": "Baton Rouge", "lat": 30.4515, "lon": -91.1871 },
+          { "name": "Shreveport", "lat": 32.5252, "lon": -93.7502 }
+        ] },
+        { "code": "ME", "name": "Maine", "cities": [
+          { "name": "Portland", "lat": 43.6591, "lon": -70.2568 },
+          { "name": "Augusta", "lat": 44.3106, "lon": -69.7795 },
+          { "name": "Bangor", "lat": 44.8016, "lon": -68.7712 }
+        ] },
+        { "code": "MD", "name": "Maryland", "cities": [
+          { "name": "Baltimore", "lat": 39.2904, "lon": -76.6122 },
+          { "name": "Annapolis", "lat": 38.9784, "lon": -76.4922 },
+          { "name": "Frederick", "lat": 39.4143, "lon": -77.4105 }
+        ] },
+        { "code": "MA", "name": "Massachusetts", "cities": [
+          { "name": "Boston", "lat": 42.3601, "lon": -71.0589 },
+          { "name": "Cambridge", "lat": 42.3736, "lon": -71.1097 },
+          { "name": "Worcester", "lat": 42.2626, "lon": -71.8023 },
+          { "name": "Springfield", "lat": 42.1015, "lon": -72.5898 }
+        ] },
+        { "code": "MI", "name": "Michigan", "cities": [
+          { "name": "Detroit", "lat": 42.3314, "lon": -83.0458 },
+          { "name": "Grand Rapids", "lat": 42.9634, "lon": -85.6681 },
+          { "name": "Ann Arbor", "lat": 42.2808, "lon": -83.7430 },
+          { "name": "Lansing", "lat": 42.7325, "lon": -84.5555 }
+        ] },
+        { "code": "MN", "name": "Minnesota", "cities": [
+          { "name": "Minneapolis", "lat": 44.9778, "lon": -93.2650 },
+          { "name": "Saint Paul", "lat": 44.9537, "lon": -93.0900 },
+          { "name": "Duluth", "lat": 46.7867, "lon": -92.1005 },
+          { "name": "Rochester", "lat": 44.0121, "lon": -92.4802 }
+        ] },
+        { "code": "MS", "name": "Mississippi", "cities": [
+          { "name": "Jackson", "lat": 32.2988, "lon": -90.1848 },
+          { "name": "Gulfport", "lat": 30.3674, "lon": -89.0928 },
+          { "name": "Biloxi", "lat": 30.3960, "lon": -88.8853 }
+        ] },
+        { "code": "MO", "name": "Missouri", "cities": [
+          { "name": "Kansas City", "lat": 39.0997, "lon": -94.5786 },
+          { "name": "St. Louis", "lat": 38.6270, "lon": -90.1994 },
+          { "name": "Springfield", "lat": 37.2090, "lon": -93.2923 },
+          { "name": "Columbia", "lat": 38.9517, "lon": -92.3341 }
+        ] },
+        { "code": "MT", "name": "Montana", "cities": [
+          { "name": "Billings", "lat": 45.7833, "lon": -108.5007 },
+          { "name": "Missoula", "lat": 46.8721, "lon": -113.9940 },
+          { "name": "Helena", "lat": 46.5891, "lon": -112.0391 },
+          { "name": "Bozeman", "lat": 45.6770, "lon": -111.0429 }
+        ] },
+        { "code": "NE", "name": "Nebraska", "cities": [
+          { "name": "Omaha", "lat": 41.2565, "lon": -95.9345 },
+          { "name": "Lincoln", "lat": 40.8136, "lon": -96.7026 },
+          { "name": "Bellevue", "lat": 41.1370, "lon": -95.9145 }
+        ] },
+        { "code": "NV", "name": "Nevada", "cities": [
+          { "name": "Las Vegas", "lat": 36.1699, "lon": -115.1398 },
+          { "name": "Reno", "lat": 39.5296, "lon": -119.8138 },
+          { "name": "Henderson", "lat": 36.0395, "lon": -114.9817 },
+          { "name": "Carson City", "lat": 39.1638, "lon": -119.7674 }
+        ] },
+        { "code": "NH", "name": "New Hampshire", "cities": [
+          { "name": "Manchester", "lat": 42.9956, "lon": -71.4548 },
+          { "name": "Concord", "lat": 43.2081, "lon": -71.5376 },
+          { "name": "Nashua", "lat": 42.7654, "lon": -71.4676 }
+        ] },
+        { "code": "NJ", "name": "New Jersey", "cities": [
+          { "name": "Newark", "lat": 40.7357, "lon": -74.1724 },
+          { "name": "Jersey City", "lat": 40.7178, "lon": -74.0431 },
+          { "name": "Trenton", "lat": 40.2206, "lon": -74.7597 },
+          { "name": "Atlantic City", "lat": 39.3643, "lon": -74.4229 }
+        ] },
+        { "code": "NM", "name": "New Mexico", "cities": [
+          { "name": "Albuquerque", "lat": 35.0844, "lon": -106.6504 },
+          { "name": "Santa Fe", "lat": 35.6870, "lon": -105.9378 },
+          { "name": "Las Cruces", "lat": 32.3199, "lon": -106.7637 }
+        ] },
+        { "code": "NY", "name": "New York", "cities": [
+          { "name": "New York City", "lat": 40.7128, "lon": -74.0060 },
+          { "name": "Buffalo", "lat": 42.8864, "lon": -78.8784 },
+          { "name": "Rochester", "lat": 43.1566, "lon": -77.6088 },
+          { "name": "Albany", "lat": 42.6526, "lon": -73.7562 },
+          { "name": "Syracuse", "lat": 43.0481, "lon": -76.1474 }
+        ] },
+        { "code": "NC", "name": "North Carolina", "cities": [
+          { "name": "Charlotte", "lat": 35.2271, "lon": -80.8431 },
+          { "name": "Raleigh", "lat": 35.7796, "lon": -78.6382 },
+          { "name": "Greensboro", "lat": 36.0726, "lon": -79.7920 },
+          { "name": "Durham", "lat": 35.9940, "lon": -78.8986 }
+        ] },
+        { "code": "ND", "name": "North Dakota", "cities": [
+          { "name": "Fargo", "lat": 46.8772, "lon": -96.7898 },
+          { "name": "Bismarck", "lat": 46.8083, "lon": -100.7837 },
+          { "name": "Grand Forks", "lat": 47.9253, "lon": -97.0329 }
+        ] },
+        { "code": "OH", "name": "Ohio", "cities": [
+          { "name": "Columbus", "lat": 39.9612, "lon": -82.9988 },
+          { "name": "Cleveland", "lat": 41.4993, "lon": -81.6944 },
+          { "name": "Cincinnati", "lat": 39.1031, "lon": -84.5120 },
+          { "name": "Toledo", "lat": 41.6528, "lon": -83.5379 }
+        ] },
+        { "code": "OK", "name": "Oklahoma", "cities": [
+          { "name": "Oklahoma City", "lat": 35.4676, "lon": -97.5164 },
+          { "name": "Tulsa", "lat": 36.1540, "lon": -95.9928 },
+          { "name": "Norman", "lat": 35.2226, "lon": -97.4395 }
+        ] },
+        { "code": "OR", "name": "Oregon", "cities": [
+          { "name": "Portland", "lat": 45.5152, "lon": -122.6784 },
+          { "name": "Eugene", "lat": 44.0521, "lon": -123.0868 },
+          { "name": "Salem", "lat": 44.9429, "lon": -123.0351 },
+          { "name": "Bend", "lat": 44.0582, "lon": -121.3153 }
+        ] },
+        { "code": "PA", "name": "Pennsylvania", "cities": [
+          { "name": "Philadelphia", "lat": 39.9526, "lon": -75.1652 },
+          { "name": "Pittsburgh", "lat": 40.4406, "lon": -79.9959 },
+          { "name": "Harrisburg", "lat": 40.2732, "lon": -76.8867 },
+          { "name": "Allentown", "lat": 40.6084, "lon": -75.4902 }
+        ] },
+        { "code": "RI", "name": "Rhode Island", "cities": [
+          { "name": "Providence", "lat": 41.8240, "lon": -71.4128 },
+          { "name": "Warwick", "lat": 41.7001, "lon": -71.4162 },
+          { "name": "Newport", "lat": 41.4901, "lon": -71.3128 }
+        ] },
+        { "code": "SC", "name": "South Carolina", "cities": [
+          { "name": "Columbia", "lat": 34.0007, "lon": -81.0348 },
+          { "name": "Charleston", "lat": 32.7765, "lon": -79.9311 },
+          { "name": "Greenville", "lat": 34.8526, "lon": -82.3940 }
+        ] },
+        { "code": "SD", "name": "South Dakota", "cities": [
+          { "name": "Sioux Falls", "lat": 43.5460, "lon": -96.7313 },
+          { "name": "Rapid City", "lat": 44.0805, "lon": -103.2310 },
+          { "name": "Pierre", "lat": 44.3683, "lon": -100.3510 }
+        ] },
+        { "code": "TN", "name": "Tennessee", "cities": [
+          { "name": "Nashville", "lat": 36.1627, "lon": -86.7816 },
+          { "name": "Memphis", "lat": 35.1495, "lon": -90.0490 },
+          { "name": "Knoxville", "lat": 35.9606, "lon": -83.9207 },
+          { "name": "Chattanooga", "lat": 35.0456, "lon": -85.3097 }
+        ] },
+        { "code": "TX", "name": "Texas", "cities": [
+          { "name": "Houston", "lat": 29.7604, "lon": -95.3698 },
+          { "name": "Dallas", "lat": 32.7767, "lon": -96.7970 },
+          { "name": "Austin", "lat": 30.2672, "lon": -97.7431 },
+          { "name": "San Antonio", "lat": 29.4241, "lon": -98.4936 },
+          { "name": "Fort Worth", "lat": 32.7555, "lon": -97.3308 },
+          { "name": "El Paso", "lat": 31.7619, "lon": -106.4850 }
+        ] },
+        { "code": "UT", "name": "Utah", "cities": [
+          { "name": "Salt Lake City", "lat": 40.7608, "lon": -111.8910 },
+          { "name": "Provo", "lat": 40.2338, "lon": -111.6585 },
+          { "name": "Ogden", "lat": 41.2230, "lon": -111.9738 },
+          { "name": "St. George", "lat": 37.0965, "lon": -113.5684 }
+        ] },
+        { "code": "VT", "name": "Vermont", "cities": [
+          { "name": "Burlington", "lat": 44.4759, "lon": -73.2121 },
+          { "name": "Montpelier", "lat": 44.2601, "lon": -72.5754 },
+          { "name": "Rutland", "lat": 43.6106, "lon": -72.9726 }
+        ] },
+        { "code": "VA", "name": "Virginia", "cities": [
+          { "name": "Virginia Beach", "lat": 36.8529, "lon": -75.9780 },
+          { "name": "Richmond", "lat": 37.5407, "lon": -77.4360 },
+          { "name": "Norfolk", "lat": 36.8508, "lon": -76.2859 },
+          { "name": "Arlington", "lat": 38.8816, "lon": -77.0910 }
+        ] },
+        { "code": "WA", "name": "Washington", "cities": [
+          { "name": "Seattle", "lat": 47.6062, "lon": -122.3321 },
+          { "name": "Spokane", "lat": 47.6588, "lon": -117.4260 },
+          { "name": "Tacoma", "lat": 47.2529, "lon": -122.4443 },
+          { "name": "Olympia", "lat": 47.0379, "lon": -122.9007 }
+        ] },
+        { "code": "WV", "name": "West Virginia", "cities": [
+          { "name": "Charleston", "lat": 38.3498, "lon": -81.6326 },
+          { "name": "Huntington", "lat": 38.4192, "lon": -82.4452 },
+          { "name": "Morgantown", "lat": 39.6295, "lon": -79.9559 }
+        ] },
+        { "code": "WI", "name": "Wisconsin", "cities": [
+          { "name": "Milwaukee", "lat": 43.0389, "lon": -87.9065 },
+          { "name": "Madison", "lat": 43.0731, "lon": -89.4012 },
+          { "name": "Green Bay", "lat": 44.5133, "lon": -88.0133 }
+        ] },
+        { "code": "WY", "name": "Wyoming", "cities": [
+          { "name": "Cheyenne", "lat": 41.1400, "lon": -104.8202 },
+          { "name": "Casper", "lat": 42.8666, "lon": -106.3131 },
+          { "name": "Jackson", "lat": 43.4799, "lon": -110.7624 }
+        ] }
+      ]
+    },
+    {
+      "code": "GB",
+      "name": "United Kingdom",
+      "regions": [
+        { "code": "ENG", "name": "England", "cities": [
+          { "name": "London", "lat": 51.5074, "lon": -0.1278 },
+          { "name": "Manchester", "lat": 53.4808, "lon": -2.2426 },
+          { "name": "Birmingham", "lat": 52.4862, "lon": -1.8904 },
+          { "name": "Liverpool", "lat": 53.4084, "lon": -2.9916 },
+          { "name": "Leeds", "lat": 53.8008, "lon": -1.5491 },
+          { "name": "Bristol", "lat": 51.4545, "lon": -2.5879 }
+        ] },
+        { "code": "SCT", "name": "Scotland", "cities": [
+          { "name": "Edinburgh", "lat": 55.9533, "lon": -3.1883 },
+          { "name": "Glasgow", "lat": 55.8642, "lon": -4.2518 },
+          { "name": "Aberdeen", "lat": 57.1497, "lon": -2.0943 }
+        ] },
+        { "code": "WLS", "name": "Wales", "cities": [
+          { "name": "Cardiff", "lat": 51.4816, "lon": -3.1791 },
+          { "name": "Swansea", "lat": 51.6214, "lon": -3.9436 }
+        ] },
+        { "code": "NIR", "name": "Northern Ireland", "cities": [
+          { "name": "Belfast", "lat": 54.5973, "lon": -5.9301 }
+        ] }
+      ]
+    },
+    {
+      "code": "AU",
+      "name": "Australia",
+      "regions": [
+        { "code": "NSW", "name": "New South Wales", "cities": [
+          { "name": "Sydney", "lat": -33.8688, "lon": 151.2093 },
+          { "name": "Newcastle", "lat": -32.9283, "lon": 151.7817 }
+        ] },
+        { "code": "VIC", "name": "Victoria", "cities": [
+          { "name": "Melbourne", "lat": -37.8136, "lon": 144.9631 },
+          { "name": "Geelong", "lat": -38.1499, "lon": 144.3617 }
+        ] },
+        { "code": "QLD", "name": "Queensland", "cities": [
+          { "name": "Brisbane", "lat": -27.4698, "lon": 153.0251 },
+          { "name": "Gold Coast", "lat": -28.0167, "lon": 153.4000 }
+        ] },
+        { "code": "WA", "name": "Western Australia", "cities": [
+          { "name": "Perth", "lat": -31.9505, "lon": 115.8605 }
+        ] },
+        { "code": "SA", "name": "South Australia", "cities": [
+          { "name": "Adelaide", "lat": -34.9285, "lon": 138.6007 }
+        ] },
+        { "code": "TAS", "name": "Tasmania", "cities": [
+          { "name": "Hobart", "lat": -42.8821, "lon": 147.3272 }
+        ] }
+      ]
+    }
+  ]
+}

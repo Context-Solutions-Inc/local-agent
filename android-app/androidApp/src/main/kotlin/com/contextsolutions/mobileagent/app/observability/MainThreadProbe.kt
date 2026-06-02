@@ -2,8 +2,6 @@ package com.contextsolutions.mobileagent.app.observability
 
 import android.os.Handler
 import android.os.Looper
-import javax.inject.Inject
-import javax.inject.Singleton
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -30,8 +28,7 @@ interface MainThreadProbe {
  * bumps an atomic timestamp; the watchdog thread reads the timestamp from its
  * own thread without ever touching the `Looper`.
  */
-@Singleton
-class HandlerMainThreadProbe @Inject constructor() : MainThreadProbe {
+class HandlerMainThreadProbe() : MainThreadProbe {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lastAckMs = AtomicLong(nowMs())

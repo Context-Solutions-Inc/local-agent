@@ -1,0 +1,97 @@
+name: Desktop packages
+
+# Phase 8 of the desktop port (docs/DESKTOP_PORT_PLAN.md): build the native
+# installers for the Compose Desktop app. jpackage builds ONLY for the host OS it
+# runs on, so this is a 3-runner matrix — one set of installers per OS:
+#   ubuntu-latest  → .deb + .rpm   (needs fakeroot + rpm beyond dpkg)
+#   macos-latest   → .dmg + .pkg
+#   windows-latest → .msi + .exe
+# The formats themselves are declared in desktopApp/build.gradle.kts
+# `nativeDistributions`; `packageDistributionForCurrentOS` builds whichever apply
+# to the current OS.
+#
+# Triggered manually or on a v* tag (the v1.0.0 release). NOT on every push —
+# packaging is slow (jlink runtime image + jpackage per OS) and produces large
+# artifacts. The fast per-commit gate stays the desktop build/test tasks the
+# developer runs locally (:desktopApp:createDistributable et al.).
+#
+# Uses the non-minified distribution (not `packageReleaseDistributionForCurrentOS`)
+# deliberately: the release variant runs ProGuard, which is risky for the app's
+# reflection/JNI-heavy deps (Koin, sqlite-jdbc, the llama.cpp + ONNX + Vosk JNI
+# bindings). The "CPU-default build that ALWAYS works" guarantee comes first;
+# minification is a later optimisation with its own keep-rules pass.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: desktop-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: macos-latest
+            label: macos
+          - os: windows-latest
+            label: windows
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on the Windows runner runs the checked-in `./gradlew` script,
+        # so one shell + working dir covers all three OSes.
+        shell: bash
+        working-directory: android-app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        # Temurin 17 bundles jpackage (the toolchain :desktopApp targets). The
+        # JDK must be 14+ for jpackage; 17 matches `jvmToolchain(17)`.
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Linux packaging tools
+        # jpackage's DEB bundler shells out to `fakeroot`, and the RPM bundler to
+        # `rpmbuild` — neither is preinstalled on ubuntu-latest. macOS/Windows
+        # runners already have their native packaging tools.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+
+      - name: Build native distribution for the host OS
+        # Builds every installer format declared for the current OS (Deb+Rpm /
+        # Dmg+Pkg / Msi+Exe). Models (GGUF, ONNX, Vosk) are NOT bundled — they
+        # download into the app-data dir at first run (docs/DESKTOP_PACKAGING.md).
+        run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon --stacktrace
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-agent-${{ matrix.label }}
+          # Paths are relative to the repo root, NOT the job working-directory.
+          # Each OS produces only its own formats; the rest glob to nothing
+          # (if-no-files-found: ignore keeps that from failing the job).
+          path: |
+            android-app/desktopApp/build/compose/binaries/main/deb/*.deb
+            android-app/desktopApp/build/compose/binaries/main/rpm/*.rpm
+            android-app/desktopApp/build/compose/binaries/main/dmg/*.dmg
+            android-app/desktopApp/build/compose/binaries/main/pkg/*.pkg
+            android-app/desktopApp/build/compose/binaries/main/msi/*.msi
+            android-app/desktopApp/build/compose/binaries/main/exe/*.exe
+          if-no-files-found: ignore
+          retention-days: 14

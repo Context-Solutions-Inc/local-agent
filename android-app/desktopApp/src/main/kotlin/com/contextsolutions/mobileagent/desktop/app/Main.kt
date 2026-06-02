@@ -1,0 +1,298 @@
+package com.contextsolutions.mobileagent.desktop.app
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Tray
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberTrayState
+import androidx.compose.ui.window.rememberWindowState
+import com.contextsolutions.mobileagent.agent.ChatLogger
+import com.contextsolutions.mobileagent.agent.ChatSessionController
+import com.contextsolutions.mobileagent.agent.PromptAssembler
+import com.contextsolutions.mobileagent.agent.TranslationIntentDetector
+import com.contextsolutions.mobileagent.classifier.ClassifierEngine
+import com.contextsolutions.mobileagent.classifier.PreflightRouter
+import com.contextsolutions.mobileagent.conversation.ConversationRepository
+import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
+import com.contextsolutions.mobileagent.inference.ThermalStatusProvider
+import com.contextsolutions.mobileagent.memory.EmbedderEngine
+import com.contextsolutions.mobileagent.memory.MemoryExtractor
+import com.contextsolutions.mobileagent.memory.MemoryStore
+import com.contextsolutions.mobileagent.platform.AppBuildConfig
+import com.contextsolutions.mobileagent.platform.UrlOpener
+import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
+import com.contextsolutions.mobileagent.vision.FilePicker
+import com.contextsolutions.mobileagent.vision.ImagePreprocessor
+import com.contextsolutions.mobileagent.voice.ChatSpeaker
+import com.contextsolutions.mobileagent.voice.Dictation
+import com.contextsolutions.mobileagent.voice.TtsPreferences
+import com.contextsolutions.mobileagent.clock.ClockService
+import com.contextsolutions.mobileagent.di.AgentLoopFactory
+import com.contextsolutions.mobileagent.di.agentCoreModule
+import com.contextsolutions.mobileagent.di.desktopModule
+import com.contextsolutions.mobileagent.inference.DesktopModelDownloader
+import com.contextsolutions.mobileagent.inference.DesktopModelInventory
+import com.contextsolutions.mobileagent.inference.InferenceEngine
+import com.contextsolutions.mobileagent.language.LanguagePreferences
+import com.contextsolutions.mobileagent.notification.MutableNotificationPresenter
+import com.contextsolutions.mobileagent.platform.AgentClock
+import com.contextsolutions.mobileagent.search.SearchService
+import com.contextsolutions.mobileagent.task.TaskQueue
+import com.contextsolutions.mobileagent.task.TaskRepository
+import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
+import com.contextsolutions.mobileagent.inference.DesktopAppDirs
+import com.contextsolutions.mobileagent.ui.di.uiModule
+import com.contextsolutions.mobileagent.ui.navigation.AppNavHost
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.koin.core.context.startKoin
+import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+
+/**
+ * Desktop entry point (docs/DESKTOP_PORT_PLAN.md). Starts the Koin graph
+ * (shared [agentCoreModule] + [desktopModule]) and, in normal runs, hosts the
+ * system tray + warm-model background runtime.
+ *
+ * `DI_CHECK=1` force-resolves the agent graph and the Phase-7 runtime singletons,
+ * then exits without opening a window — a headless smoke test of the DI wiring.
+ *
+ * Phase 7 (inc 5): a Compose Desktop [Tray] keeps the app alive when the window
+ * is hidden (window-close hides to tray rather than quitting); the model stays
+ * resident ([WarmModel]) and the single-consumer [TaskQueue] runs queued agent
+ * tasks in the background on a long-lived app scope. Tray notifications carry
+ * clock fires + task completions via the [MutableNotificationPresenter] delegate.
+ * Real screens (enqueue UI, chat) land in Phase 9.
+ */
+fun main() {
+    val koin = startKoin {
+        modules(agentCoreModule, desktopModule, uiModule, desktopAppModule)
+    }.koin
+
+    // Force-resolve the agent core + the Phase-7 runtime singletons so a broken
+    // graph fails fast at startup rather than on first use.
+    koin.get<PromptAssembler>()
+    koin.get<PreflightRouter>()
+    koin.get<SearchService>()
+    koin.get<InferenceEngine>()
+    koin.get<AgentLoopFactory>()
+    koin.get<DesktopModelDownloader>()
+    koin.get<ClockService>()
+    koin.get<TaskRepository>()
+    koin.get<DesktopTelemetryScheduler>()
+    koin.get<MutableNotificationPresenter>()
+    koin.get<ChatSessionController>()
+    // Resolve every shared :ui ChatViewModel collaborator + chat-screen seam so a
+    // missing chat-graph binding fails the headless smoke test rather than only at
+    // render time. The VM itself can't be constructed here (its viewModelScope/
+    // stateIn need Dispatchers.Main, absent headless), so resolve its deps — all
+    // singletons — directly. (Regression guard: TranslationIntentDetector +
+    // ConversationRepository were androidModule-only until the Phase-9 Chat cutover.)
+    koin.get<TranslationIntentDetector>()
+    koin.get<ConversationRepository>()
+    koin.get<LanguagePreferences>()
+    koin.get<MemoryExtractor>()
+    koin.get<MemoryStore>()
+    koin.get<TelemetryCounters>()
+    koin.get<TtsPreferences>()
+    koin.get<ChatSpeaker>()
+    koin.get<ChatLogger>()
+    koin.get<ThermalStatusProvider>()
+    koin.get<SystemMemoryStatusProvider>()
+    koin.get<Dictation>()
+    koin.get<AppBuildConfig>()
+    koin.get<UrlOpener>()
+    koin.get<ImagePreprocessor>()
+    koin.get<FilePicker>()
+    System.err.println("[desktopApp] Koin agent graph resolved OK")
+
+    if (System.getenv("DI_CHECK") == "1") {
+        kotlin.system.exitProcess(0)
+    }
+
+    // --- Single instance (Phase 8) -------------------------------------------
+    // The app keeps a warm model, a file-backed SQLite DB, and a single-consumer
+    // task queue resident. A second instance would mean two warm models fighting
+    // for RAM, two task consumers racing the same `tasks` rows, and SQLite write
+    // contention. Hold an OS file lock for the JVM's lifetime; if another process
+    // already holds it, exit quietly. Checked AFTER the DI_CHECK exit so the
+    // headless smoke test never contends with (or blocks) a real instance.
+    if (!SingleInstance.acquire()) {
+        System.err.println("[desktopApp] Another Mobile Agent instance is already running; exiting.")
+        return
+    }
+
+    // --- Warm-model background runtime (Phase 7) -----------------------------
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val clock = koin.get<AgentClock>()
+    val presenter = koin.get<MutableNotificationPresenter>()
+    val warmModel = koin.get<WarmModel>()
+    val taskRunner = DesktopTaskRunner(
+        warmModel = warmModel,
+        factory = koin.get(),
+        language = koin.get<LanguagePreferences>(),
+    )
+    val taskQueue = TaskQueue(
+        repository = koin.get(),
+        runner = taskRunner,
+        notifications = presenter,
+        nowEpochMs = { clock.nowEpochMs() },
+        scope = appScope,
+    )
+
+    val modelDownload = DesktopModelDownloadController(
+        inventory = koin.get<DesktopModelInventory>(),
+        downloader = koin.get<DesktopModelDownloader>(),
+        notifications = presenter,
+        scope = appScope,
+    )
+
+    // Startup lifecycle: re-arm persisted alarms/timers (desktop boot-receiver
+    // analogue), start the telemetry upload loop, start the task consumer, and
+    // fetch the GGUF in the background if it isn't downloaded yet (tray progress).
+    koin.get<ClockService>().rearmAll()
+    koin.get<DesktopTelemetryScheduler>().start()
+    taskQueue.start()
+    modelDownload.ensurePresent()
+
+    // Eagerly warm the ONNX aux engines (preflight classifier + memory embedder).
+    // Both are inert until warmUp() runs — classify()/embed() return null while
+    // their OrtSession is unset, silently degrading the agent to Gemma-only +
+    // no-op memory. Android drives this from the Chat-screen RESUME hook
+    // (LifecycleResumeEffect, invariant #22); desktop has no such lifecycle, so we
+    // warm once on the long-lived app scope. warmUp() never throws and is
+    // idempotent; the warm sessions stay resident for the JVM's lifetime.
+    appScope.launch {
+        koin.get<ClassifierEngine>().warmUp()
+        koin.get<EmbedderEngine>().warmUp()
+    }
+
+    // Eagerly load the GGUF to the GPU at startup so the first chat turn doesn't
+    // pay the multi-second cold-load, and the banner shows the real accelerator
+    // up front (Unloaded → Loading → Loaded(GPU)). Desktop-only: Android keeps
+    // Gemma lazy (loads on first generate, invariant #22). Gated on the model
+    // being present so a fresh-install background download (above) isn't
+    // pre-empted by a load that would just fail; the first turn loads it once the
+    // download completes. warmUp() is idempotent and swallows failures.
+    appScope.launch {
+        if (warmModel.isModelPresent()) {
+            koin.get<DesktopChatSessionController>().warmUp()
+        }
+    }
+
+    application {
+        val trayState = rememberTrayState()
+        // Route clock + task notifications to the system tray now that it exists.
+        LaunchedEffect(trayState) { presenter.setDelegate(TrayNotificationPresenter(trayState)) }
+
+        var windowVisible by remember { mutableStateOf(true) }
+        var paused by remember { mutableStateOf(false) }
+
+        Tray(
+            icon = AppIcon,
+            state = trayState,
+            tooltip = "Mobile Agent",
+            menu = {
+                Item("Show", onClick = { windowVisible = true })
+                CheckboxItem(
+                    "Pause queue",
+                    checked = paused,
+                    onCheckedChange = { checked ->
+                        paused = checked
+                        if (checked) taskQueue.stop() else taskQueue.start()
+                    },
+                )
+                Separator()
+                Item("Quit", onClick = {
+                    warmModel.unload()
+                    appScope.cancel()
+                    exitApplication()
+                })
+            },
+        )
+
+        val windowState = rememberWindowState(width = 960.dp, height = 720.dp)
+        Window(
+            onCloseRequest = { windowVisible = false }, // hide to tray, don't quit
+            visible = windowVisible,
+            state = windowState,
+            title = "Mobile Agent",
+            icon = AppIcon,
+        ) {
+            // The real shared UI (Phase 9 inc 8d). Onboarding is operator-driven on
+            // desktop (keys via env/SecureStorage, Phase 6) and the GGUF is fetched
+            // in the background via the tray, so both gates pass through to Chat; the
+            // model loads lazily on the first turn (WarmModel). Queue/download status
+            // remains visible via tray notifications.
+            MaterialTheme {
+                AppNavHost(
+                    onboardingComplete = true,
+                    modelPresent = true,
+                    downloadContent = {},
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The app/tray icon — the brand logo bundled as a classpath resource
+ * (`icon.png`, generated by `desktopApp/icons/generate_icons.py`, the same master
+ * as the per-OS installer icons in `nativeDistributions`). **Lazy:** decoding pulls
+ * in Skia's native libs, which need a display (libGL); deferring past the `DI_CHECK`
+ * early-exit keeps the headless DI smoke test working — the icon is only touched once
+ * the tray + window compose, which only happens on a real desktop.
+ */
+private val AppIcon: Painter by lazy {
+    BitmapPainter(
+        object {}.javaClass.getResourceAsStream("/icon.png")!!
+            .use { it.readAllBytes().decodeToImageBitmap() },
+    )
+}
+
+/**
+ * Process-wide single-instance guard. Acquires an exclusive [FileLock] on
+ * `<app-data>/.instance.lock`; the lock + channel are kept alive for the JVM's
+ * lifetime (the OS releases them on exit, covering crashes too). [acquire] returns
+ * `false` only when another *process* already holds the lock — a clean
+ * "already running" signal. On any other error (can't create the file, etc.) it
+ * returns `true` and lets startup proceed: failing open beats blocking the app on
+ * a lock-file glitch.
+ */
+private object SingleInstance {
+    // Strong refs so the lock isn't released by GC mid-run.
+    @Suppress("unused") private var channel: FileChannel? = null
+    @Suppress("unused") private var lock: FileLock? = null
+
+    fun acquire(): Boolean {
+        return try {
+            val dir = DesktopAppDirs.dataDir().apply { mkdirs() }
+            val ch = RandomAccessFile(dir.resolve(".instance.lock"), "rw").channel
+            val l = ch.tryLock()
+            if (l == null) {
+                ch.close()
+                false // held by another process
+            } else {
+                channel = ch
+                lock = l
+                true
+            }
+        } catch (e: Exception) {
+            System.err.println("[desktopApp] single-instance lock unavailable, proceeding: ${e.message}")
+            true
+        }
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "model_version": "preflight_memory_shared_v1.0.0",
+  "thresholds": {
+    "ask": 0.6,
+    "category": 0.5
+  },
+  "max_memories": 100
+}

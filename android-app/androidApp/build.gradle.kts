@@ -6,11 +6,9 @@ plugins {
     alias(libs.plugins.android.application)
     // AGP 9.0+ provides Kotlin support built-in; explicit kotlin.android is no
     // longer needed (and is rejected when android.builtInKotlin=true, which is
-    // the default in AGP 9). compose/serialization/ksp still apply explicitly.
+    // the default in AGP 9). compose/serialization still apply explicitly.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
     // M6 Phase C — reads androidApp/google-services.json and generates the
     // FirebaseApp initializer + resources for FirebaseAnalytics. The .json
     // file is gitignored via the root .gitignore "**/google-services.json"
@@ -99,7 +97,7 @@ val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
 
-val appVersionName = "0.0.3-beta"
+val appVersionName = "0.1.0"
 
 // Short HEAD SHA with a `-dirty` suffix when the working tree has uncommitted
 // edits. versionCode (above) only changes when HEAD changes, so during dev a
@@ -209,11 +207,15 @@ android {
         // 0.10.2 statically linked its LiteRT core into liblitertlm_jni.so (fully
         // isolated from the classifier runtime — invariant #18), 0.12.0 ships the
         // core as a standalone libLiteRt.so + libLiteRtClGlAccelerator.so. Those
-        // share a SONAME with the classifier/embedder's com.google.ai.edge.litert
-        // :litert:2.1.4 builds, so AGP can package only one of each. pickFirst
-        // resolves the duplicate; the consequence is that BOTH runtimes share one
-        // libLiteRt.so at runtime, so the classifier (invariant #18) must be
-        // re-validated on-device alongside the LLM after this bump.
+        // share a name with the classifier/embedder's com.google.ai.edge.litert
+        // :litert builds, so AGP packages only one of each. pickFirst keeps the
+        // first — but cross-dependency order is non-deterministic, and litertlm's
+        // copy lacks the classifier JNI symbols (UnsatisfiedLinkError on
+        // Environment.nativeCreate). The `extractLitertJni` task below feeds
+        // litert's copies in as project-local jniLibs, which ALWAYS win pickFirst,
+        // so the winner is deterministic and litertlm_jni shares litert's superset
+        // libLiteRt.so (#40). Keep this pickFirst — it's what lets the project copy
+        // override the two dependency copies instead of failing the merge.
         jniLibs {
             pickFirsts += setOf(
                 "**/libLiteRt.so",
@@ -354,6 +356,50 @@ val copyEmbedderTflite = tasks.register("copyEmbedderTflite") {
     }
 }
 
+// --- invariant #40/#18: deterministically resolve the libLiteRt.so collision ---
+// litertlm-android (LLM runtime) and com.google.ai.edge.litert (classifier +
+// embedder runtime) BOTH ship libLiteRt.so + libLiteRtClGlAccelerator.so under
+// the same name, so the pickFirst in `packaging` keeps exactly one of each.
+// litertlm's copy LACKS the classifier JNI symbols, so when it wins the
+// classifier dies at warmUp with
+//   UnsatisfiedLinkError: com.google.ai.edge.litert.Environment.nativeCreate
+// and the agent silently falls through to Gemma. The cross-dependency native
+// merge order is NOT deterministic (declaration order has no effect, and debug
+// vs release picked different winners), which is how moving these deps into
+// :shared during the desktop port silently flipped the winner — caught only at
+// on-device run. Project-local jniLibs, however, ALWAYS beat dependency-provided
+// libs in pickFirst, so extract litert's two natives from its own AAR at build
+// time and feed them in as a jniLibs source dir: litert's copies win
+// deterministically AND track the resolved litert version (no stale vendored
+// binary on a bump — #40's standing hazard). Per #40 litert:2.1.5's libLiteRt.so
+// is a superset that also drives litertlm_jni, so one shared copy is correct for
+// both runtimes. arm64-v8a only (the single Pixel-7 abiFilter above).
+val litertAar: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false // just litert's own AAR — not its transitive natives
+}
+dependencies { litertAar(libs.ai.edge.litert) }
+
+val litertJniOutDir = layout.buildDirectory.dir("generated/litertJni")
+val extractLitertJni = tasks.register<Copy>("extractLitertJni") {
+    from(provider { zipTree(litertAar.singleFile) }) {
+        include("jni/arm64-v8a/libLiteRt.so", "jni/arm64-v8a/libLiteRtClGlAccelerator.so")
+        eachFile { path = path.removePrefix("jni/") } // jniLibs srcDir wants <abi>/lib.so
+        includeEmptyDirs = false
+    }
+    into(litertJniOutDir)
+}
+
+// AGP 9's SourceSet API rejects Provider/TaskProvider instances, so register the
+// output as a plain path and wire the task dependency on the jni-merge steps
+// explicitly (srcDir(File) doesn't carry a builtBy).
+android.sourceSets.getByName("main").jniLibs.srcDir(litertJniOutDir.get().asFile)
+tasks.matching {
+    it.name.startsWith("merge") &&
+        (it.name.endsWith("JniLibFolders") || it.name.endsWith("NativeLibs"))
+}.configureEach { dependsOn(extractLitertJni) }
+
 androidComponents.onVariants { variant ->
     val variantName = variant.name.replaceFirstChar { c -> c.titlecase() }
     project.tasks
@@ -366,6 +412,9 @@ androidComponents.onVariants { variant ->
 
 dependencies {
     implementation(project(":shared"))
+    // Shared Compose Multiplatform UI (docs/DESKTOP_PORT_PLAN.md Phase 9). Screens
+    // migrate into :ui one at a time; the Android shell renders them from here.
+    implementation(project(":ui"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -398,10 +447,14 @@ dependencies {
     implementation(libs.markwon.ext.latex)
     implementation(libs.markwon.inline.parser)
 
-    // Hilt
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.android.compiler)
-    implementation(libs.hilt.navigation.compose)
+
+    // Koin — the app's DI (Hilt fully removed in Phase 3, docs/DESKTOP_PORT_PLAN.md).
+    // koin-android adds androidContext()/by inject()/by viewModel(); koin-core arrives
+    // transitively via :shared.
+    implementation(libs.koin.android)
+    // Multiplatform Compose ViewModel integration (koinViewModel()); the artifact :ui
+    // commonMain shares as screens migrate (Phase 9).
+    implementation(libs.koin.compose.viewmodel)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)

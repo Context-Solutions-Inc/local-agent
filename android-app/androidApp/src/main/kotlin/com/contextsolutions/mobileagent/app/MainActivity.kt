@@ -11,11 +11,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.mobileagent.app.ui.MainScreen
 import com.contextsolutions.mobileagent.app.ui.theme.MobileAgentTheme
-import com.contextsolutions.mobileagent.app.ui.theme.ThemeModeViewModel
-import dagger.hilt.android.AndroidEntryPoint
+import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
 
 /**
  * Hosts the M1 surface — a download flow that hands off to a minimal test-chat
@@ -29,7 +28,6 @@ import dagger.hilt.android.AndroidEntryPoint
  * `adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.spike.SpikeActivity`
  * — production UI no longer exposes an entry point to it.
  */
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     /**
@@ -50,7 +48,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ensureNotificationPermission()
         setContent {
-            val themeVm: ThemeModeViewModel = hiltViewModel()
+            val themeVm: ThemeModeViewModel = koinViewModel()
             val mode by themeVm.mode.collectAsState()
             MobileAgentTheme(themeMode = mode) {
                 MainScreen()

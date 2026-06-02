@@ -16,4 +16,11 @@ expect class LocaleProvider() {
 
     /** UTC offset in ±HH:MM form, e.g. "-04:00". */
     fun utcOffset(): String
+
+    /**
+     * ISO 3166-1 alpha-2 country code of the device locale (e.g. "US", "CA"),
+     * uppercased, or "" when unknown. Used by the onboarding location picker to
+     * pre-select a sensible default country.
+     */
+    fun countryCode(): String
 }

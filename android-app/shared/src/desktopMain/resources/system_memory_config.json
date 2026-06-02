@@ -1,0 +1,5 @@
+{
+  "watchdog_unload_bytes": 314572800,
+  "hot_path_min_bytes": 524288000,
+  "cold_load_min_bytes": 838860800
+}

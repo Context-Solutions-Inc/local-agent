@@ -6,8 +6,8 @@ import android.content.Intent
 import android.os.PowerManager
 import android.util.Log
 import com.contextsolutions.mobileagent.clock.ClockService
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Receives PendingIntent broadcasts when AlarmManager fires a scheduled
@@ -22,17 +22,16 @@ import javax.inject.Inject
  * reflects the firing (one-shot rows get cleaned up, recurring alarms get
  * their next occurrence armed).
  *
- * `@AndroidEntryPoint` lets us field-inject Hilt dependencies into a
- * BroadcastReceiver — Hilt provides a generated `onReceive` that wires
- * dependencies before delegating to ours. Per the Hilt docs this requires
- * the manifest declaration `<receiver ... android:exported="false">` plus
- * the manifest also listing it (broadcast receivers don't auto-register).
+ * Implements [KoinComponent] so it can `by inject()` its dependencies lazily
+ * from the global Koin graph (started in `MobileAgentApplication.onCreate`) —
+ * a BroadcastReceiver is instantiated by the framework, not Koin, so field
+ * injection is the right seam. Still needs the manifest `<receiver
+ * ... android:exported="false">` entry (broadcast receivers don't auto-register).
  */
-@AndroidEntryPoint
-class ClockEventReceiver : BroadcastReceiver() {
+class ClockEventReceiver : BroadcastReceiver(), KoinComponent {
 
-    @Inject lateinit var clockService: ClockService
-    @Inject lateinit var clockNotifications: ClockNotifications
+    private val clockService: ClockService by inject()
+    private val clockNotifications: ClockNotifications by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(EXTRA_ID) ?: return

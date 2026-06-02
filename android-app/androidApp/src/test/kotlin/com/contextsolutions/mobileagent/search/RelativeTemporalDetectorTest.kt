@@ -56,6 +56,24 @@ class RelativeTemporalDetectorTest {
     )
 
     @Test
+    fun recency_news_phrases_match() = assertMatches(
+        "what is the latest news", // the reported bug
+        "latest news on the election",
+        "any breaking news",
+        "recent news about the merger",
+        "what are the latest headlines",
+    )
+
+    @Test
+    fun bare_recency_adjective_on_a_product_does_not_match() = assertNoMatch(
+        // Guards the canonical "middle_personal_advice" case — a recency
+        // adjective without a news/headlines noun stays middle-band.
+        "should i upgrade to the latest iphone",
+        "what's the newest macbook",
+        "is this the latest version",
+    )
+
+    @Test
     fun case_insensitive() = assertMatches("Who Won The Super Bowl LAST YEAR")
 
     @Test

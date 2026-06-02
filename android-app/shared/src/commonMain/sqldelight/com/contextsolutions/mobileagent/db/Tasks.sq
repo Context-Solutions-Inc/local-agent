@@ -1,0 +1,79 @@
+-- Queued agent-task system (desktop port Phase 7). New table introduced at
+-- schema v8 via 7.sqm.
+--
+-- Conventions follow Todos.sq / Memories.sq: timestamps as *_epoch_ms INTEGER,
+-- enum-like fields as TEXT, nullable fields with no DEFAULT, new columns
+-- appended at the END of CREATE TABLE so verifyMigrations doesn't flag
+-- column-order drift against the migration snapshot (CLAUDE.md invariant #20).
+--
+-- The CREATE TABLE below is byte-for-byte identical to 7.sqm's so a fresh
+-- install (Schema.create at v8) and an upgrade (Schema.migrate v7->v8) produce
+-- the same schema.
+
+CREATE TABLE tasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL,
+    progress REAL NOT NULL DEFAULT 0.0,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    result TEXT,
+    error TEXT,
+    attachments TEXT
+);
+
+CREATE INDEX tasks_by_status_created ON tasks(status, created_at_epoch_ms);
+
+-- -- Inserts -----------------------------------------------------------------
+
+insertTask:
+INSERT INTO tasks(
+    id, prompt, status, progress, created_at_epoch_ms, updated_at_epoch_ms,
+    result, error, attachments
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- -- Reads ------------------------------------------------------------------
+
+-- Full list for the tray/UI, newest last (queue order). The consumer pulls
+-- the oldest QUEUED row via selectNextQueued.
+selectAll:
+SELECT * FROM tasks ORDER BY created_at_epoch_ms ASC;
+
+selectById:
+SELECT * FROM tasks WHERE id = ?;
+
+-- Oldest still-pending task — the single-consumer queue's next unit of work.
+selectNextQueued:
+SELECT * FROM tasks WHERE status = 'QUEUED'
+ORDER BY created_at_epoch_ms ASC
+LIMIT 1;
+
+-- Crash recovery: tasks left RUNNING when the process died (the consumer
+-- re-queues these on start so an interrupted task resumes).
+selectByStatus:
+SELECT * FROM tasks WHERE status = ? ORDER BY created_at_epoch_ms ASC;
+
+countByStatus:
+SELECT COUNT(*) FROM tasks WHERE status = ?;
+
+-- -- Mutations -------------------------------------------------------------
+
+updateStatus:
+UPDATE tasks SET status = ?, updated_at_epoch_ms = ? WHERE id = ?;
+
+updateProgress:
+UPDATE tasks SET progress = ?, updated_at_epoch_ms = ? WHERE id = ?;
+
+-- Terminal write — status + result/error + final progress in one statement.
+finish:
+UPDATE tasks
+SET status = ?, result = ?, error = ?, progress = ?, updated_at_epoch_ms = ?
+WHERE id = ?;
+
+deleteById:
+DELETE FROM tasks WHERE id = ?;
+
+-- Clear finished rows (SUCCEEDED / FAILED / CANCELLED) — tray "Clear completed".
+deleteFinished:
+DELETE FROM tasks WHERE status IN ('SUCCEEDED', 'FAILED', 'CANCELLED');
