@@ -104,7 +104,7 @@ class SettingsViewModel(
             .launchIn(viewModelScope)
     }
 
-    /** Toggle the "Auto Desktop Link". Keeps any paired peer + token. */
+    /** Toggle the "Desktop Agent Connection". Keeps any paired peer + token. */
     fun setAutoDesktopLinkEnabled(enabled: Boolean) {
         desktopLinkPreferences.setConfig(desktopLinkPreferences.config().copy(enabled = enabled))
     }

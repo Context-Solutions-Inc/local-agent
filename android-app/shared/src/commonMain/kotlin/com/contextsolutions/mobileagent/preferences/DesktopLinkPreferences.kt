@@ -52,7 +52,7 @@ interface DesktopLinkPreferences {
 /**
  * Mobile↔desktop link configuration.
  *
- * @property enabled the user's "Auto Desktop Link" toggle. Independent of whether
+ * @property enabled the user's "Desktop Agent Connection" toggle. Independent of whether
  *   a peer is paired — the link is *active* only when [enabled] AND a peer is set.
  * @property peerHost the paired desktop's LAN IP/hostname (no scheme), from the QR.
  * @property peerPort the desktop link server's bound port, from the QR.

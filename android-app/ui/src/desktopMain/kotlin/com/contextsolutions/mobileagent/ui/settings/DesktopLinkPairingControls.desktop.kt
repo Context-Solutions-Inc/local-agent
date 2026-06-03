@@ -38,7 +38,7 @@ actual fun DesktopLinkPairingControls(
             }
             Text(
                 "Scan this with the Mobile Agent app on your phone " +
-                    "(Settings → Auto Desktop Link → Scan desktop QR).",
+                    "(Settings → Desktop Agent Connection → Scan desktop QR).",
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {

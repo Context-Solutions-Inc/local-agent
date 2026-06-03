@@ -457,7 +457,7 @@ fun SettingsScreen(
 }
 
 /**
- * PR #57 — the "Auto Desktop Link" section. The toggle + status live in shared
+ * PR #57 — the "Desktop Agent Connection" section. The toggle + status live in shared
  * UI; the pairing controls differ per platform (desktop shows a QR to scan;
  * mobile shows a "Scan desktop QR" button + camera), so they're an expect/actual.
  */
@@ -484,7 +484,7 @@ private fun DesktopLinkSection(
         DesktopLinkPairingControls(state = state, onScanned = onScanned, onUnpair = onUnpair)
     } else {
         SectionHeaderWithToggle(
-            title = "Auto Desktop Link",
+            title = "Desktop Agent Connection",
             checked = state.desktopLinkConfig.enabled,
             onCheckedChange = onToggle,
         )
@@ -579,7 +579,7 @@ private fun OllamaServerSection(
     SectionHeader("Ollama server")
     if (!enabled) {
         Text(
-            "Disabled while Auto Desktop Link is active.",
+            "Disabled while Desktop Agent Connection is active.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
