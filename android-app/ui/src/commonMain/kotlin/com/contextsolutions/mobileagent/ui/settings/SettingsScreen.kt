@@ -35,6 +35,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,6 +63,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
+import com.contextsolutions.mobileagent.ui.theme.ThemeMode
+import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -81,8 +86,10 @@ fun SettingsScreen(
     onOpenConversationHistory: () -> Unit,
     onOpenSearchSources: () -> Unit,
     viewModel: SettingsViewModel = koinViewModel(),
+    themeModeViewModel: ThemeModeViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val themeMode by themeModeViewModel.mode.collectAsState()
     var keyInput by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
     var hfTokenInput by remember { mutableStateOf("") }
@@ -238,6 +245,33 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onOpenMemoryManagement) { Text("Manage memories") }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+
+            // Theme selector (PR #59). Moved here from the Chat top-bar icon and
+            // made a three-way segmented control. Drives ThemeModeViewModel.setMode,
+            // which MainActivity (Android) and Main.kt (desktop) observe to flip the
+            // MaterialTheme colorScheme. "Auto" follows the OS dark-mode setting.
+            SectionHeader("Appearance")
+            Text(
+                "Choose how the app looks. Auto follows your system's light/dark setting.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            val themeOptions = listOf(
+                ThemeMode.Light to "Light",
+                ThemeMode.System to "Auto",
+                ThemeMode.Dark to "Dark",
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                themeOptions.forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = themeMode == mode,
+                        onClick = { themeModeViewModel.setMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = themeOptions.size),
+                    ) { Text(label) }
+                }
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 

@@ -1,7 +1,7 @@
 package com.contextsolutions.mobileagent.desktop.app
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,9 +60,11 @@ import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
+import com.contextsolutions.mobileagent.desktop.app.ui.theme.MobileAgentDesktopTheme
 import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.ui.navigation.AppNavHost
+import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -361,7 +363,14 @@ fun main() {
             // in the background via the tray, so both gates pass through to Chat; the
             // model loads lazily on the first turn (WarmModel). Queue/download status
             // remains visible via tray notifications.
-            MaterialTheme {
+            // PR #59: collect the theme preference and drive the colour scheme so
+            // the light/auto/dark selector actually works on desktop. desktopApp has
+            // no koin-compose, so we read the ThemePreferences single off the Koin
+            // graph started above and collect its flow directly. Was a bare
+            // `MaterialTheme {}` that never read the preference, so toggling did nothing.
+            val themePrefs = koin.get<ThemePreferences>()
+            val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
+            MobileAgentDesktopTheme(themeMode = themeMode) {
                 AppNavHost(
                     onboardingComplete = true,
                     modelPresent = true,

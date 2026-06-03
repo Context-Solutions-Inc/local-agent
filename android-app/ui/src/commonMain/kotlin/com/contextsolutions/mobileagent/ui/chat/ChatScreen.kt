@@ -31,9 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessAlarm
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Lan
@@ -97,8 +94,6 @@ import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.ui.clock.ClockViewModel
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.mobileagent.ui.markdown.MarkdownMath
-import com.contextsolutions.mobileagent.ui.theme.ThemeMode
-import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
 import com.contextsolutions.mobileagent.ui.todo.TodoViewModel
 import com.contextsolutions.mobileagent.ui.util.AccessibilityAnnouncer
 import com.contextsolutions.mobileagent.ui.util.decodeImageBitmap
@@ -131,13 +126,11 @@ fun ChatScreen(
     onOpenTimers: () -> Unit,
     onOpenAlarms: () -> Unit,
     viewModel: ChatViewModel = koinViewModel(),
-    themeModeViewModel: ThemeModeViewModel = koinViewModel(),
     clockViewModel: ClockViewModel = koinViewModel(),
     todoViewModel: TodoViewModel = koinViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
-    val themeMode by themeModeViewModel.mode.collectAsState()
     val timers by clockViewModel.timers.collectAsState()
     val alarms by clockViewModel.alarms.collectAsState()
     val activeTodoCount by todoViewModel.activeCount.collectAsState()
@@ -372,10 +365,6 @@ fun ChatScreen(
                             onClick = onOpenAlarms,
                         )
                     }
-                    ThemeModeToggle(
-                        mode = themeMode,
-                        onCycle = { themeModeViewModel.cycle() },
-                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -1020,18 +1009,6 @@ private fun DesktopLinkStatusIndicator(
             .padding(horizontal = 8.dp)
             .size(14.dp),
     )
-}
-
-@Composable
-private fun ThemeModeToggle(mode: ThemeMode, onCycle: () -> Unit) {
-    val (icon, label) = when (mode) {
-        ThemeMode.System -> Icons.Filled.BrightnessAuto to "Theme: follow system (tap for light)"
-        ThemeMode.Light -> Icons.Filled.BrightnessHigh to "Theme: light (tap for dark)"
-        ThemeMode.Dark -> Icons.Filled.Brightness4 to "Theme: dark (tap to follow system)"
-    }
-    IconButton(onClick = onCycle) {
-        Icon(imageVector = icon, contentDescription = label)
-    }
 }
 
 /**
