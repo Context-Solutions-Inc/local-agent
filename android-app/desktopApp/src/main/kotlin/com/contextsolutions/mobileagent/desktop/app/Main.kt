@@ -318,41 +318,63 @@ fun main() {
         koin.get<DesktopChatSessionController>().warmUp()
     }
 
+    // Probe system-tray support ONCE, robustly. `SystemTray.isSupported()` lies on
+    // modern GNOME/Wayland (returns true, then `getSystemTray()` / peer creation
+    // throws UnsupportedOperationException on the AWT EDT). Compose's `Tray()` does
+    // the AWT call async on the EDT, so a try/catch around the composable can't catch
+    // it — we must decide up-front whether to compose the tray at all.
+    val traySupported = runCatching {
+        java.awt.SystemTray.isSupported() && java.awt.SystemTray.getSystemTray() != null
+    }.getOrDefault(false)
+    if (!traySupported) {
+        System.err.println("[desktopApp] System tray unavailable; running without a tray icon (close-to-quit).")
+    }
+
     application {
-        val trayState = rememberTrayState()
-        // Route clock + task notifications to the system tray now that it exists.
-        LaunchedEffect(trayState) { presenter.setDelegate(TrayNotificationPresenter(trayState)) }
+        // Shared shutdown path: the tray "Quit" item AND the no-tray window-close both
+        // use it. Without a tray, hiding the window would trap it (no Show/Quit
+        // affordance), so close must actually exit.
+        fun shutdown() {
+            linkServer.stop()
+            warmModel.unload()
+            appScope.cancel()
+            exitApplication()
+        }
 
         var windowVisible by remember { mutableStateOf(true) }
         var paused by remember { mutableStateOf(false) }
 
-        Tray(
-            icon = AppIcon,
-            state = trayState,
-            tooltip = "Mobile Agent",
-            menu = {
-                Item("Show", onClick = { windowVisible = true })
-                CheckboxItem(
-                    "Pause queue",
-                    checked = paused,
-                    onCheckedChange = { checked ->
-                        paused = checked
-                        if (checked) taskQueue.stop() else taskQueue.start()
-                    },
-                )
-                Separator()
-                Item("Quit", onClick = {
-                    linkServer.stop()
-                    warmModel.unload()
-                    appScope.cancel()
-                    exitApplication()
-                })
-            },
-        )
+        if (traySupported) {
+            val trayState = rememberTrayState()
+            // Route clock + task notifications to the system tray now that it exists.
+            // Without a tray the default logging DesktopNotificationPresenter stays in
+            // place (notifications degrade to logs rather than crashing).
+            LaunchedEffect(trayState) { presenter.setDelegate(TrayNotificationPresenter(trayState)) }
+            Tray(
+                icon = AppIcon,
+                state = trayState,
+                tooltip = "Mobile Agent",
+                menu = {
+                    Item("Show", onClick = { windowVisible = true })
+                    CheckboxItem(
+                        "Pause queue",
+                        checked = paused,
+                        onCheckedChange = { checked ->
+                            paused = checked
+                            if (checked) taskQueue.stop() else taskQueue.start()
+                        },
+                    )
+                    Separator()
+                    Item("Quit", onClick = { shutdown() })
+                },
+            )
+        }
 
         val windowState = rememberWindowState(width = 960.dp, height = 720.dp)
         Window(
-            onCloseRequest = { windowVisible = false }, // hide to tray, don't quit
+            // With a tray, close hides to it (background runtime stays resident). With
+            // no tray, close exits cleanly so the window can never be trapped.
+            onCloseRequest = { if (traySupported) windowVisible = false else shutdown() },
             visible = windowVisible,
             state = windowState,
             title = "Mobile Agent",
@@ -370,7 +392,9 @@ fun main() {
             // `MaterialTheme {}` that never read the preference, so toggling did nothing.
             val themePrefs = koin.get<ThemePreferences>()
             val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
-            MobileAgentDesktopTheme(themeMode = themeMode) {
+            val fontScale by themePrefs.fontScaleFlow().collectAsState(initial = themePrefs.fontScale())
+            val fontFamily by themePrefs.fontFamilyFlow().collectAsState(initial = themePrefs.fontFamily())
+            MobileAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily) {
                 AppNavHost(
                     onboardingComplete = true,
                     modelPresent = true,

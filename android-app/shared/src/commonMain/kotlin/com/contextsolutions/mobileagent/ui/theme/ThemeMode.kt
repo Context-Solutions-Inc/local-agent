@@ -24,13 +24,48 @@ enum class ThemeMode {
 }
 
 /**
- * Persistent state for the user's theme-mode preference. Default `System` so the
- * app respects the OS dark-mode setting until the user explicitly chooses
- * otherwise. Android impl backed by `SharedPreferences` (`:androidApp`); desktop
- * by a JSON store (`:shared` desktopMain). Bound in each platform's Koin module.
+ * User's preferred app font family. [System] keeps the platform default; the
+ * others select a generic family resolved by each platform (no bundled font
+ * assets) so the choice works on Android and desktop alike. Pure enum (no Compose
+ * dependency) — the Compose `FontFamily` mapping lives in `:ui` (`AppTheme.kt`).
+ */
+enum class AppFontFamily {
+    System,
+    SansSerif,
+    Serif,
+    Monospace,
+}
+
+/**
+ * Bounds for the user-controlled font-size multiplier (applied app-wide via a
+ * `LocalDensity` `fontScale` override, so every `sp` text — including the Android
+ * markdown TextView — scales). 1.0 = the platform default. The desktop default
+ * density can render small on HiDPI monitors; this lets the user compensate.
+ */
+object FontScale {
+    const val MIN = 0.8f
+    const val MAX = 1.6f
+    const val DEFAULT = 1.0f
+}
+
+/**
+ * Persistent state for the user's appearance preferences — theme mode, font
+ * family, and font size. Default `System` theme so the app respects the OS
+ * dark-mode setting until the user explicitly chooses otherwise; default font
+ * family `System` and scale `FontScale.DEFAULT`. Android impl backed by
+ * `SharedPreferences` (`:androidApp`); desktop by a JSON store (`:shared`
+ * desktopMain). Bound in each platform's Koin module.
  */
 interface ThemePreferences {
     fun themeMode(): ThemeMode
     fun themeModeFlow(): Flow<ThemeMode>
     fun setThemeMode(mode: ThemeMode)
+
+    fun fontScale(): Float
+    fun fontScaleFlow(): Flow<Float>
+    fun setFontScale(scale: Float)
+
+    fun fontFamily(): AppFontFamily
+    fun fontFamilyFlow(): Flow<AppFontFamily>
+    fun setFontFamily(family: AppFontFamily)
 }

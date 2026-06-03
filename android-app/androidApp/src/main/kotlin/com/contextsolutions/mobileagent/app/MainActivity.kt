@@ -50,7 +50,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeVm: ThemeModeViewModel = koinViewModel()
             val mode by themeVm.mode.collectAsState()
-            MobileAgentTheme(themeMode = mode) {
+            val fontScale by themeVm.fontScale.collectAsState()
+            val fontFamily by themeVm.fontFamily.collectAsState()
+            MobileAgentTheme(themeMode = mode, fontScale = fontScale, fontFamily = fontFamily) {
                 MainScreen()
             }
         }

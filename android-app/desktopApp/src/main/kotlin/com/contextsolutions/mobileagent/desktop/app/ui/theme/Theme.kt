@@ -1,11 +1,13 @@
 package com.contextsolutions.mobileagent.desktop.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.contextsolutions.mobileagent.ui.theme.AppFontFamily
+import com.contextsolutions.mobileagent.ui.theme.AppThemeScaffold
+import com.contextsolutions.mobileagent.ui.theme.FontScale
 import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 
 /**
@@ -74,6 +76,8 @@ private val DarkGreenColorScheme = darkColorScheme(
 @Composable
 fun MobileAgentDesktopTheme(
     themeMode: ThemeMode = ThemeMode.System,
+    fontScale: Float = FontScale.DEFAULT,
+    fontFamily: AppFontFamily = AppFontFamily.System,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -82,5 +86,10 @@ fun MobileAgentDesktopTheme(
         ThemeMode.Dark -> true
     }
     val colorScheme = if (darkTheme) DarkGreenColorScheme else LightGreenColorScheme
-    MaterialTheme(colorScheme = colorScheme, content = content)
+    AppThemeScaffold(
+        colorScheme = colorScheme,
+        fontScale = fontScale,
+        fontFamily = fontFamily,
+        content = content,
+    )
 }

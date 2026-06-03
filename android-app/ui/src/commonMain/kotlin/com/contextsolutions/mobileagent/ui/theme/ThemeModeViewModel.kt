@@ -13,11 +13,25 @@ class ThemeModeViewModel(
     val mode: StateFlow<ThemeMode> = preferences.themeModeFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.themeMode())
 
+    val fontScale: StateFlow<Float> = preferences.fontScaleFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.fontScale())
+
+    val fontFamily: StateFlow<AppFontFamily> = preferences.fontFamilyFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, preferences.fontFamily())
+
     fun cycle() {
         preferences.setThemeMode(preferences.themeMode().next())
     }
 
     fun setMode(mode: ThemeMode) {
         preferences.setThemeMode(mode)
+    }
+
+    fun setFontScale(scale: Float) {
+        preferences.setFontScale(scale)
+    }
+
+    fun setFontFamily(family: AppFontFamily) {
+        preferences.setFontFamily(family)
     }
 }

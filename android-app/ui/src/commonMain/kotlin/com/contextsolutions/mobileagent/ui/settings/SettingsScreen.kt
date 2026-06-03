@@ -38,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -63,8 +64,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
+import com.contextsolutions.mobileagent.ui.theme.AppFontFamily
+import com.contextsolutions.mobileagent.ui.theme.FontScale
 import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
+import kotlin.math.roundToInt
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -272,6 +276,49 @@ fun SettingsScreen(
                     ) { Text(label) }
                 }
             }
+
+            // Font family + size (PR #60). Applied app-wide on BOTH platforms via
+            // ThemeModeViewModel → AppThemeScaffold: a LocalDensity fontScale override
+            // scales every sp text (incl. the Android markdown TextView), and the
+            // typography family overrides the font. The desktop default density renders
+            // small on HiDPI monitors — the size slider lets the user compensate. The
+            // whole Settings screen reflects the choice live as it's changed.
+            Spacer(Modifier.height(20.dp))
+            val fontFamily by themeModeViewModel.fontFamily.collectAsState()
+            val fontScale by themeModeViewModel.fontScale.collectAsState()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Font: ", style = MaterialTheme.typography.bodyMedium)
+                var fontMenuOpen by remember { mutableStateOf(false) }
+                AssistChip(
+                    onClick = { fontMenuOpen = true },
+                    label = { Text(fontFamily.displayLabel()) },
+                )
+                DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
+                    AppFontFamily.entries.forEach { family ->
+                        DropdownMenuItem(
+                            text = { Text(family.displayLabel()) },
+                            onClick = { themeModeViewModel.setFontFamily(family); fontMenuOpen = false },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Text size — ${(fontScale * 100).roundToInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = fontScale,
+                onValueChange = { themeModeViewModel.setFontScale(it) },
+                valueRange = FontScale.MIN..FontScale.MAX,
+                steps = 15,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "The quick brown fox jumps over the lazy dog.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
@@ -788,6 +835,13 @@ private fun ModelDropdown(
             }
         }
     }
+}
+
+private fun AppFontFamily.displayLabel(): String = when (this) {
+    AppFontFamily.System -> "System default"
+    AppFontFamily.SansSerif -> "Sans-serif"
+    AppFontFamily.Serif -> "Serif"
+    AppFontFamily.Monospace -> "Monospace"
 }
 
 @Composable
