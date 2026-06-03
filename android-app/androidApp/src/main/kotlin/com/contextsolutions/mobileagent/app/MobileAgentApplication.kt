@@ -16,12 +16,15 @@ import com.contextsolutions.mobileagent.app.di.androidModule
 import com.contextsolutions.mobileagent.di.agentCoreModule
 import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
+import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
+import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryFlusher
 import com.google.firebase.analytics.FirebaseAnalytics
 import org.koin.android.ext.android.inject
+import org.koin.core.qualifier.named
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
@@ -48,6 +51,9 @@ class MobileAgentApplication : Application() {
     private val systemMemoryMonitor: SystemMemoryMonitor by inject()
     private val ollamaPreferences: OllamaPreferences by inject()
     private val ollamaConnectionMonitor: OllamaConnectionMonitor by inject()
+    private val desktopLinkPreferences: DesktopLinkPreferences by inject()
+    private val desktopLinkConnectionMonitor: OllamaConnectionMonitor by inject(named("desktopLink"))
+    private val syncController: SyncController by inject()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -140,6 +146,25 @@ class MobileAgentApplication : Application() {
         ollamaConnectionMonitor.reloadRequests
             .onEach { sessionManager.forceUnload(reason = UnloadReason.Manual) }
             .launchIn(appScope)
+
+        // (i) PR #57 — same two hooks for the mobile↔desktop link: drop the
+        // resident model when the link config changes (toggle / re-pair) and when
+        // the desktop-link monitor reports the desktop went offline/online, so the
+        // next turn re-decides desktop-link ↔ Ollama ↔ local.
+        desktopLinkPreferences.configFlow()
+            .drop(1)
+            .distinctUntilChanged()
+            .onEach { sessionManager.forceUnload(reason = UnloadReason.Manual) }
+            .launchIn(appScope)
+        desktopLinkConnectionMonitor.reloadRequests
+            .onEach { sessionManager.forceUnload(reason = UnloadReason.Manual) }
+            .launchIn(appScope)
+
+        // (j) PR #57 — start the bidirectional sync orchestrator. It idles until
+        // the link is enabled + paired, then reconciles conversations + memories
+        // with the desktop (on-connect, on local change, and via the desktop's
+        // change-SSE).
+        syncController.start()
     }
 
     /**

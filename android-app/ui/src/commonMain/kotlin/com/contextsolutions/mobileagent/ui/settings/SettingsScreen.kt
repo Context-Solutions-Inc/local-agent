@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,9 +11,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
@@ -51,6 +59,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
+import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -410,12 +419,25 @@ fun SettingsScreen(
                 }
             }
 
+            // PR #57 — mobile↔desktop link. When on + paired + reachable, the chat
+            // model runs on the paired desktop agent (priority over Ollama), and
+            // conversations + memories sync. Sits above Ollama; greys it out when active.
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            DesktopLinkSection(
+                state = state,
+                onToggle = { viewModel.setAutoDesktopLinkEnabled(it) },
+                onScanned = { viewModel.applyScannedLink(it) },
+                onUnpair = { viewModel.unpairDesktop() },
+                onDisconnectMobile = { viewModel.disconnectMobileDevice() },
+            )
+
             // PR #56 — Remote Ollama server. When configured, the large chat
             // model runs on this server (text + images) instead of on-device;
             // the classifier, embedder, search and memory stay local.
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
             OllamaServerSection(
                 state = state,
+                enabled = !state.desktopLinkActive,
                 host = ollamaHost,
                 port = ollamaPort,
                 chatModel = ollamaChatModel,
@@ -432,10 +454,112 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * PR #57 — the "Auto Desktop Link" section. The toggle + status live in shared
+ * UI; the pairing controls differ per platform (desktop shows a QR to scan;
+ * mobile shows a "Scan desktop QR" button + camera), so they're an expect/actual.
+ */
+@Composable
+private fun DesktopLinkSection(
+    state: SettingsUiState,
+    onToggle: (Boolean) -> Unit,
+    onScanned: (String) -> Unit,
+    onUnpair: () -> Unit,
+    onDisconnectMobile: () -> Unit,
+) {
+    // The desktop HOSTS the link (shows a QR + the connected phone, no toggle); the
+    // phone JOINS it (toggle + pairing copy + scanner). PR #57.
+    if (isDesktopPlatform) {
+        SectionHeader("Mobile Agent Connection")
+        Text(
+            "Let the Mobile Agent app on your phone connect to this desktop over your " +
+                "local network. Scan the code below from the phone's Settings.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        ConnectedMobileRow(state = state, onDisconnect = onDisconnectMobile)
+        Spacer(Modifier.height(8.dp))
+        DesktopLinkPairingControls(state = state, onScanned = onScanned, onUnpair = onUnpair)
+    } else {
+        SectionHeaderWithToggle(
+            title = "Auto Desktop Link",
+            checked = state.desktopLinkConfig.enabled,
+            onCheckedChange = onToggle,
+        )
+        Text(
+            "Pair this phone with your desktop agent on the same network. While the link " +
+                "is on and reachable, chat runs on the desktop and your conversations + " +
+                "memories stay in sync. When it's on, the Ollama server below is disabled.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        DesktopLinkStatusRow(state)
+        Spacer(Modifier.height(8.dp))
+        DesktopLinkPairingControls(state = state, onScanned = onScanned, onUnpair = onUnpair)
+    }
+}
+
+/**
+ * Desktop-only: shows whether a phone is currently connected (green) or just
+ * paired-but-offline (grey), with a Disconnect button that revokes the pairing
+ * token so the phone drops and the user re-scans to reconnect.
+ */
+@Composable
+private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit) {
+    val paired = state.desktopLinkConfig.pairedDeviceId.isNotBlank()
+    val (label, color) = when {
+        !paired -> "No phone paired yet" to MaterialTheme.colorScheme.outline
+        state.mobileConnected -> "Phone connected" to Color(0xFF43A047)
+        else -> "Phone paired (offline)" to MaterialTheme.colorScheme.outline
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(color),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = color)
+        }
+        if (paired) {
+            OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
+        }
+    }
+}
+
+@Composable
+private fun DesktopLinkStatusRow(state: SettingsUiState) {
+    val cfg = state.desktopLinkConfig
+    val (label, color) = when {
+        !cfg.enabled -> "Off" to MaterialTheme.colorScheme.outline
+        !cfg.isPaired -> "No desktop paired" to MaterialTheme.colorScheme.outline
+        state.desktopLinkStatus == DesktopLinkStatus.UP ->
+            "Connected to ${cfg.peerHost}" to Color(0xFF43A047)
+        else -> "Desktop unreachable (${cfg.peerHost})" to Color(0xFFE53935)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(color),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OllamaServerSection(
     state: SettingsUiState,
+    enabled: Boolean,
     host: String,
     port: String,
     chatModel: String,
@@ -449,6 +573,14 @@ private fun OllamaServerSection(
     onClear: () -> Unit,
 ) {
     SectionHeader("Ollama server")
+    if (!enabled) {
+        Text(
+            "Disabled while Auto Desktop Link is active.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+        Spacer(Modifier.height(4.dp))
+    }
     Text(
         "Run the chat model on an Ollama server on your network instead of on this " +
             "device — useful when a faster machine is available. The classifier, search " +
@@ -462,6 +594,7 @@ private fun OllamaServerSection(
         OutlinedTextField(
             value = host,
             onValueChange = onHostChange,
+            enabled = enabled,
             modifier = Modifier.weight(2f),
             label = { Text("Host / IP") },
             placeholder = { Text("192.168.1.50") },
@@ -471,6 +604,7 @@ private fun OllamaServerSection(
         OutlinedTextField(
             value = port,
             onValueChange = onPortChange,
+            enabled = enabled,
             modifier = Modifier.weight(1f),
             label = { Text("Port") },
             singleLine = true,
@@ -484,7 +618,7 @@ private fun OllamaServerSection(
     ) {
         OutlinedButton(
             onClick = onTest,
-            enabled = host.isNotBlank() && port.isNotBlank() && state.ollamaTestStatus != OllamaTestStatus.Testing,
+            enabled = enabled && host.isNotBlank() && port.isNotBlank() && state.ollamaTestStatus != OllamaTestStatus.Testing,
         ) { Text("Test connection") }
         if (state.ollamaTestStatus == OllamaTestStatus.Testing) {
             CircularProgressIndicator(modifier = Modifier.height(20.dp).padding(start = 4.dp))
@@ -515,10 +649,10 @@ private fun OllamaServerSection(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onSave,
-            enabled = host.isNotBlank() && port.isNotBlank() && chatModel.isNotBlank(),
+            enabled = enabled && host.isNotBlank() && port.isNotBlank() && chatModel.isNotBlank(),
         ) { Text("Save") }
         if (state.ollamaConfig.isConfigured) {
-            OutlinedButton(onClick = onClear) { Text("Clear") }
+            OutlinedButton(onClick = onClear, enabled = enabled) { Text("Clear") }
         }
     }
 }

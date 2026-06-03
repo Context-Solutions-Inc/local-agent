@@ -2,8 +2,18 @@ package com.contextsolutions.mobileagent.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.mobileagent.inference.DesktopLinkClient
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaModel
+import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
+import com.contextsolutions.mobileagent.link.LinkPairingPayload
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+import com.contextsolutions.mobileagent.preferences.DesktopLinkConfig
+import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
@@ -47,6 +57,11 @@ class SettingsViewModel(
     private val memoryPreferences: MemoryPreferences,
     private val ollamaPreferences: OllamaPreferences,
     private val ollamaClient: OllamaClient,
+    private val desktopLinkPreferences: DesktopLinkPreferences,
+    private val desktopLinkClient: DesktopLinkClient,
+    private val desktopLinkStatusProvider: DesktopLinkStatusProvider,
+    private val desktopLinkQrProvider: DesktopLinkQrProvider,
+    private val desktopLinkConnectionStatus: DesktopLinkConnectionStatus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -72,6 +87,71 @@ class SettingsViewModel(
         ollamaPreferences.configFlow()
             .onEach { cfg -> _state.update { it.copy(ollamaConfig = cfg) } }
             .launchIn(viewModelScope)
+        // PR #57 — mirror the desktop-link config, live status, and (desktop) the
+        // pairing-QR payload so the Settings section reflects pairing/unpairing,
+        // reachability, and greys out Ollama when the link is active.
+        desktopLinkPreferences.configFlow()
+            .onEach { cfg -> _state.update { it.copy(desktopLinkConfig = cfg) } }
+            .launchIn(viewModelScope)
+        desktopLinkStatusProvider.status
+            .onEach { st -> _state.update { it.copy(desktopLinkStatus = st) } }
+            .launchIn(viewModelScope)
+        desktopLinkQrProvider.qrPayload
+            .onEach { p -> _state.update { it.copy(desktopLinkQrPayload = p) } }
+            .launchIn(viewModelScope)
+        desktopLinkConnectionStatus.mobileConnected
+            .onEach { c -> _state.update { it.copy(mobileConnected = c) } }
+            .launchIn(viewModelScope)
+    }
+
+    /** Toggle the "Auto Desktop Link". Keeps any paired peer + token. */
+    fun setAutoDesktopLinkEnabled(enabled: Boolean) {
+        desktopLinkPreferences.setConfig(desktopLinkPreferences.config().copy(enabled = enabled))
+    }
+
+    /**
+     * Apply a scanned desktop QR: store the peer endpoint + token, enable the
+     * link, then POST `/pair` so the desktop records this phone. Returns true if
+     * the QR parsed (pairing reachability is reflected later by the status dot).
+     */
+    fun applyScannedLink(rawQr: String): Boolean {
+        val payload = LinkPairingPayload.parse(rawQr) ?: return false
+        val self = desktopLinkPreferences.config().selfDeviceId
+        desktopLinkPreferences.setConfig(
+            desktopLinkPreferences.config().copy(
+                enabled = true,
+                peerHost = payload.host,
+                peerPort = payload.port,
+                pairingToken = payload.token,
+                pairedDeviceId = payload.deviceId,
+            ),
+        )
+        viewModelScope.launch {
+            val baseUrl = "http://${payload.host}:${payload.port}"
+            withContext(Dispatchers.IO) { desktopLinkClient.pair(baseUrl, payload.token, self) }
+        }
+        return true
+    }
+
+    /** Forget the paired desktop (and disable the link). Mobile side. */
+    fun unpairDesktop() {
+        desktopLinkPreferences.clear()
+    }
+
+    /**
+     * Desktop side: disconnect the paired phone by rotating the pairing token and
+     * forgetting the phone. The old token stops authorizing immediately (the phone
+     * goes offline → red), the QR republishes with the new token, and the user
+     * re-scans to reconnect.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    fun disconnectMobileDevice() {
+        desktopLinkPreferences.setConfig(
+            desktopLinkPreferences.config().copy(
+                pairingToken = Uuid.random().toString(),
+                pairedDeviceId = "",
+            ),
+        )
     }
 
     fun saveBraveKey(key: String) {
@@ -290,6 +370,10 @@ class SettingsViewModel(
             isDebugBuild = buildConfig.isDebug,
             memoryCreationEnabled = memoryPreferences.creationEnabled(),
             ollamaConfig = ollamaPreferences.config(),
+            desktopLinkConfig = desktopLinkPreferences.config(),
+            desktopLinkStatus = desktopLinkStatusProvider.status.value,
+            desktopLinkQrPayload = desktopLinkQrProvider.qrPayload.value,
+            mobileConnected = desktopLinkConnectionStatus.mobileConnected.value,
         ).also {
             // Load cache count off the main thread.
             viewModelScope.launch(Dispatchers.IO) {
@@ -324,7 +408,23 @@ data class SettingsUiState(
     val ollamaModels: List<OllamaModel> = emptyList(),
     val ollamaTestStatus: OllamaTestStatus = OllamaTestStatus.Idle,
     val ollamaJustSaved: Boolean = false,
-)
+    /** PR #57 — mobile↔desktop link config (enabled + paired peer). */
+    val desktopLinkConfig: DesktopLinkConfig = DesktopLinkConfig.EMPTY,
+    /** Live link reachability for the section status + the Ollama grey-out. */
+    val desktopLinkStatus: DesktopLinkStatus = DesktopLinkStatus.DISABLED,
+    /** Desktop-only: the pairing-QR payload to render (null on mobile). */
+    val desktopLinkQrPayload: String? = null,
+    /** Desktop-only: whether a paired phone is currently connected to this desktop. */
+    val mobileConnected: Boolean = false,
+) {
+    /**
+     * The link is *active* (routing chat to the desktop) only when enabled, paired,
+     * AND reachable. While active the Ollama server fields are greyed out; when the
+     * link is down, routing falls back through Ollama, so its fields stay editable.
+     */
+    val desktopLinkActive: Boolean
+        get() = desktopLinkConfig.isLinkConfigured && desktopLinkStatus == DesktopLinkStatus.UP
+}
 
 /** Outcome of the Settings "Test connection" probe against an Ollama server. */
 enum class OllamaTestStatus { Idle, Testing, Connected, Failed }

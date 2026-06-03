@@ -26,6 +26,20 @@ import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
 import com.contextsolutions.mobileagent.inference.OllamaInferenceEngine
 import com.contextsolutions.mobileagent.inference.RoutingInferenceEngine
+import com.contextsolutions.mobileagent.inference.DesktopLinkClient
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
+import com.contextsolutions.mobileagent.inference.PollingDesktopLinkStatusProvider
+import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
+import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
+import com.contextsolutions.mobileagent.sync.DesktopSyncWatermarkStore
+import com.contextsolutions.mobileagent.sync.LinkSyncService
+import com.contextsolutions.mobileagent.sync.LocalChangeBus
+import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
+import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
+import com.contextsolutions.mobileagent.preferences.DesktopDesktopLinkPreferences
+import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.memory.DesktopMemoryPreferences
@@ -198,6 +212,11 @@ val desktopModule: Module = module {
 
     // PR #56 — the InferenceEngine seam now routes to Ollama when configured +
     // reachable, else falls back to the local llama-server (built as `local`).
+    // PR #57 — the desktop *hosts* the link (QR + server live here) and never
+    // routes its own chat to itself, so the desktop-link backend is NOT wired
+    // into RoutingInferenceEngine here (left null); the desktop uses
+    // DesktopLinkPreferences only for its device id, pairing token, and recording
+    // the paired mobile.
     single<InferenceEngine> {
         RoutingInferenceEngine(
             local = LlamaServerInferenceEngine(
@@ -210,6 +229,45 @@ val desktopModule: Module = module {
             logger = { System.err.println("[Inference] $it") },
         )
     }
+
+    // PR #57 — desktop link host config + control-plane client + status provider.
+    // The status provider reports DISABLED on desktop (the link is never enabled
+    // here), so the chat-header link dot is hidden. The Ktor link server is wired
+    // separately below (DesktopLinkServer).
+    single<DesktopLinkPreferences> {
+        DesktopDesktopLinkPreferences(
+            DesktopJsonStore(File(DesktopAppDirs.dataDir(), "desktop_link_prefs.json")),
+        )
+    }
+    single { DesktopLinkClient(get<HttpEngineFactory>()) }
+    single<DesktopLinkStatusProvider> {
+        PollingDesktopLinkStatusProvider(preferences = get(), client = get())
+    }
+
+    // PR #57 — sync engine (desktop side). The desktop is the sync SERVER, so it
+    // needs LinkSyncService (the DesktopLinkServer's /sync/* endpoints drive it)
+    // + the LocalChangeBus (fires the /sync/subscribe SSE on desktop-side writes).
+    // The DesktopLinkServer itself is constructed in Main.kt (it needs WarmModel).
+    single { LocalChangeBus() }
+    single<SyncWatermarkStore> {
+        DesktopSyncWatermarkStore(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "sync_state.json")))
+    }
+    single<LinkSyncService> {
+        SqlDelightLinkSyncService(
+            conversations = get(),
+            memories = get(),
+            embedder = get(),
+            bus = get(),
+            logger = { System.err.println("[Sync] $it") },
+        )
+    }
+    // Desktop publishes the pairing-QR payload here once the link server is bound
+    // (set by Main.kt); the shared Settings UI renders it as a QR image.
+    single { MutableDesktopLinkQr() }
+    single<DesktopLinkQrProvider> { get<MutableDesktopLinkQr>() }
+    // Live "phone connected" signal (driven by the link server's SSE subscribers).
+    single { MutableDesktopLinkConnectionStatus() }
+    single<DesktopLinkConnectionStatus> { get<MutableDesktopLinkConnectionStatus>() }
 
     // GGUF acquisition (Phase 4): inventory resolves the OS app-data model path; the
     // downloader fetches/verifies/promotes it. Phase 7's tray/chat drives download() and
@@ -267,7 +325,7 @@ val desktopModule: Module = module {
     // Conversation history — wired on desktop with the Phase-9 Chat surface
     // (mirrors androidModule). Persists/resumes chats through the shared :ui VM.
     single { get<MobileAgentDatabase>().conversationsQueries }
-    single<ConversationRepository> { SqlDelightConversationRepository(get(), get()) }
+    single<ConversationRepository> { SqlDelightConversationRepository(get(), get(), localChangeBus = get()) }
     single { SearchCacheDao(queries = get(), nowEpochMs = { get<AgentClock>().nowEpochMs() }) }
 
     // Translation-intent detector — platform-agnostic commonMain class consumed by
@@ -495,7 +553,7 @@ val desktopModule: Module = module {
             runCatching { configJson.decodeFromString(MemoryConfig.serializer(), it) }.getOrNull()
         } ?: MemoryConfig.DEFAULT
     }
-    single<MemoryStore> { SqlDelightMemoryStore(get()) }
+    single<MemoryStore> { SqlDelightMemoryStore(get(), localChangeBus = get()) }
     // Memory backup (export/import) — shared controller, file I/O via the :ui
     // BackupWriter/Reader. Phase 9 (Memory screen migrated to shared :ui).
     single<MemoryBackupOps> {

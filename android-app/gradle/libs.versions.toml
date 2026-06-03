@@ -118,6 +118,11 @@ jlatexmath = "1.0.7"
 # Windows; the acoustic model is downloaded separately (VoskDictation degrades to
 # no-op when absent, like the ONNX/GGUF engines).
 vosk = "0.3.45"
+# PR #57 — QR pairing. zxing-core encodes the QR on desktop (pure-JVM, #40-safe);
+# zxing-android-embedded scans it on mobile (CameraX + a drop-in scanner Activity,
+# Android-only — never commonMain, invariant #18).
+zxingCore = "3.5.3"
+zxingAndroid = "4.3.0"
 
 # Test
 junit = "4.13.2"
@@ -144,6 +149,12 @@ ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negoti
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+# Desktop-only Ktor SERVER (PR #57) — the mobile↔desktop link server. CIO engine
+# is pure-JVM (no Netty natives), matching the desktop CIO client (#40-safe).
+ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
+ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
 
 # SQLDelight
 sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
@@ -184,6 +195,8 @@ markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-
 jlatexmath = { module = "org.scilab.forge:jlatexmath", version.ref = "jlatexmath" }
 # Desktop offline STT (Phase 7).
 vosk = { module = "com.alphacephei:vosk", version.ref = "vosk" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxingCore" }
+zxing-android-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingAndroid" }
 
 # AndroidX
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }

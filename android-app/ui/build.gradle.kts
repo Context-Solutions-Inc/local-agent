@@ -71,6 +71,8 @@ kotlin {
             // activity-compose `BackHandler` backs the Android `PlatformBackHandler`
             // actual (the system back gesture/button → route change).
             implementation(libs.androidx.activity.compose)
+            // PR #57 — QR scanner (CameraX + drop-in scanner) for desktop pairing.
+            implementation(libs.zxing.android.embedded)
         }
         val desktopMain by getting {
             dependencies {
@@ -78,6 +80,8 @@ kotlin {
                 // ImageBitmap) for the desktop `PlatformMarkdownMath` actual.
                 implementation(libs.markdown.renderer.m3)
                 implementation(libs.jlatexmath)
+                // PR #57 — QR encoder (pure-JVM) to render the desktop pairing QR.
+                implementation(libs.zxing.core)
             }
         }
     }

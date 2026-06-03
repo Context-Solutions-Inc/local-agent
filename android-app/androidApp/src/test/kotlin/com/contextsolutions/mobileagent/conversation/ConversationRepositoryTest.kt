@@ -243,7 +243,12 @@ class ConversationRepositoryTest {
     }
 
     @Test
-    fun delete_removes_conversation_and_cascades_messages() = runTest {
+    fun delete_softDeletes_conversation_hiding_it_from_reads() = runTest {
+        // PR #57 — explicit delete now soft-deletes (tombstones) so the deletion
+        // propagates to a paired device instead of the row reappearing on sync.
+        // The conversation is hidden from get()/listRecent(); its messages are
+        // retained in storage (the tombstone hides them — get() is null, so the
+        // UI can't navigate to them — and they're needed for the change feed).
         repo.create("c1", "title", 100L)
         repo.appendMessage("c1", ChatMessage.User("u"), 101L)
         repo.appendMessage("c1", ChatMessage.Assistant("a"), 102L)
@@ -251,7 +256,7 @@ class ConversationRepositoryTest {
         repo.delete("c1")
 
         assertNull(repo.get("c1"))
-        assertTrue(repo.loadMessages("c1").isEmpty())
+        assertFalse(repo.listRecent(limit = 100).any { it.id == "c1" })
     }
 
     @Test

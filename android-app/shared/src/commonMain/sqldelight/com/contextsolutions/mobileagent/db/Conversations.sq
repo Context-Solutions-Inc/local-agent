@@ -6,12 +6,18 @@
 -- confirms the "oldest pair will be dropped" warning for this conversation;
 -- non-null thereafter so subsequent overflows truncate silently.
 
+-- deleted_at_epoch_ms added in 8.sqm (PR #57): soft-delete tombstone for sync.
+-- NULL = live; non-null = the epoch-ms the row was deleted. Appended at the END
+-- so Schema.create() matches Schema.migrate() (invariant #20). All UI/read
+-- queries filter `deleted_at_epoch_ms IS NULL`; the *ChangedSince sync queries
+-- deliberately include tombstoned rows so deletes propagate to the peer.
 CREATE TABLE conversations (
     id TEXT NOT NULL PRIMARY KEY,
     title TEXT NOT NULL,
     created_at_epoch_ms INTEGER NOT NULL,
     updated_at_epoch_ms INTEGER NOT NULL,
-    truncation_acknowledged_at INTEGER
+    truncation_acknowledged_at INTEGER,
+    deleted_at_epoch_ms INTEGER
 );
 
 CREATE TABLE messages (
@@ -34,31 +40,60 @@ INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms, t
 VALUES (?, ?, ?, ?, NULL);
 
 selectAllConversations:
-SELECT * FROM conversations ORDER BY updated_at_epoch_ms DESC;
+SELECT * FROM conversations WHERE deleted_at_epoch_ms IS NULL ORDER BY updated_at_epoch_ms DESC;
 
 selectRecentConversations:
-SELECT * FROM conversations ORDER BY updated_at_epoch_ms DESC LIMIT :limit;
+SELECT * FROM conversations WHERE deleted_at_epoch_ms IS NULL ORDER BY updated_at_epoch_ms DESC LIMIT :limit;
 
 selectConversationById:
-SELECT * FROM conversations WHERE id = ?;
+SELECT * FROM conversations WHERE id = ? AND deleted_at_epoch_ms IS NULL;
 
 countConversations:
-SELECT COUNT(*) FROM conversations;
+SELECT COUNT(*) FROM conversations WHERE deleted_at_epoch_ms IS NULL;
 
 selectOldestConversationIds:
-SELECT id FROM conversations ORDER BY updated_at_epoch_ms ASC LIMIT :limit;
+SELECT id FROM conversations WHERE deleted_at_epoch_ms IS NULL ORDER BY updated_at_epoch_ms ASC LIMIT :limit;
 
 deleteConversation:
 DELETE FROM conversations WHERE id = ?;
 
+-- PR #57 sync: soft-delete (tombstone) instead of a hard DELETE so the delete
+-- propagates to the paired device. Bumps updated_at so it rides the change feed.
+softDeleteConversation:
+UPDATE conversations SET deleted_at_epoch_ms = :nowEpochMs, updated_at_epoch_ms = :nowEpochMs WHERE id = :id;
+
 touchUpdatedAt:
 UPDATE conversations SET updated_at_epoch_ms = :nowEpochMs WHERE id = :id;
+
+-- PR #57 sync: change feed (includes tombstoned rows so deletes propagate).
+selectConversationsChangedSince:
+SELECT * FROM conversations WHERE updated_at_epoch_ms > :since ORDER BY updated_at_epoch_ms ASC;
+
+-- PR #57 sync: last-write-wins upsert from a peer. ON CONFLICT...DO UPDATE (not
+-- INSERT OR REPLACE — REPLACE would delete+reinsert the row and cascade-delete
+-- its messages). The WHERE guard only applies the peer's row when it is newer.
+-- created_at is never overwritten (the original creation time is authoritative).
+upsertConversationFromPeer:
+INSERT INTO conversations(id, title, created_at_epoch_ms, updated_at_epoch_ms, truncation_acknowledged_at, deleted_at_epoch_ms)
+VALUES (:id, :title, :createdAt, :updatedAt, :truncationAck, :deletedAt)
+ON CONFLICT(id) DO UPDATE SET
+    title = excluded.title,
+    updated_at_epoch_ms = excluded.updated_at_epoch_ms,
+    truncation_acknowledged_at = excluded.truncation_acknowledged_at,
+    deleted_at_epoch_ms = excluded.deleted_at_epoch_ms
+WHERE excluded.updated_at_epoch_ms > conversations.updated_at_epoch_ms;
 
 acknowledgeTruncation:
 UPDATE conversations SET truncation_acknowledged_at = :nowEpochMs WHERE id = :id;
 
 insertMessage:
 INSERT INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes, render_markdown)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- PR #57 sync: messages are immutable + keyed by UUID, so a peer's message is
+-- unioned in with INSERT OR IGNORE (an existing id is left untouched).
+upsertMessageFromPeer:
+INSERT OR IGNORE INTO messages(id, conversation_id, role, content, tool_call_json, tool_result_json, created_at_epoch_ms, sequence_index, image_bytes, render_markdown)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessagesByConversation:

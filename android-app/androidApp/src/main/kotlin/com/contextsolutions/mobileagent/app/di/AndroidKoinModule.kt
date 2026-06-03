@@ -17,6 +17,10 @@ import com.contextsolutions.mobileagent.agent.ChatSessionController
 import com.contextsolutions.mobileagent.di.AgentLogger
 import com.contextsolutions.mobileagent.inference.AndroidMemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
+import com.contextsolutions.mobileagent.inference.DesktopLinkClient
+import com.contextsolutions.mobileagent.inference.DesktopLinkInferenceEngine
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
+import com.contextsolutions.mobileagent.inference.PollingDesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.InferenceEngine
 import com.contextsolutions.mobileagent.inference.LiteRtInferenceEngineFactory
 import com.contextsolutions.mobileagent.inference.MemoryHeadroomProvider
@@ -79,7 +83,9 @@ import com.contextsolutions.mobileagent.onboarding.OnboardingPreferences
 import com.contextsolutions.mobileagent.onboarding.SharedPreferencesOnboardingPreferences
 import com.contextsolutions.mobileagent.preferences.DataStoreSearchPreferencesRepository
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
+import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.preferences.SharedPreferencesDesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.SharedPreferencesOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.LocationCatalog
 import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
@@ -91,6 +97,17 @@ import com.contextsolutions.mobileagent.todo.TodoRepository
 import com.contextsolutions.mobileagent.agent.TranslationIntentDetector
 import com.contextsolutions.mobileagent.conversation.ConversationRepository
 import com.contextsolutions.mobileagent.conversation.SqlDelightConversationRepository
+import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
+import com.contextsolutions.mobileagent.link.NoDesktopLinkConnection
+import com.contextsolutions.mobileagent.link.NoDesktopLinkQr
+import com.contextsolutions.mobileagent.sync.LinkSyncHttpClient
+import com.contextsolutions.mobileagent.sync.LinkSyncService
+import com.contextsolutions.mobileagent.sync.LocalChangeBus
+import com.contextsolutions.mobileagent.sync.SharedPreferencesSyncWatermarkStore
+import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
+import com.contextsolutions.mobileagent.sync.SyncController
+import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.SharedPreferencesLanguagePreferences
 import com.contextsolutions.mobileagent.telemetry.SharedPreferencesTelemetryConsentManager
@@ -223,6 +240,63 @@ val androidModule: Module = module {
         )
     }
 
+    // PR #57 — mobile↔desktop link: prefs + control-plane client + a second
+    // connection monitor (the OllamaConnectionMonitor class is generic over its
+    // health probe; this instance probes the desktop link server's /health) +
+    // the OpenAI-compatible engine that routes chat to the paired desktop. The
+    // status provider polls /health for the chat-header link dot.
+    single<DesktopLinkPreferences> { SharedPreferencesDesktopLinkPreferences(androidContext()) }
+    single { DesktopLinkClient(get<HttpEngineFactory>()) }
+    single(named("desktopLink")) {
+        OllamaConnectionMonitor(
+            healthProbe = { url ->
+                get<DesktopLinkClient>().health(url, get<DesktopLinkPreferences>().config().pairingToken)
+            },
+            logger = { Log.i("DesktopLink", it) },
+        )
+    }
+    single {
+        DesktopLinkInferenceEngine(
+            httpEngineFactory = get(),
+            preferences = get(),
+            client = get(),
+            monitor = get(named("desktopLink")),
+            logger = { Log.i("DesktopLink", it) },
+        )
+    }
+    single<DesktopLinkStatusProvider> {
+        PollingDesktopLinkStatusProvider(preferences = get(), client = get())
+    }
+    // Mobile shows no QR (it scans one) — a null provider keeps the shared
+    // Settings UI's DesktopLinkQrProvider injection valid on both platforms.
+    single<DesktopLinkQrProvider> { NoDesktopLinkQr() }
+    single<DesktopLinkConnectionStatus> { NoDesktopLinkConnection() }
+
+    // PR #57 — sync engine. LocalChangeBus is fired by the repos on genuine local
+    // writes; SqlDelightLinkSyncService reads/applies change bundles; SyncController
+    // drives mobile→desktop reconcile (pull + push + SSE subscribe).
+    single { LocalChangeBus() }
+    single<SyncWatermarkStore> { SharedPreferencesSyncWatermarkStore(androidContext()) }
+    single<LinkSyncService> {
+        SqlDelightLinkSyncService(
+            conversations = get(),
+            memories = get(),
+            embedder = get(),
+            bus = get(),
+            logger = { Log.i("Sync", it) },
+        )
+    }
+    single { LinkSyncHttpClient(get<HttpEngineFactory>()) }
+    single {
+        SyncController(
+            preferences = get(),
+            local = get(),
+            http = get(),
+            watermarks = get(),
+            logger = { Log.i("Sync", it) },
+        )
+    }
+
     // On-device engines. ClassifierEngine/EmbedderEngine are the Managed* lifecycle
     // wrappers (5-min idle unload, warm-up, forceUnload) typed as their interfaces —
     // AuxModelLifecycleCoordinator casts back to Managed* to drive unloads.
@@ -237,6 +311,8 @@ val androidModule: Module = module {
             local = local,
             ollama = get<OllamaInferenceEngine>(),
             preferences = get(),
+            desktopLink = get<DesktopLinkInferenceEngine>(),
+            desktopLinkPreferences = get(),
             logger = { Log.i("Inference", it) },
         )
     }
@@ -277,7 +353,7 @@ val androidModule: Module = module {
             SystemMemoryThresholds.DEFAULT
         }
     }
-    single<MemoryStore> { SqlDelightMemoryStore(get()) }
+    single<MemoryStore> { SqlDelightMemoryStore(get(), localChangeBus = get()) }
     single<MemoryPreferences> { SharedPreferencesMemoryPreferences(androidContext()) }
     single { RememberForgetDetector() }
     single { QuestionDetector() }
@@ -452,7 +528,7 @@ val androidModule: Module = module {
     single { ClockToolHandler(get()) }
 
     // -- Remaining shared commonMain-interface bindings. --
-    single<ConversationRepository> { SqlDelightConversationRepository(get(), get()) }
+    single<ConversationRepository> { SqlDelightConversationRepository(get(), get(), localChangeBus = get()) }
     single<LanguagePreferences> { SharedPreferencesLanguagePreferences(androidContext()) }
     single { TranslationIntentDetector() }
     single<TelemetryConsentManager> { SharedPreferencesTelemetryConsentManager(androidContext()) }

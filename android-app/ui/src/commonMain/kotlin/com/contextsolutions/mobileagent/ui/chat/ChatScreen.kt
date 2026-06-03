@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -94,6 +95,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.inference.SessionState
 import com.contextsolutions.mobileagent.ui.clock.ClockViewModel
+import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.mobileagent.ui.markdown.MarkdownMath
 import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.ui.theme.ThemeModeViewModel
@@ -104,6 +106,8 @@ import com.contextsolutions.mobileagent.ui.util.rememberAccessibilityAnnouncer
 import com.contextsolutions.mobileagent.ui.util.urlHost
 import com.contextsolutions.mobileagent.inference.Accelerator
 import com.contextsolutions.mobileagent.inference.MemoryStatus
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
+import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
 import com.contextsolutions.mobileagent.inference.ThermalStatus
 import com.contextsolutions.mobileagent.platform.AppBuildConfig
@@ -329,7 +333,12 @@ fun ChatScreen(
                 // bands mirror the watchdog + send-time gate thresholds in
                 // SystemMemoryThresholds, so the dot the user sees can't
                 // drift out of sync with what actually gates inference.
-                title = { SystemMemoryStatusIndicator() },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SystemMemoryStatusIndicator()
+                        DesktopLinkStatusIndicator()
+                    }
+                },
                 actions = {
                     // PR #44 — New Chat first on the right, Settings last.
                     // Order L→R: New Chat, TODO, Timer, Alarm, theme, Settings.
@@ -342,23 +351,27 @@ fun ChatScreen(
                     // PR #15 — TODO entry point. Count is folded into the
                     // accessibility label only; the visual badge was
                     // removed in PR #26.
-                    ClockIconButton(
-                        icon = Icons.Filled.Checklist,
-                        contentDescription = "Todos ($activeTodoCount open)",
-                        onClick = onOpenTodos,
-                    )
-                    // PR #11 — clock entry points. Always shown so the user
-                    // can create the first timer/alarm.
-                    ClockIconButton(
-                        icon = Icons.Filled.Timer,
-                        contentDescription = "Timers (${timers.size} active)",
-                        onClick = onOpenTimers,
-                    )
-                    ClockIconButton(
-                        icon = Icons.Filled.AccessAlarm,
-                        contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
-                        onClick = onOpenAlarms,
-                    )
+                    // PR #57 — todos/timers/alarms are mobile-only for now, so
+                    // these entry points are hidden on the desktop app.
+                    if (!isDesktopPlatform) {
+                        ClockIconButton(
+                            icon = Icons.Filled.Checklist,
+                            contentDescription = "Todos ($activeTodoCount open)",
+                            onClick = onOpenTodos,
+                        )
+                        // PR #11 — clock entry points. Always shown so the user
+                        // can create the first timer/alarm.
+                        ClockIconButton(
+                            icon = Icons.Filled.Timer,
+                            contentDescription = "Timers (${timers.size} active)",
+                            onClick = onOpenTimers,
+                        )
+                        ClockIconButton(
+                            icon = Icons.Filled.AccessAlarm,
+                            contentDescription = "Alarms (${alarms.count { it.enabled }} active)",
+                            onClick = onOpenAlarms,
+                        )
+                    }
                     ThemeModeToggle(
                         mode = themeMode,
                         onCycle = { themeModeViewModel.cycle() },
@@ -980,6 +993,32 @@ private fun SystemMemoryStatusIndicator(
         modifier = Modifier
             .padding(horizontal = 8.dp)
             .size(12.dp),
+    )
+}
+
+/**
+ * PR #57 — the mobile↔desktop link indicator, beside the system-memory dot. It's
+ * a small NETWORK icon (the memory indicator is a round dot) so the two are easy
+ * to tell apart at a glance. Green when the link is on + paired + reachable, red
+ * when on + paired but unreachable, and nothing at all when off/unpaired.
+ */
+@Composable
+private fun DesktopLinkStatusIndicator(
+    provider: DesktopLinkStatusProvider = koinInject(),
+) {
+    val status by provider.status.collectAsState()
+    val (color, desc) = when (status) {
+        DesktopLinkStatus.UP -> Color(0xFF43A047) to "Desktop link: connected"
+        DesktopLinkStatus.DOWN -> Color(0xFFE53935) to "Desktop link: unreachable"
+        DesktopLinkStatus.DISABLED -> return // render nothing when off/unpaired
+    }
+    Icon(
+        imageVector = Icons.Filled.Lan,
+        contentDescription = desc,
+        tint = color,
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .size(14.dp),
     )
 }
 

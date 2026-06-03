@@ -39,6 +39,12 @@
          so it needs RECORD_AUDIO (requested at runtime). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- PR #57 — scanning the desktop pairing QR uses the camera (the
+         zxing-android-embedded scanner requests the permission at runtime). The
+         camera isn't required for the app to function. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <!-- Speech-to-text: Android 11+ package visibility requires declaring the
          RecognitionService intent so SpeechRecognizer.isRecognitionAvailable()
          can see the system recognizer. -->

@@ -1,0 +1,21 @@
+-- v8 → v9 (PR #57): soft-delete tombstones + a memory updated-at, to support
+-- bidirectional last-write-wins sync between the mobile and desktop agents.
+--
+-- Conversations and memories were previously hard-deleted with no record, so a
+-- delete on one device couldn't propagate to the other (the row would simply
+-- reappear on the next sync). A nullable `deleted_at_epoch_ms` tombstone lets a
+-- delete travel as a change: non-null = deleted-at that time; all read queries
+-- filter it out, and capacity eviction soft-deletes too.
+--
+-- Memories had only `created_at`/`last_accessed`; sync needs a single
+-- monotonic last-write timestamp per record. `updated_at_epoch_ms` is nullable
+-- and the mapping layer treats NULL as `created_at_epoch_ms` for pre-existing
+-- rows (SQLite ALTER ADD COLUMN can't default from another column).
+--
+-- All columns are appended at the END so the schema produced by Schema.create()
+-- (the CREATE TABLE in the .sq) matches Schema.migrate() (invariant #20).
+
+ALTER TABLE conversations ADD COLUMN deleted_at_epoch_ms INTEGER;
+
+ALTER TABLE memories ADD COLUMN updated_at_epoch_ms INTEGER;
+ALTER TABLE memories ADD COLUMN deleted_at_epoch_ms INTEGER;

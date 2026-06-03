@@ -4,6 +4,7 @@ import com.contextsolutions.mobileagent.agent.ChatMessage
 import com.contextsolutions.mobileagent.agent.ToolCall
 import com.contextsolutions.mobileagent.db.ConversationsQueries
 import com.contextsolutions.mobileagent.search.SearchSource
+import com.contextsolutions.mobileagent.sync.LocalChangeBus
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.TelemetryCounters
 import kotlin.uuid.ExperimentalUuidApi
@@ -11,6 +12,7 @@ import kotlin.uuid.Uuid
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Clock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -30,6 +32,8 @@ class SqlDelightConversationRepository(
     private val queries: ConversationsQueries,
     private val counters: TelemetryCounters,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** PR #57 — fired after a genuine local write so [com.contextsolutions.mobileagent.sync.SyncController] pushes it. */
+    private val localChangeBus: LocalChangeBus? = null,
 ) : ConversationRepository {
 
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
@@ -47,6 +51,7 @@ class SqlDelightConversationRepository(
         )
         counters.increment(CounterNames.CONVERSATIONS_CREATED_TOTAL)
         evictToCapInternal(ConversationRepository.CONVERSATION_CAP)
+        localChangeBus?.notifyChanged()
         ConversationRecord(
             id = id,
             title = title,
@@ -122,7 +127,7 @@ class SqlDelightConversationRepository(
             )
             queries.touchUpdatedAt(nowEpochMs = nowEpochMs, id = conversationId)
             nextSeq
-        }
+        }.also { localChangeBus?.notifyChanged() }
     }
 
     override suspend fun deleteOldestPair(conversationId: String): Int = withContext(ioDispatcher) {
@@ -156,8 +161,12 @@ class SqlDelightConversationRepository(
     }
 
     override suspend fun delete(id: String): Unit = withContext(ioDispatcher) {
-        queries.deleteConversation(id)
+        // PR #57 — soft-delete (tombstone) so the delete propagates to the paired
+        // device instead of the row reappearing on the next sync. Capacity
+        // eviction below still hard-deletes (a local-only decision, not synced).
+        queries.softDeleteConversation(nowEpochMs = Clock.System.now().toEpochMilliseconds(), id = id)
         counters.increment(CounterNames.CONVERSATIONS_DELETED_TOTAL, tag = TAG_DELETE_EXPLICIT)
+        localChangeBus?.notifyChanged()
     }
 
     override suspend fun evictToCap(maxConversations: Int): Int = withContext(ioDispatcher) {

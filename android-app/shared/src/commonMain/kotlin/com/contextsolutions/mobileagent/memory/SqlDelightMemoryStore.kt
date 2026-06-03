@@ -4,9 +4,11 @@ import com.contextsolutions.mobileagent.db.Memories as MemoriesRow
 import com.contextsolutions.mobileagent.db.MemoriesQueries
 import com.contextsolutions.mobileagent.memory.internal.EmbeddingBlob
 import com.contextsolutions.mobileagent.memory.internal.cosine
+import com.contextsolutions.mobileagent.sync.LocalChangeBus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Clock
 
 /**
  * [MemoryStore] backed by SQLDelight. Brute-force cosine over up to ~1,000
@@ -27,6 +29,8 @@ import kotlinx.coroutines.withContext
 class SqlDelightMemoryStore(
     private val queries: MemoriesQueries,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** PR #57 — fired after a genuine local write so the SyncController pushes it. */
+    private val localChangeBus: LocalChangeBus? = null,
 ) : MemoryStore {
 
     override suspend fun insert(memory: Memory): Unit = withContext(ioDispatcher) {
@@ -40,11 +44,16 @@ class SqlDelightMemoryStore(
             access_count = memory.accessCount.toLong(),
             embedding = EmbeddingBlob.encode(memory.embedding),
             expires_at_epoch_ms = memory.expiresAtEpochMs,
+            // PR #57: a fresh insert is its own first write — seed the LWW sync key.
+            updated_at_epoch_ms = memory.createdAtEpochMs,
         )
+        localChangeBus?.notifyChanged()
     }
 
     override suspend fun deleteById(id: String): Unit = withContext(ioDispatcher) {
-        queries.deleteMemory(id)
+        // PR #57 — soft-delete so the "forget" propagates to the paired device.
+        queries.softDeleteMemory(nowEpochMs = Clock.System.now().toEpochMilliseconds(), id = id)
+        localChangeBus?.notifyChanged()
     }
 
     override suspend fun deleteByCosine(
@@ -53,7 +62,8 @@ class SqlDelightMemoryStore(
         now: Long,
     ): Memory? = withContext(ioDispatcher) {
         val match = highestCosineMatchInternal(embedding, threshold, now) ?: return@withContext null
-        queries.deleteMemory(match.id)
+        queries.softDeleteMemory(nowEpochMs = Clock.System.now().toEpochMilliseconds(), id = match.id)
+        localChangeBus?.notifyChanged()
         match.toMemory()
     }
 

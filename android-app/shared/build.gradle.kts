@@ -116,6 +116,13 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.core)
                 // Pure-Kotlin coroutine HTTP engine (no OkHttp/Android).
                 implementation(libs.ktor.client.cio)
+                // PR #57 — mobile↔desktop link server (Ktor CIO server, pure-JVM,
+                // no Netty natives; #40-safe). Hosts the OpenAI-compatible LLM
+                // proxy + REST sync + QR pairing endpoints.
+                implementation(libs.ktor.server.core)
+                implementation(libs.ktor.server.cio)
+                implementation(libs.ktor.server.content.negotiation)
+                implementation(libs.ktor.server.status.pages)
                 // JDBC SQLite driver for the desktop SQLDelight driver (Phase 6).
                 implementation(libs.sqldelight.sqlite.driver)
                 // Desktop LLM runtime is llama.cpp's `llama-server` subprocess over HTTP

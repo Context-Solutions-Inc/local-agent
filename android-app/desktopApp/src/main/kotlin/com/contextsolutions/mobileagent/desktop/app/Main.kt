@@ -54,6 +54,13 @@ import com.contextsolutions.mobileagent.task.TaskQueue
 import com.contextsolutions.mobileagent.task.TaskRepository
 import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
+import com.contextsolutions.mobileagent.link.DesktopLinkServer
+import com.contextsolutions.mobileagent.link.LanAddress
+import com.contextsolutions.mobileagent.link.LinkPairingPayload
+import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
+import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
+import com.contextsolutions.mobileagent.sync.LinkSyncService
 import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.ui.navigation.AppNavHost
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +72,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.koin.core.context.startKoin
@@ -164,6 +172,38 @@ fun main() {
     koin.get<OllamaConnectionMonitor>().reloadRequests
         .onEach { warmModel.invalidate() }
         .launchIn(appScope)
+
+    // PR #57 — mobile↔desktop link server: the OpenAI proxy drives generation
+    // through warmModel.session() (the desktop's own backend, local OR its own
+    // Ollama — never exposed to the phone), plus REST sync + pairing. Once bound,
+    // publish the pairing-QR payload (LAN IP + port + token + device id) for the
+    // Settings screen.
+    val desktopLinkPrefs = koin.get<DesktopLinkPreferences>()
+    val linkServer = DesktopLinkServer(
+        preferences = desktopLinkPrefs,
+        sessionProvider = { warmModel.session() },
+        syncService = koin.get<LinkSyncService>(),
+        connectionStatus = koin.get<MutableDesktopLinkConnectionStatus>(),
+        logger = { System.err.println("[DesktopLink] $it") },
+    )
+    appScope.launch {
+        runCatching {
+            val port = linkServer.start()
+            val host = LanAddress.primaryIpv4()
+            // Republish the pairing QR whenever the token/device id changes (e.g.
+            // a Disconnect rotates the token), so a fresh phone scans a valid QR
+            // and the old phone's stale token is rejected.
+            desktopLinkPrefs.configFlow()
+                .map { cfg -> host?.let { LinkPairingPayload(it, port, cfg.pairingToken, cfg.selfDeviceId).encode() } }
+                .distinctUntilChanged()
+                .onEach { payload ->
+                    koin.get<MutableDesktopLinkQr>().set(payload)
+                    System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready ($host:$port)" else "unavailable (no LAN address)"}")
+                }
+                .launchIn(appScope)
+        }.onFailure { System.err.println("[DesktopLink] server failed to start: ${it.message}") }
+    }
+
     val taskRunner = DesktopTaskRunner(
         warmModel = warmModel,
         factory = koin.get(),
@@ -300,6 +340,7 @@ fun main() {
                 )
                 Separator()
                 Item("Quit", onClick = {
+                    linkServer.stop()
                     warmModel.unload()
                     appScope.cancel()
                     exitApplication()
