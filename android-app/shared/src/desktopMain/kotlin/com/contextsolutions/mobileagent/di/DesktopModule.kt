@@ -134,6 +134,7 @@ import com.contextsolutions.mobileagent.voice.DesktopTtsSpeaker
 import com.contextsolutions.mobileagent.voice.DesktopTtsPreferences
 import com.contextsolutions.mobileagent.voice.TtsPreferences
 import com.contextsolutions.mobileagent.voice.VoskDictation
+import com.contextsolutions.mobileagent.voice.VoskModelStore
 import com.contextsolutions.mobileagent.vision.DesktopFilePicker
 import com.contextsolutions.mobileagent.vision.DesktopImagePreprocessor
 import com.contextsolutions.mobileagent.vision.FilePicker
@@ -339,7 +340,9 @@ val desktopModule: Module = module {
     //    Both degrade to no-op without an engine/model. Consumed by the shared
     //    Chat ViewModel in Phase 9; bindable now. --
     single<ChatSpeaker> { DesktopTtsSpeaker() }
-    single<Dictation> { VoskDictation() }
+    // The Vosk acoustic model (~40 MB) is downloaded + cached on first mic use.
+    single { VoskModelStore() }
+    single<Dictation> { VoskDictation(modelProvider = { get<VoskModelStore>().ensure() }) }
     // Read-aloud toggle persistence for the shared :ui ChatViewModel (Phase 9).
     single<TtsPreferences> { DesktopTtsPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "tts_prefs.json"))) }
     // Chat-screen log sink (Phase 9 inc 8d) — desktop routes to stderr.

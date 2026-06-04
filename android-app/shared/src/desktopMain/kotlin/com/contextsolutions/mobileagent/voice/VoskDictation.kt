@@ -1,7 +1,5 @@
 package com.contextsolutions.mobileagent.voice
 
-import com.contextsolutions.mobileagent.inference.DesktopAppDirs
-import java.io.File
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.DataLine
@@ -35,14 +33,19 @@ import org.vosk.Recognizer
  * on [results]. Continuous by construction (the capture loop runs until [stop]),
  * so there's no Android-style single-shot restart dance.
  *
- * **Degrades to no-op** when the acoustic model is absent (no
- * `MOBILEAGENT_VOSK_MODEL` env and no `<app-data>/models/vosk` directory) or no
- * microphone line is available — [start] logs and returns, matching the
- * ONNX/GGUF "missing artifact ⇒ silent disable" pattern, so a headless CI box
- * neither errors nor blocks.
+ * The acoustic model (~40 MB) is acquired through [modelProvider] — by default
+ * [VoskModelStore.ensure], which downloads + caches it under `<app-data>/models/vosk`
+ * on first use (env override + manual drop still honoured). Acquisition is async, so
+ * [start] launches a job that resolves the model (downloading if needed) and only then
+ * opens the mic; [isListening] flips true once capture actually begins.
+ *
+ * **Degrades to no-op** when the model can't be obtained (offline first run, no disk)
+ * or no microphone line is available — [start]'s job logs and returns, matching the
+ * ONNX/GGUF "missing artifact ⇒ silent disable" pattern, so a headless CI box neither
+ * errors nor blocks.
  */
 class VoskDictation(
-    private val modelPathProvider: () -> String? = { defaultModelPath() },
+    private val modelProvider: suspend () -> String? = { VoskModelStore().ensure() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val logger: (String) -> Unit = { System.err.println("[Dictation] $it") },
 ) : Dictation {
@@ -60,12 +63,14 @@ class VoskDictation(
 
     override fun start() {
         if (job?.isActive == true) return
-        val modelPath = modelPathProvider()
-        if (modelPath == null) {
-            logger("no Vosk model (set MOBILEAGENT_VOSK_MODEL or drop one in <app-data>/models/vosk) — dictation disabled")
-            return
+        job = scope.launch {
+            val modelPath = modelProvider()
+            if (modelPath == null) {
+                logger("no Vosk model and it couldn't be downloaded — dictation disabled (check the network, or set MOBILEAGENT_VOSK_MODEL)")
+                return@launch
+            }
+            captureLoop(modelPath)
         }
-        job = scope.launch { captureLoop(modelPath) }
     }
 
     override fun stop() {
@@ -121,9 +126,5 @@ class VoskDictation(
     private companion object {
         const val SAMPLE_RATE = 16_000f
         const val BUFFER_BYTES = 4096
-
-        fun defaultModelPath(): String? =
-            System.getenv("MOBILEAGENT_VOSK_MODEL")?.takeIf { it.isNotBlank() }
-                ?: File(DesktopAppDirs.dataDir(), "models/vosk").takeIf { it.isDirectory }?.absolutePath
     }
 }

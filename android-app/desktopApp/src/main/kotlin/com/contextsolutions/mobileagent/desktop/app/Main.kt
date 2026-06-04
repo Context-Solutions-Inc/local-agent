@@ -46,6 +46,7 @@ import com.contextsolutions.mobileagent.vision.ImagePreprocessor
 import com.contextsolutions.mobileagent.voice.ChatSpeaker
 import com.contextsolutions.mobileagent.voice.Dictation
 import com.contextsolutions.mobileagent.voice.TtsPreferences
+import com.contextsolutions.mobileagent.voice.VoskModelStore
 import com.contextsolutions.mobileagent.clock.ClockService
 import com.contextsolutions.mobileagent.di.AgentLoopFactory
 import com.contextsolutions.mobileagent.di.agentCoreModule
@@ -300,6 +301,14 @@ fun main() {
         }.onSuccess { serverStatus.value = ModelDownloadStatus.Present }
             .onFailure { serverStatus.value = ModelDownloadStatus.Failed(it.message ?: "server download failed", retryable = true) }
     }
+
+    // Prefetch the Vosk speech-to-text model (~40 MB) in the background so the
+    // first mic toggle starts dictating immediately instead of blocking on the
+    // download. ensure() no-ops when the model is already cached / env-overridden
+    // and returns null (no throw) when offline — dictation just stays disabled
+    // until a later launch succeeds. Not surfaced on the chat banner: it's
+    // unrelated to the LLM and shouldn't read as "chat is loading".
+    appScope.launch { runCatching { koin.get<VoskModelStore>().ensure() } }
 
     // Eagerly warm the ONNX aux engines (preflight classifier + memory embedder).
     // Both are inert until warmUp() runs — classify()/embed() return null while

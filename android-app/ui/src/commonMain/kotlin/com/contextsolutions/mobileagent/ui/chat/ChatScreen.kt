@@ -18,7 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -69,6 +70,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
@@ -215,27 +217,27 @@ fun ChatScreen(
         if (micEnabled) dictation.start() else dictation.stop()
     }
     val listState = rememberLazyListState()
+    // Desktop scrolls a plain Column via this state (see the list branch below);
+    // mobile uses `listState` with its LazyColumn. Unused on mobile.
+    val desktopScrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
-    // PR #9 — Sticky-to-bottom + jump-to-latest. Token streaming used to
-    // fire animateScrollToItem on every chunk (keyed on partialText.length),
-    // which fought any user-initiated scroll. New behaviour:
-    //  - `isAtBottom` is derived from layoutInfo. True when the last item
-    //    is fully in the viewport (no clipping at the bottom edge).
-    //  - `stickyToBottom` tracks whether new tokens should auto-scroll.
-    //  - Sticky disengages ONLY when the user actively drags the list
-    //    away from the bottom — never just because the content grew past
-    //    the viewport. Otherwise every token would briefly flip
-    //    `isAtBottom` false before the next auto-scroll catches up, and
-    //    sticky would flip off mid-stream.
-    //  - Sticky re-engages whenever `isAtBottom` becomes true again
-    //    (user manually scrolled back, or FAB tap finished).
-    //  - The auto-scroll effect calls [followBottom] (defined below) so
-    //    a streaming bubble taller than the viewport still scrolls to
-    //    its actual bottom, not its top.
-    //  - A SmallFloatingActionButton appears at the bottom-end of the
-    //    list while sticky is off, letting the user jump back without
-    //    having to manually scroll all the way down.
+    // PR #9 — Sticky-to-bottom + jump-to-latest, identical on mobile + desktop.
+    //  - `isAtBottom` is derived from layoutInfo. True when the last item is fully
+    //    in the viewport (no clipping at the bottom edge).
+    //  - `stickyToBottom` tracks whether new content should auto-scroll. While on,
+    //    the list pins to the newest content (on each token, each new message, and
+    //    as the last bubble settles its height) — so submitting a prompt scrolls it
+    //    into view and the response stays pinned to the bottom as it streams + on
+    //    completion.
+    //  - It disengages ONLY on a genuine USER scroll (see `userScrollConnection`),
+    //    never on our own programmatic scroll or a relayout-driven anchor clamp.
+    //    The clamp distinction matters on desktop: the async markdown renderer
+    //    measures a finalized bubble across several frames, which nudges the scroll
+    //    anchor — a raw position-delta heuristic mistook that for a user scroll and
+    //    wrongly disengaged after the first exchange (breaking auto-scroll + the FAB).
+    //  - Re-engages whenever `isAtBottom` is true again (manual scroll-back or FAB tap).
+    //  - A SmallFloatingActionButton shows while sticky is off to jump back.
     val isAtBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -247,40 +249,151 @@ fun ChatScreen(
                 last.offset + last.size <= info.viewportEndOffset
         }
     }
-    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var stickyToBottom by remember { mutableStateOf(true) }
-    LaunchedEffect(isUserDragging, isAtBottom) {
-        // Disengage only on a user-initiated drag that ends away from the
-        // bottom. Content growing past the viewport during streaming
-        // doesn't qualify — `isUserDragging` is false for programmatic scrolls.
-        if (isUserDragging && !isAtBottom) stickyToBottom = false
-    }
-    LaunchedEffect(isAtBottom) {
-        // Re-engage whenever the list is back at the bottom — covers both
-        // "user manually scrolled back" and "auto-scroll just landed".
-        if (isAtBottom) stickyToBottom = true
-    }
+    // True only while WE are programmatically scrolling, so the user-scroll detector
+    // doesn't mistake our own auto-scroll (or the FAB's animated jump) for a manual one.
+    var autoScrolling by remember { mutableStateOf(false) }
 
     /** Total item count in the LazyColumn (chat bubbles + optional streaming bubble). */
     fun totalListItems(): Int =
         ui.messages.size + (if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) 1 else 0)
 
-    // Auto-scroll on new tokens / new messages — but only while sticky.
-    //
-    // The effect re-keys on partialText.length so each token chunk fires.
-    // The body is a no-op when the user has scrolled away.
-    //
-    // `animateScrollToItem(lastIndex)` alone is NOT enough: it scrolls
-    // until the item's TOP is at the viewport top. If the streaming
-    // bubble is taller than the viewport, the new tokens accumulate
-    // off-screen below. We therefore (a) make sure the last item is
-    // rendered, and (b) push past any overflow of its bottom beyond
-    // `viewportEndOffset`. Instant `scrollBy` instead of an animated
-    // call so token streaming doesn't queue up overlapping animations.
-    LaunchedEffect(ui.messages.size, ui.partialText.length, ui.isGenerating) {
-        if (!stickyToBottom) return@LaunchedEffect
+    // Pin to the newest item, fenced by `autoScrolling` so the user-scroll detector
+    // ignores it. `followBottom` is a no-op once the last item is fully visible.
+    val pinToBottom: suspend (Boolean) -> Unit = pin@{ animate ->
         val total = totalListItems()
-        if (total > 0) listState.followBottom(lastIndex = total - 1, animate = false)
+        if (total <= 0) return@pin
+        autoScrolling = true
+        try {
+            listState.followBottom(lastIndex = total - 1, animate = animate)
+        } finally {
+            autoScrolling = false
+        }
+    }
+
+    // Disengage on a genuine user scroll away from the bottom; re-engage at the bottom.
+    // Keyed on BOTH isScrollInProgress AND isAtBottom so it re-checks as a scroll crosses
+    // off the bottom, not only at the scroll's start edge. isScrollInProgress is false for
+    // a relayout clamp, and our own scrolls set `autoScrolling`, so neither misfires.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to isAtBottom }
+            .collect { (scrolling, atBottom) ->
+                when {
+                    scrolling && !autoScrolling && !atBottom -> stickyToBottom = false
+                    atBottom -> stickyToBottom = true
+                }
+            }
+    }
+
+    // Auto-follow the tail — MOBILE ONLY (PR #64). Mobile's scroll behavior works and is
+    // left exactly as-is; desktop showed a scroll-up jump that we're isolating by removing
+    // ALL programmatic auto-scroll on desktop (only the explicit FAB jump remains there),
+    // then re-adding desktop behaviors one at a time. On mobile this pins to the bottom
+    // ONLY while a response is actively generating or on a fresh user submit — never on
+    // scroll position and never on other content changes (e.g. an inline memory-prompt
+    // card appearing after a turn).
+    if (!isDesktopPlatform) {
+        var prevUserTurns by remember { mutableIntStateOf(ui.messages.count { it is UiMessage.User }) }
+        LaunchedEffect(listState) {
+            snapshotFlow {
+                Triple(listState.layoutInfo.totalItemsCount, ui.partialText.length, ui.isGenerating)
+            }.collect {
+                val userTurns = ui.messages.count { it is UiMessage.User }
+                val newUserTurn = userTurns > prevUserTurns
+                prevUserTurns = userTurns
+                if (newUserTurn) stickyToBottom = true
+                val streaming = ui.isGenerating || ui.partialText.isNotEmpty() ||
+                    ui.searchStatus !is SearchStatus.None
+                if (stickyToBottom && (streaming || newUserTurn)) pinToBottom(false)
+            }
+        }
+
+        // A single alignment pin when generation finishes (the finalized markdown bubble
+        // can measure to a slightly different height than the streamed plain text). Gated
+        // on sticky, so it only fires if the user was still following.
+        LaunchedEffect(ui.isGenerating) {
+            if (!ui.isGenerating && stickyToBottom) pinToBottom(false)
+        }
+    }
+
+    // Desktop follow-while-generating (PR #64) — re-added on top of the smooth
+    // verticalScroll, which scrolls by pixels (no LazyColumn tall-item skip). Keep the
+    // newest output in view while a response streams, but ONLY while generating, and
+    // yield the instant the user scrolls up so reading history is never disturbed.
+    if (isDesktopPlatform) {
+        var follow by remember { mutableStateOf(true) }
+        var autoScrollingDesktop by remember { mutableStateOf(false) }
+        var prevUserTurns by remember { mutableIntStateOf(ui.messages.count { it is UiMessage.User }) }
+
+        // Yield to the user on a manual scroll-up; resume when they return to the bottom.
+        // Our own scrolls only ever increase `value` (toward the bottom) and are fenced by
+        // `autoScrollingDesktop`, so neither they nor content growth count as a user scroll.
+        LaunchedEffect(desktopScrollState) {
+            var prev = desktopScrollState.value
+            snapshotFlow { desktopScrollState.value to desktopScrollState.maxValue }
+                .collect { (value, max) ->
+                    val atBottom = value >= max
+                    when {
+                        value < prev && !autoScrollingDesktop && !atBottom -> follow = false
+                        atBottom -> follow = true
+                    }
+                    prev = value
+                }
+        }
+
+        // Follow the streaming tail: scroll to the bottom on each new token / content
+        // growth while generating + engaged. A fresh USER turn (submit) re-engages follow
+        // and scrolls the new prompt into view even if the user had scrolled up. Keyed on
+        // CONTENT (incl. maxValue so a bubble settling taller mid-stream is caught), never
+        // on scroll position, so it can't fight the user. A single re-align fires on
+        // completion (below).
+        LaunchedEffect(desktopScrollState) {
+            snapshotFlow {
+                listOf(
+                    ui.partialText.length,
+                    if (ui.isGenerating) 1 else 0,
+                    ui.messages.size,
+                    desktopScrollState.maxValue,
+                )
+            }.collect {
+                val userTurns = ui.messages.count { it is UiMessage.User }
+                val newUserTurn = userTurns > prevUserTurns
+                prevUserTurns = userTurns
+                if (newUserTurn) follow = true
+                val streaming = ui.isGenerating || ui.partialText.isNotEmpty() ||
+                    ui.searchStatus !is SearchStatus.None
+                if (follow && (streaming || newUserTurn)) {
+                    autoScrollingDesktop = true
+                    try {
+                        desktopScrollState.scrollTo(desktopScrollState.maxValue)
+                    } finally {
+                        autoScrollingDesktop = false
+                    }
+                }
+            }
+        }
+        // On completion, settle at the bottom as the finalized markdown bubble measures
+        // over a few frames. Scroll DOWN only (never up): the streaming follow already
+        // left us at the bottom, and reading a half-measured maxValue too early was what
+        // bounced the view UP to the prompt. So we never move up — we just hold position
+        // until the bubble is laid out, then follow the new bottom down. Bails if the user
+        // scrolls away.
+        LaunchedEffect(ui.isGenerating) {
+            if (ui.isGenerating || !follow) return@LaunchedEffect
+            repeat(6) {
+                delay(24)
+                if (!follow) return@LaunchedEffect
+                val max = desktopScrollState.maxValue
+                if (max > desktopScrollState.value) {
+                    autoScrollingDesktop = true
+                    try {
+                        desktopScrollState.scrollTo(max)
+                    } finally {
+                        autoScrollingDesktop = false
+                    }
+                }
+            }
+        }
     }
 
     // M6 Phase E accessibility — announce a completed assistant response
@@ -396,6 +509,72 @@ fun ChatScreen(
                 } else {
                     (maxWidth * 0.72f).coerceIn(480.dp, 760.dp)
                 }
+            if (isDesktopPlatform) {
+                // Desktop: a plain Column + verticalScroll instead of LazyColumn.
+                // Compose Desktop's mouse-wheel scrolling skips over LazyColumn items
+                // taller than the viewport — our long markdown response bubbles — so
+                // scrolling up jumps straight past a response to the prior prompt.
+                // verticalScroll moves by pixels through ANY height, giving smooth
+                // scrolling across every bubble. A single conversation is bounded, so
+                // eager (non-lazy) composition is fine. Mobile keeps the LazyColumn (in
+                // the else branch) exactly as-is.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(desktopScrollState),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (ui.messages.isEmpty() && ui.partialText.isEmpty() && !ui.isGenerating && ui.error == null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(text = "Hello.", style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                text = "Ask anything. The assistant runs on your device — your messages stay here. " +
+                                    "It'll search the web automatically when it needs current info.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    ui.messages.forEach { message ->
+                        when (message) {
+                            is UiMessage.User -> UserBubble(message.text, message.imageBytes, bubbleMaxWidth)
+                            is UiMessage.Assistant -> AssistantBubble(
+                                text = message.text,
+                                citations = message.citations,
+                                fromCache = message.fromCache,
+                                renderMarkdown = message.renderMarkdown,
+                                maxWidth = bubbleMaxWidth,
+                            )
+                            is UiMessage.MemoryPrompt -> MemoryPromptCard(
+                                text = message.text,
+                                category = message.category,
+                                onSave = { viewModel.saveMemoryPrompt(message.candidateId) },
+                                onDismiss = { viewModel.dismissMemoryPrompt(message.candidateId) },
+                            )
+                        }
+                    }
+                    if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) {
+                        StreamingAssistantBubble(
+                            partial = ui.partialText,
+                            searchStatus = ui.searchStatus,
+                            isGenerating = ui.isGenerating,
+                            maxWidth = bubbleMaxWidth,
+                        )
+                    }
+                    if (ui.error != null) {
+                        Text(
+                            text = "Error: ${ui.error}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize(),
@@ -461,22 +640,26 @@ fun ChatScreen(
                     }
                 }
             }
+            } // end desktop-Column / mobile-LazyColumn branch
 
-            // "Jump to latest" — appears once the user has scrolled away
-            // from the bottom. Tapping it re-engages sticky-to-bottom and
-            // animates back to the newest item. Plain conditional rather
-            // than AnimatedVisibility to avoid scope ambiguity between
-            // the outer ColumnScope and this BoxScope.
-            if (!stickyToBottom && totalListItems() > 0) {
+            // "Jump to latest" — appears once the user has scrolled away from the
+            // bottom; tapping it scrolls back to the newest content. Desktop drives the
+            // verticalScroll state; mobile re-engages sticky-to-bottom + follows the tail.
+            val showJumpToLatest = if (isDesktopPlatform) {
+                desktopScrollState.maxValue > 0 && desktopScrollState.value < desktopScrollState.maxValue
+            } else {
+                !stickyToBottom && totalListItems() > 0
+            }
+            if (showJumpToLatest) {
                 SmallFloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            stickyToBottom = true
-                            val total = totalListItems()
-                            if (total > 0) listState.followBottom(
-                                lastIndex = total - 1,
-                                animate = true,
-                            )
+                            if (isDesktopPlatform) {
+                                desktopScrollState.animateScrollTo(desktopScrollState.maxValue)
+                            } else {
+                                stickyToBottom = true
+                                pinToBottom(true)
+                            }
                         }
                     },
                     modifier = Modifier
