@@ -745,14 +745,16 @@ fun ChatScreen(
                 val thumb by produceState<ImageBitmap?>(initialValue = null, bytes) {
                     value = withContext(Dispatchers.Default) { decodeImageBitmap(bytes) }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.Top) {
                     thumb?.let {
+                        // Match the sent-bubble rendering (UserBubble): show the whole
+                        // image at full bubble width, aspect-ratio preserved (Fit, not Crop).
                         Image(
                             bitmap = it,
                             contentDescription = "Attached image",
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .size(56.dp)
+                                .widthIn(max = 240.dp)
                                 .clip(RoundedCornerShape(8.dp)),
                         )
                     }
