@@ -8,20 +8,25 @@
 #   docker compose run --rm dev claude                # Claude Code (uses host OAuth)
 #   docker compose run --rm dev claude --dangerously-skip-permissions   # auto mode
 #   docker compose run --rm dev ct-stats              # classifier-training CLI (Python)
-#   docker compose run --rm dev gh pr list            # GitHub CLI (needs GH_TOKEN, below)
+#   docker compose run --rm dev gh pr list            # GitHub CLI (auth: see below)
 #
-# GitHub CLI auth: the host stores its token in the system keyring (not in
-# ~/.config/gh/hosts.yml), so the mounted config alone can't authenticate. Export
-# the token before launching and compose forwards it as GH_TOKEN:
-#   export GH_TOKEN=$(gh auth token)
-#   docker compose run --rm dev gh auth status
+# GitHub CLI + git auth: the host stores its token in the OS keyring, not in
+# ~/.config/gh, so the bound config carries no token at first. Authenticate ONCE
+# inside the container (no keyring here, so gh writes the token to the bound
+# ~/.config/gh/hosts.yml, which then persists on the host):
+#   docker compose run --rm dev gh auth login          # paste a token / browser flow
+# Thereafter `gh ...` and `git push` (which routes through `gh auth git-credential`)
+# just work. Prefer the host token instead? `export GH_TOKEN=$(gh auth token)`
+# before launching — it overrides the bound config.
 #
 # What's mounted:
 #   - Project dir mounts at the SAME path as on host (/home/lawrenceley/src/mobile-agent)
 #     so Claude Code per-project memory keys keep matching.
-#   - ~/.claude is mounted RW so the container reuses your host login session.
+#   - ~/.claude + ~/.claude.json are mounted RW so the container reuses your host
+#     login session AND its account/onboarding state survives across containers.
 #   - ~/.gitconfig is mounted RO so commits use your host git identity.
-#   - ~/.config/gh is mounted RO so gh uses your host account/protocol config.
+#   - ~/.config/gh is mounted RW; log in once with `gh auth login` (the host
+#     keyring can't be read from here, so the bound file gets the token).
 #   - Gradle and Android caches live in named volumes (faster, no perm churn).
 #
 # Python: 3.11 + the classifier-training stack are baked into a venv at /opt/venv
@@ -45,8 +50,9 @@ services:
       # Optional API key fallback for Claude Code if you'd rather use it instead
       # of the mounted OAuth session. Leave unset to use the host login.
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      # GitHub CLI auth. The host keeps its token in the keyring, so export it
-      # first: `export GH_TOKEN=$(gh auth token)`. Unset = gh is unauthenticated.
+      # Optional GitHub token override. Normally unset — gh auth lives in the
+      # bound ~/.config/gh (`gh auth login` once). Set it (`export GH_TOKEN=$(gh
+      # auth token)` on the host) only to override the bound config.
       GH_TOKEN: "${GH_TOKEN:-}"
       TERM: "${TERM:-xterm-256color}"
     volumes:
@@ -58,6 +64,16 @@ services:
       - type: bind
         source: ${HOME}/.claude
         target: /home/dev/.claude
+      # Claude Code ALSO keeps account + onboarding state in ~/.claude.json (a file
+      # in HOME, NOT inside ~/.claude). Without this it lives only in the container
+      # overlay and is lost on --rm, so each new container looks logged-out even
+      # though the token file above persists. Bind it so auth survives. Like the
+      # keystore/gitconfig below, the host file must already exist — if not,
+      # Docker creates an empty DIR at that path; run `touch ~/.claude.json` on
+      # the host first. (RW: Claude Code updates project-trust/onboarding here.)
+      - type: bind
+        source: ${HOME}/.claude.json
+        target: /home/dev/.claude.json
       # Share the host debug keystore so APKs built here and on the host sign
       # identically — otherwise re-installing across host/container hits
       # INSTALL_FAILED_UPDATE_INCOMPATIBLE on the connected device.
@@ -73,13 +89,18 @@ services:
         source: ${HOME}/.gitconfig
         target: /home/dev/.gitconfig
         read_only: true
-      # Host gh config (account, git_protocol). Read-only — the actual token
-      # rides in via GH_TOKEN (see environment above), since the host keeps it
-      # in the keyring, not in this file.
+      # gh CLI config + auth, bound RW from the host (same approach as ~/.claude
+      # above). The host keeps its token in the OS keyring — absent from
+      # ~/.config/gh — so the bound config has no token until you log in. Run
+      # `gh auth login` ONCE inside the container: there's no keyring here, so gh
+      # writes the token to this dir's hosts.yml, which lands on the host and
+      # persists for every future run. That also fixes `git push`: the host
+      # ~/.gitconfig (mounted RO below) routes credentials through
+      # `gh auth git-credential`, which reads this dir. RW (not RO as before) so
+      # that first login can write the token back. (GH_TOKEN still overrides it.)
       - type: bind
         source: ${HOME}/.config/gh
         target: /home/dev/.config/gh
-        read_only: true
       # Persisted caches across container runs.
       - gradle-cache:/home/dev/.gradle
       - android-user-cache:/home/dev/.android

@@ -57,8 +57,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && npm install -g @anthropic-ai/claude-code
 
 # GitHub CLI (gh) via the official apt repo. Runs before the USER switch so no
-# sudo is needed. Auth is runtime: `gh auth login`, or set GH_TOKEN, or mount
-# ~/.config/gh from the host in docker-compose.yml.
+# sudo is needed. Auth is runtime: `gh auth login` (persisted in the RW-bound
+# ~/.config/gh, see docker-compose.yml), or set GH_TOKEN to override.
 RUN mkdir -p -m 755 /etc/apt/keyrings \
     && wget -nv -O- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
