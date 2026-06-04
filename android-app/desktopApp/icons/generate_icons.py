@@ -19,7 +19,9 @@ syntax). This script then composites it onto the navy plate and emits:
   desktopApp/icons/icon.png    512x512  — Linux (.deb/.rpm) installer
   desktopApp/icons/icon.ico             — Windows (.msi/.exe), multi-resolution
   desktopApp/icons/icon.icns            — macOS (.dmg/.pkg)
-  desktopApp/src/main/resources/icon.png 512x512 — in-app tray/window resource
+  desktopApp/src/main/resources/icon.png 512x512 — in-app window resource
+  desktopApp/src/main/resources/tray.png 512x512 — system-tray icon (full-bleed
+                                          navy square + enlarged bubble; AwtTray)
   iosApp/Assets.xcassets/AppIcon.appiconset/icon-1024.png 1024 — staged iOS icon
 
 Desktop/in-app variants are rounded squares; the iOS variant is an opaque,
@@ -47,6 +49,7 @@ IOS_ICONSET = ANDROID_APP / "iosApp" / "Assets.xcassets" / "AppIcon.appiconset"
 BRAND_NAVY = (0x1F, 0x29, 0x37, 0xFF)  # @color/ic_launcher_background
 MASTER = 1024
 CORNER_RADIUS = 224  # rounded-square corner radius at the master scale
+TRAY_GLYPH_FILL = 0.90  # bubble's fraction of the (square) tray tile
 
 
 def _composite() -> Image.Image:
@@ -56,6 +59,29 @@ def _composite() -> Image.Image:
     if fg.size != (MASTER, MASTER):
         fg = fg.resize((MASTER, MASTER), Image.LANCZOS)
     base.alpha_composite(fg)
+    return base
+
+
+def _tray() -> Image.Image:
+    """Full-bleed navy square with an enlarged centred bubble — for the system tray.
+
+    The tray renders the icon tiny, and the launcher glyph carries a wide
+    adaptive-icon safe-zone margin (the bubble fills <half the master), so the
+    shared `icon.png` looks like a small bubble on a small rounded plate lost in
+    the slot. Here the navy fills the WHOLE square (no rounding — the host fits it
+    to the slot) and the bubble is cropped out of its margin and scaled up to fill
+    most of the tile.
+    """
+    fg = Image.open(HERE / "ic_launcher_foreground.png").convert("RGBA")
+    if fg.size != (MASTER, MASTER):
+        fg = fg.resize((MASTER, MASTER), Image.LANCZOS)
+    glyph = fg.crop(fg.getbbox())  # tight bounds of the white bubble, margin stripped
+    target = int(MASTER * TRAY_GLYPH_FILL)
+    scale = min(target / glyph.width, target / glyph.height)
+    gw, gh = int(glyph.width * scale), int(glyph.height * scale)
+    glyph = glyph.resize((gw, gh), Image.LANCZOS)
+    base = Image.new("RGBA", (MASTER, MASTER), BRAND_NAVY)  # full square, no rounding
+    base.alpha_composite(glyph, ((MASTER - gw) // 2, (MASTER - gh) // 2))
     return base
 
 
@@ -82,6 +108,10 @@ def main() -> None:
     png.save(png_path, format="PNG")
     shutil.copyfile(png_path, RES_DIR / "icon.png")
 
+    # --- System tray: full-bleed navy square + enlarged bubble (runtime resource only) ---
+    tray_path = RES_DIR / "tray.png"
+    _tray().resize((512, 512), Image.LANCZOS).save(tray_path, format="PNG")
+
     rounded.save(
         HERE / "icon.ico",
         format="ICO",
@@ -101,6 +131,7 @@ def main() -> None:
         HERE / "icon.ico",
         HERE / "icon.icns",
         RES_DIR / "icon.png",
+        tray_path,
         ios_path,
     ):
         print(f"wrote {p}")

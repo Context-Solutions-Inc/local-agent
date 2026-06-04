@@ -1,5 +1,6 @@
 package com.contextsolutions.mobileagent.desktop.app
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -18,12 +19,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import com.contextsolutions.mobileagent.agent.ChatLogger
 import com.contextsolutions.mobileagent.agent.ChatSessionController
@@ -366,32 +365,27 @@ fun main() {
         }
 
         var windowVisible by remember { mutableStateOf(true) }
-        var paused by remember { mutableStateOf(false) }
 
         if (traySupported) {
-            val trayState = rememberTrayState()
-            // Route clock + task notifications to the system tray now that it exists.
-            // Without a tray the default logging DesktopNotificationPresenter stays in
-            // place (notifications degrade to logs rather than crashing).
-            LaunchedEffect(trayState) { presenter.setDelegate(TrayNotificationPresenter(trayState)) }
-            Tray(
-                icon = AppIcon,
-                state = trayState,
-                tooltip = "Mobile Agent",
-                menu = {
-                    Item("Show", onClick = { windowVisible = true })
-                    CheckboxItem(
-                        "Pause queue",
-                        checked = paused,
-                        onCheckedChange = { checked ->
-                            paused = checked
-                            if (checked) taskQueue.stop() else taskQueue.start()
-                        },
-                    )
-                    Separator()
-                    Item("Quit", onClick = { shutdown() })
-                },
-            )
+            // Raw AWT tray (AwtTray) instead of Compose's `Tray()` so the icon and menu
+            // text can be enlarged 2× (issue #68 — Compose's Tray exposes no font hook
+            // and renders the icon only at the tray's preferred size). On install it
+            // routes clock + task notifications to the tray; if the AWT peer fails to
+            // create (the GNOME/Wayland trap), it returns null and the default logging
+            // DesktopNotificationPresenter stays in place (degrade to logs, not crash).
+            DisposableEffect(Unit) {
+                val tray = AwtTray.install(
+                    tooltip = "Mobile Agent",
+                    pausedInitially = false,
+                    onShow = { windowVisible = true },
+                    onTogglePause = { paused ->
+                        if (paused) taskQueue.stop() else taskQueue.start()
+                    },
+                    onQuit = { shutdown() },
+                )
+                if (tray != null) presenter.setDelegate(tray.notificationPresenter)
+                onDispose { tray?.remove() }
+            }
         }
 
         // Restore the window the way the user left it (size/position/maximized),
