@@ -2,6 +2,7 @@ package com.contextsolutions.mobileagent.inference
 
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import com.contextsolutions.mobileagent.platform.HttpEngineFactory
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
@@ -95,7 +96,7 @@ class OllamaInferenceEngine(
             val baseUrl = cfg.baseUrl()
                 ?: error("Ollama server not configured")
             require(cfg.chatModel.isNotBlank()) { "Ollama chat model not selected" }
-            if (!client.health(baseUrl)) {
+            if (!client.health(baseUrl, cfg.serverType)) {
                 // The router will fall back to local; start watching so we
                 // reconnect automatically once the server returns.
                 monitor?.beginReconnectWatch(baseUrl)
@@ -134,7 +135,7 @@ class OllamaInferenceEngine(
         val hasImage = request.history.lastOrNull { it.role == HistoryRole.USER }?.imageBytes != null
         val model = h.config.modelFor(hasImage)
         val temperature = request.sampling?.temperature ?: defaultTemperature
-        val body = buildOllamaChatRequest(request, model, temperature, keepAlive)
+        val body = buildOllamaChatRequest(request, model, temperature, keepAlive, h.config.serverType)
         logger(
             "[generate] model=$model historyTurns=${request.history.size} hasImage=$hasImage " +
                 "maxTokens=${request.maxTokens} sampling=${if (request.sampling != null) "greedy" else "default"}",
@@ -142,8 +143,17 @@ class OllamaInferenceEngine(
         var generated = 0
         var chunkIndex = 0
         var finish = FinishReason.END_OF_TURN
+        var sawDataLine = false
+        val url = "${h.baseUrl}${h.config.serverType.chatCompletionsPath}"
+        // PR #73 — full outbound request diagnostic (URL incl. port, Bearer token,
+        // and the JSON body/query). Prints the API key in cleartext: a deliberate
+        // on-device debug aid.
+        logger(
+            "[request] POST $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} " +
+                "| body=$body",
+        )
         try {
-            h.client.preparePost("${h.baseUrl}/v1/chat/completions") {
+            h.client.preparePost(url) {
                 contentType(ContentType.Application.Json)
                 apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
                 setBody(body)
@@ -153,7 +163,7 @@ class OllamaInferenceEngine(
                 monitor?.onRemoteHealthy()
                 if (!response.status.isSuccess()) {
                     val err = runCatching { response.bodyAsText() }.getOrDefault("")
-                    emit(GenerationEvent.Error("Ollama HTTP ${response.status.value}: ${err.take(300)}"))
+                    emit(GenerationEvent.Error("Remote LLM HTTP ${response.status.value}: ${err.take(300)}"))
                     return@execute
                 }
                 val channel = response.bodyAsChannel()
@@ -161,6 +171,7 @@ class OllamaInferenceEngine(
                     currentCoroutineContext().ensureActive()
                     val line = channel.readUTF8Line() ?: break
                     if (line.isBlank() || !line.startsWith("data:")) continue
+                    sawDataLine = true
                     val data = line.substringAfter("data:").trim()
                     if (data == "[DONE]") break
                     val (delta, fr) = parseOllamaStreamChunk(data)
@@ -171,7 +182,19 @@ class OllamaInferenceEngine(
                     }
                 }
             }
-            emit(GenerationEvent.Done(totalTokens = generated, finishReason = finish))
+            if (generated == 0 && !sawDataLine) {
+                // 200 but not an SSE stream (e.g. an HTML page from a wrong Base
+                // URL path, or a non-streaming endpoint). An empty bubble hides
+                // this — surface it as an actionable error instead.
+                emit(
+                    GenerationEvent.Error(
+                        "Remote LLM returned no streamed content (HTTP 200 but no SSE data). " +
+                            "Check the Base URL path and the selected model.",
+                    ),
+                )
+            } else {
+                emit(GenerationEvent.Done(totalTokens = generated, finishReason = finish))
+            }
         } catch (c: CancellationException) {
             // Collector cancelled → Ktor cancels the request → Ollama frees the slot.
             throw c
@@ -208,6 +231,7 @@ internal fun buildOllamaChatRequest(
     model: String,
     temperature: Float,
     keepAlive: String,
+    serverType: RemoteServerType = RemoteServerType.OLLAMA,
 ): String {
     val messages = buildJsonArray {
         request.systemInstruction?.takeIf { it.isNotBlank() }?.let { sys ->
@@ -254,9 +278,11 @@ internal fun buildOllamaChatRequest(
             putJsonArray("stop") { request.stopSequences.forEach { add(it) } }
         }
         // Keep the model resident on the Ollama side between turns (speed). Ollama
-        // reads keep_alive from the OpenAI-compatible body; unknown to strict
-        // OpenAI servers but harmless here.
-        put("keep_alive", keepAlive)
+        // reads keep_alive from the OpenAI-compatible body; a generic OpenAI server
+        // may reject the unknown field, so send it only for the Ollama backend.
+        if (serverType == RemoteServerType.OLLAMA) {
+            put("keep_alive", keepAlive)
+        }
         put("stream", true)
     }.toString()
 }

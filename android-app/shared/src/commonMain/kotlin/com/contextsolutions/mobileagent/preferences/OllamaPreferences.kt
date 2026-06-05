@@ -40,10 +40,49 @@ interface OllamaPreferences {
 }
 
 /**
- * Remote Ollama server configuration. [host] is an IP or hostname (no scheme),
- * [port] is Ollama's listen port (default 11434). [chatModel] serves text turns;
- * [visionModel] serves image turns — when blank, image turns fall back to
+ * Backend type the remote chat LLM speaks (PR #73).
+ *
+ *  - [OLLAMA] — an Ollama server addressed as `host:port`; the engine appends
+ *    `/api/tags` (model discovery) and `/v1/chat/completions` (generation), and
+ *    it defaults to plain HTTP.
+ *  - [OPENAI] — a generic OpenAI-compatible server (OpenAI, OpenRouter, LM Studio,
+ *    vLLM, llama-server, LocalAI). The user supplies the full **base URL**
+ *    (the OpenAI `base_url` convention, e.g. `https://openrouter.ai/api/v1` or
+ *    `http://localhost:1234/v1`); the engine appends `/models` and
+ *    `/chat/completions`. Always HTTPS unless the base URL pins `http://`.
+ */
+@Serializable
+enum class RemoteServerType {
+    OLLAMA,
+    OPENAI,
+    ;
+
+    /** Control-plane model-list path appended to [OllamaConfig.baseUrl]. */
+    val modelsPath: String
+        get() = when (this) {
+            OLLAMA -> "/api/tags"
+            OPENAI -> "/models"
+        }
+
+    /** Chat-completions path appended to [OllamaConfig.baseUrl]. */
+    val chatCompletionsPath: String
+        get() = when (this) {
+            OLLAMA -> "/v1/chat/completions"
+            OPENAI -> "/chat/completions"
+        }
+}
+
+/**
+ * Remote chat-LLM server configuration. For Ollama, [host] is an IP or hostname
+ * (scheme optional) and [port] is the listen port (default 11434). For an
+ * OpenAI-compatible server, [host] holds the full base URL (e.g.
+ * `https://openrouter.ai/api/v1`) and [port] is ignored. [chatModel] serves text
+ * turns; [visionModel] serves image turns — when blank, image turns fall back to
  * [chatModel] (many Ollama models, e.g. `gemma3:4b`, are multimodal).
+ *
+ * [serverType] selects the control-plane wire shape (PR #73); [useSsl] forces an
+ * `https://` scheme. An [OPENAI][RemoteServerType.OPENAI] server is implicitly
+ * SSL regardless of [useSsl].
  */
 @Serializable
 data class OllamaConfig(
@@ -51,22 +90,62 @@ data class OllamaConfig(
     val port: Int? = null,
     val chatModel: String = "",
     val visionModel: String = "",
+    val serverType: RemoteServerType = RemoteServerType.OLLAMA,
+    val useSsl: Boolean = false,
+    /**
+     * User on/off switch for the remote connection (PR #73). Defaults `true` so an
+     * existing saved config (persisted before this field existed) keeps routing
+     * remotely after upgrade. When `false`, chat stays on-device even though the
+     * server details are still saved — the user can flip it back on without
+     * re-entering anything. Routing gates on [isActive], not [isConfigured].
+     */
+    val enabled: Boolean = true,
 ) {
-    /** True once a server + chat model are set — the gate that disables the local LLM. */
+    /**
+     * True once the server + chat model are set. Ollama needs host + port; an
+     * OpenAI-compatible server needs only the base URL ([host]) since its port
+     * lives in that URL. Note: "configured" ≠ "in use" — see [isActive].
+     */
     val isConfigured: Boolean
-        get() = host.isNotBlank() && port != null && chatModel.isNotBlank()
+        get() = when (serverType) {
+            RemoteServerType.OLLAMA -> host.isNotBlank() && port != null && chatModel.isNotBlank()
+            RemoteServerType.OPENAI -> host.isNotBlank() && chatModel.isNotBlank()
+        }
+
+    /** The routing gate: configured AND switched on. Disables the local LLM only when true. */
+    val isActive: Boolean
+        get() = enabled && isConfigured
+
+    /** Effective SSL: explicit [useSsl], or implied by an OpenAI-compatible server. */
+    val sslEnabled: Boolean
+        get() = useSsl || serverType == RemoteServerType.OPENAI
 
     /**
-     * Base URL for both the OpenAI-compatible (`/v1/...`) and native (`/api/...`)
-     * endpoints, e.g. `http://192.168.1.50:11434`. Null when host/port are unset.
-     * A bare IP/hostname gets an `http://` scheme (local Ollama is plain HTTP);
-     * an explicit scheme the user typed is preserved.
+     * Base URL the engine appends the control-plane / chat paths to (see
+     * [RemoteServerType.modelsPath] / [RemoteServerType.chatCompletionsPath]).
+     *
+     *  - [OLLAMA][RemoteServerType.OLLAMA]: `scheme://host:port`
+     *    (e.g. `http://192.168.1.50:11434`); null when host/port are unset.
+     *  - [OPENAI][RemoteServerType.OPENAI]: the user-supplied base URL verbatim
+     *    (e.g. `https://openrouter.ai/api/v1`), so any path is preserved and the
+     *    [port] field is ignored; null when [host] is blank.
+     *
+     * An explicit scheme the user typed always wins; otherwise the scheme is
+     * `https://` when [sslEnabled] (SSL box ticked or OpenAI-compatible), else
+     * `http://` (a bare LAN Ollama is plain HTTP).
      */
     fun baseUrl(): String? {
-        if (host.isBlank() || port == null) return null
+        if (host.isBlank()) return null
         val h = host.trim().trimEnd('/')
-        val withScheme = if (h.startsWith("http://") || h.startsWith("https://")) h else "http://$h"
-        return "$withScheme:$port"
+        val schemed = when {
+            h.startsWith("http://") || h.startsWith("https://") -> h
+            sslEnabled -> "https://$h"
+            else -> "http://$h"
+        }
+        return when (serverType) {
+            RemoteServerType.OPENAI -> schemed
+            RemoteServerType.OLLAMA -> if (port == null) null else "$schemed:$port"
+        }
     }
 
     /** Model to use for a turn, picking [visionModel] for image turns when set. */

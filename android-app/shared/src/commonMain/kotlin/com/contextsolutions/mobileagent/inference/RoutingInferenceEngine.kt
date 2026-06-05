@@ -62,8 +62,8 @@ class RoutingInferenceEngine(
                 logger("Desktop link unavailable (${t.message}); trying next backend")
             }
         }
-        // 2. Directly-configured Ollama server (PR #56).
-        if (preferences.config().isConfigured) {
+        // 2. Directly-configured Ollama server (PR #56), if switched on (PR #73).
+        if (preferences.config().isActive) {
             try {
                 val handle = ollama.loadModel(modelPath, config)
                 logger("routing → Ollama (${handle.modelId})")

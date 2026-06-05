@@ -211,10 +211,10 @@ val desktopModule: Module = module {
     single<OllamaPreferences> {
         DesktopOllamaPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "ollama_prefs.json")))
     }
-    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>()) }
+    single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { System.err.println("[OllamaClient] $it") }) }
     single {
         OllamaConnectionMonitor(
-            healthProbe = { url -> get<OllamaClient>().health(url) },
+            healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },
             logger = { System.err.println("[Ollama] $it") },
         )
     }

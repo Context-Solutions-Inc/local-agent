@@ -23,6 +23,7 @@ import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
+import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.search.SearchCacheDao
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
@@ -301,19 +302,33 @@ class SettingsViewModel(
      * error) reads as Failed. Does not persist anything — the user picks models
      * then taps Save.
      */
-    fun testOllama(host: String, port: String) {
-        val baseUrl = OllamaConfig(host = host.trim(), port = port.trim().toIntOrNull()).baseUrl()
+    fun testOllama(host: String, port: String, serverType: RemoteServerType, useSsl: Boolean) {
+        val baseUrl = OllamaConfig(
+            host = host.trim(),
+            port = port.trim().toIntOrNull(),
+            serverType = serverType,
+            useSsl = useSsl,
+        ).baseUrl()
         if (baseUrl == null) {
             _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Failed, ollamaModels = emptyList()) }
             return
         }
         _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Testing) }
         viewModelScope.launch {
-            val models = withContext(Dispatchers.IO) { ollamaClient.listModels(baseUrl) }
+            // Health (HTTP 200 on the model-list path) and model parsing are
+            // distinct failures: an unreachable host vs. a reachable host whose
+            // body isn't the expected model list (typically a wrong Base URL path
+            // on an OpenAI-compatible server). Surface them separately.
+            val reachable = withContext(Dispatchers.IO) { ollamaClient.health(baseUrl, serverType) }
+            if (!reachable) {
+                _state.update { it.copy(ollamaTestStatus = OllamaTestStatus.Failed, ollamaModels = emptyList()) }
+                return@launch
+            }
+            val models = withContext(Dispatchers.IO) { ollamaClient.listModels(baseUrl, serverType) }
             _state.update {
                 it.copy(
                     ollamaModels = models,
-                    ollamaTestStatus = if (models.isEmpty()) OllamaTestStatus.Failed else OllamaTestStatus.Connected,
+                    ollamaTestStatus = if (models.isEmpty()) OllamaTestStatus.NoModels else OllamaTestStatus.Connected,
                 )
             }
         }
@@ -325,15 +340,36 @@ class SettingsViewModel(
      * server instead of the on-device model. A blank [visionModel] means image
      * turns reuse [chatModel].
      */
-    fun saveOllama(host: String, port: String, chatModel: String, visionModel: String) {
+    fun saveOllama(
+        host: String,
+        port: String,
+        chatModel: String,
+        visionModel: String,
+        serverType: RemoteServerType,
+        useSsl: Boolean,
+    ) {
         val config = OllamaConfig(
             host = host.trim(),
             port = port.trim().toIntOrNull(),
             chatModel = chatModel.trim(),
             visionModel = visionModel.trim(),
+            serverType = serverType,
+            useSsl = useSsl,
         )
         ollamaPreferences.setConfig(config)
         _state.update { it.copy(ollamaConfig = config, ollamaJustSaved = true) }
+    }
+
+    /**
+     * PR #73 — on/off switch for the remote connection. Flips [OllamaConfig.enabled]
+     * on the *persisted* config (keeping the saved host/model/key intact) so the
+     * routing engine re-decides on the next turn (via `configFlow`). Off → chat
+     * returns to the on-device model without losing the server details.
+     */
+    fun setOllamaEnabled(enabled: Boolean) {
+        val config = ollamaPreferences.config().copy(enabled = enabled)
+        ollamaPreferences.setConfig(config)
+        _state.update { it.copy(ollamaConfig = config) }
     }
 
     /** PR #56 — clear the remote server (reverts chat to the on-device model). */
@@ -350,6 +386,16 @@ class SettingsViewModel(
 
     fun acknowledgeOllamaSaved() {
         _state.update { it.copy(ollamaJustSaved = false) }
+    }
+
+    /**
+     * PR #73 — clear a prior probe's models/status. Called when the user switches
+     * the server type (Ollama ↔ OpenAI-compatible) or toggles SSL, since the
+     * model list + reachability are backend-specific and a stale list would
+     * mislead.
+     */
+    fun resetOllamaProbe() {
+        _state.update { it.copy(ollamaModels = emptyList(), ollamaTestStatus = OllamaTestStatus.Idle) }
     }
 
     /**
@@ -458,4 +504,13 @@ data class SettingsUiState(
 }
 
 /** Outcome of the Settings "Test connection" probe against an Ollama server. */
-enum class OllamaTestStatus { Idle, Testing, Connected, Failed }
+enum class OllamaTestStatus {
+    Idle,
+    Testing,
+    Connected,
+
+    /** Reached the server (HTTP 200) but it returned no parseable models — usually a
+     * wrong Base URL path for an OpenAI-compatible server (PR #73). */
+    NoModels,
+    Failed,
+}

@@ -23,6 +23,7 @@ import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contextsolutions.mobileagent.platform.AppBuildConfig
 import com.contextsolutions.mobileagent.preferences.OllamaConfig
+import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import com.contextsolutions.mobileagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.mobileagent.ui.theme.AppFontFamily
 import com.contextsolutions.mobileagent.ui.theme.FontScale
@@ -111,6 +113,10 @@ fun SettingsScreen(
     }
     var ollamaChatModel by remember(ollamaCfg) { mutableStateOf(ollamaCfg.chatModel) }
     var ollamaVisionModel by remember(ollamaCfg) { mutableStateOf(ollamaCfg.visionModel) }
+    // PR #73 — backend type + SSL. An OpenAI-compatible server is always HTTPS,
+    // so `ollamaUseSsl` is shown checked-and-locked while OPENAI is selected.
+    var ollamaServerType by remember(ollamaCfg) { mutableStateOf(ollamaCfg.serverType) }
+    var ollamaUseSsl by remember(ollamaCfg) { mutableStateOf(ollamaCfg.useSsl) }
 
     LaunchedEffect(Unit) { viewModel.refreshMemorySummary() }
 
@@ -530,12 +536,28 @@ fun SettingsScreen(
                 port = ollamaPort,
                 chatModel = ollamaChatModel,
                 visionModel = ollamaVisionModel,
+                serverType = ollamaServerType,
+                useSsl = ollamaUseSsl,
                 onHostChange = { ollamaHost = it },
                 onPortChange = { ollamaPort = it.filter(Char::isDigit) },
                 onChatModelChange = { ollamaChatModel = it },
                 onVisionModelChange = { ollamaVisionModel = it },
-                onTest = { viewModel.testOllama(ollamaHost, ollamaPort) },
-                onSave = { viewModel.saveOllama(ollamaHost, ollamaPort, ollamaChatModel, ollamaVisionModel) },
+                onServerTypeChange = {
+                    ollamaServerType = it
+                    viewModel.resetOllamaProbe()
+                },
+                onUseSslChange = {
+                    ollamaUseSsl = it
+                    viewModel.resetOllamaProbe()
+                },
+                onToggleEnabled = { viewModel.setOllamaEnabled(it) },
+                onTest = { viewModel.testOllama(ollamaHost, ollamaPort, ollamaServerType, ollamaUseSsl) },
+                onSave = {
+                    viewModel.saveOllama(
+                        ollamaHost, ollamaPort, ollamaChatModel, ollamaVisionModel,
+                        ollamaServerType, ollamaUseSsl,
+                    )
+                },
                 onClear = { viewModel.clearOllama() },
                 onSaveApiKey = { viewModel.saveOllamaApiKey(it) },
                 onClearApiKey = { viewModel.clearOllamaApiKey() },
@@ -684,17 +706,29 @@ private fun OllamaServerSection(
     port: String,
     chatModel: String,
     visionModel: String,
+    serverType: RemoteServerType,
+    useSsl: Boolean,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onChatModelChange: (String) -> Unit,
     onVisionModelChange: (String) -> Unit,
+    onServerTypeChange: (RemoteServerType) -> Unit,
+    onUseSslChange: (Boolean) -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
     onTest: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
     onSaveApiKey: (String) -> Unit,
     onClearApiKey: () -> Unit,
 ) {
-    SectionHeader("Ollama server")
+    // PR #73 — explicit on/off inline with the header. Off keeps the saved server
+    // details but routes chat back to the on-device model.
+    SectionHeaderWithToggle(
+        title = "Remote LLM Connection",
+        checked = state.ollamaConfig.enabled,
+        onCheckedChange = onToggleEnabled,
+        toggleEnabled = enabled,
+    )
     if (!enabled) {
         Text(
             "Disabled while Desktop Agent Connection is active.",
@@ -704,35 +738,79 @@ private fun OllamaServerSection(
         Spacer(Modifier.height(4.dp))
     }
     Text(
-        "Run the chat model on an Ollama server on your network instead of on this " +
-            "device — useful when a faster machine is available. The classifier, search " +
-            "and memory always stay on-device. Leave blank to use the built-in model.",
+        "Run the chat model on a remote LLM server instead of this device. The " +
+            "classifier, search and memory always stay on-device. Leave blank to use " +
+            "the built-in model.",
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(8.dp))
-    OllamaStatusRow(state)
+    OllamaStatusRow(state, serverType)
     Spacer(Modifier.height(8.dp))
+    // PR #73 — backend type. OpenAI-compatible forces SSL (locked checkbox below).
+    ServerTypeDropdown(
+        selected = serverType,
+        enabled = enabled,
+        onSelect = onServerTypeChange,
+    )
+    Spacer(Modifier.height(8.dp))
+    val sslLocked = serverType == RemoteServerType.OPENAI
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = useSsl || sslLocked,
+            onCheckedChange = onUseSslChange,
+            enabled = enabled && !sslLocked,
+        )
+        Text(
+            if (sslLocked) "Use SSL (https) — required for OpenAI-compatible" else "Use SSL (https)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (enabled && !sslLocked) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.outline
+            },
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+    val isOpenAi = serverType == RemoteServerType.OPENAI
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = host,
             onValueChange = onHostChange,
             enabled = enabled,
             modifier = Modifier.weight(2f),
-            label = { Text("Host / IP") },
-            placeholder = { Text("192.168.1.50") },
+            // OpenAI-compatible takes a full base URL (port lives in the URL);
+            // Ollama takes a bare host/IP with a separate port.
+            label = { Text(if (isOpenAi) "Base URL" else "Host / IP") },
+            placeholder = { Text(if (isOpenAi) "https://openrouter.ai/api/v1" else "192.168.1.50") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
         )
-        OutlinedTextField(
-            value = port,
-            onValueChange = onPortChange,
-            enabled = enabled,
-            modifier = Modifier.weight(1f),
-            label = { Text("Port") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        if (!isOpenAi) {
+            OutlinedTextField(
+                value = port,
+                onValueChange = onPortChange,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                label = { Text("Port") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            )
+        }
+    }
+    if (isOpenAi) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Enter the full base URL ending in the API path, e.g. " +
+                "https://openrouter.ai/api/v1, https://api.openai.com/v1, or " +
+                "http://localhost:1234/v1 for a local server.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
         )
     }
+    // Port is only required for the Ollama backend; OpenAI carries it in the URL.
+    // OpenAI also requires an API key before the server can be saved.
+    val portReady = isOpenAi || port.isNotBlank()
+    val apiKeyReady = !isOpenAi || state.hasOllamaApiKey
     Spacer(Modifier.height(8.dp))
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -740,7 +818,7 @@ private fun OllamaServerSection(
     ) {
         OutlinedButton(
             onClick = onTest,
-            enabled = enabled && host.isNotBlank() && port.isNotBlank() && state.ollamaTestStatus != OllamaTestStatus.Testing,
+            enabled = enabled && host.isNotBlank() && portReady && state.ollamaTestStatus != OllamaTestStatus.Testing,
         ) { Text("Test connection") }
         if (state.ollamaTestStatus == OllamaTestStatus.Testing) {
             CircularProgressIndicator(modifier = Modifier.height(20.dp).padding(start = 4.dp))
@@ -771,28 +849,33 @@ private fun OllamaServerSection(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onSave,
-            enabled = enabled && host.isNotBlank() && port.isNotBlank() && chatModel.isNotBlank(),
+            enabled = enabled && host.isNotBlank() && portReady && chatModel.isNotBlank() && apiKeyReady,
         ) { Text("Save") }
         if (state.ollamaConfig.isConfigured) {
             OutlinedButton(onClick = onClear, enabled = enabled) { Text("Clear") }
         }
     }
 
-    // PR #58 — optional API key. Sent as `Authorization: Bearer` on every outbound
-    // request (chat + the Test/health probe); leave blank for an unauthenticated
-    // LAN server (the default). Saved independently of the host/port above.
+    // PR #58 — API key, sent as `Authorization: Bearer` on every outbound request
+    // (chat + the Test/health probe). Saved independently of the host/port above.
+    // Optional for Ollama (unauthenticated LAN server is the default); REQUIRED for
+    // an OpenAI-compatible server (PR #73).
     Spacer(Modifier.height(16.dp))
     var apiKeyInput by remember { mutableStateOf("") }
     var showApiKey by remember { mutableStateOf(false) }
     Text(
-        if (state.hasOllamaApiKey) {
-            "API key set — sent as a Bearer token on outbound requests."
-        } else {
-            "No API key — requests use the server's default (no auth). Add one only " +
+        when {
+            state.hasOllamaApiKey -> "API key set — sent as a Bearer token on outbound requests."
+            isOpenAi -> "API key required — an OpenAI-compatible server authenticates every request."
+            else -> "No API key — requests use the server's default (no auth). Add one only " +
                 "if your server requires it."
         },
         style = MaterialTheme.typography.bodySmall,
-        color = if (state.hasOllamaApiKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        color = when {
+            state.hasOllamaApiKey -> MaterialTheme.colorScheme.primary
+            isOpenAi -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.outline
+        },
     )
     Spacer(Modifier.height(8.dp))
     OutlinedTextField(
@@ -800,7 +883,7 @@ private fun OllamaServerSection(
         onValueChange = { apiKeyInput = it },
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        label = { Text("API key (optional)") },
+        label = { Text(if (isOpenAi) "API key" else "API key (optional)") },
         placeholder = { Text(if (state.hasOllamaApiKey) "Replace existing key" else "Paste key") },
         singleLine = true,
         visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
@@ -829,19 +912,29 @@ private fun OllamaServerSection(
 }
 
 @Composable
-private fun OllamaStatusRow(state: SettingsUiState) {
+private fun OllamaStatusRow(state: SettingsUiState, serverType: RemoteServerType) {
     val cfg = state.ollamaConfig
     val (label, color) = when (state.ollamaTestStatus) {
         OllamaTestStatus.Testing -> "Connecting…" to MaterialTheme.colorScheme.outline
         OllamaTestStatus.Connected ->
             "Connected — ${state.ollamaModels.size} models found." to MaterialTheme.colorScheme.primary
+        OllamaTestStatus.NoModels ->
+            if (serverType == RemoteServerType.OPENAI) {
+                "Reached the server, but it returned no models. Check the Base URL includes the " +
+                    "full API path (e.g. it should end in /v1 or /api/v1)."
+            } else {
+                "Reached the server, but it has no models installed (try `ollama pull <model>`)."
+            } to MaterialTheme.colorScheme.error
         OllamaTestStatus.Failed ->
-            "Could not reach the server. Check the host, port, and that Ollama is running." to
+            "Could not reach the server. Check the host, port, and that the server is running." to
                 MaterialTheme.colorScheme.error
         OllamaTestStatus.Idle -> when {
-            cfg.isConfigured ->
-                "Using Ollama at ${cfg.host}:${cfg.port} (${cfg.chatModel}) — on-device model disabled." to
-                    MaterialTheme.colorScheme.primary
+            cfg.isConfigured && !cfg.enabled ->
+                "Switched off — chat uses the on-device model (server details kept)." to
+                    MaterialTheme.colorScheme.outline
+            cfg.isActive ->
+                "Using remote LLM at ${cfg.host}${cfg.port?.let { ":$it" } ?: ""} (${cfg.chatModel}) — " +
+                    "on-device model disabled." to MaterialTheme.colorScheme.primary
             else -> "Not configured — chat uses the on-device model." to MaterialTheme.colorScheme.outline
         }
     }
@@ -874,6 +967,37 @@ private fun ModelDropdown(
     }
 }
 
+/** PR #73 — backend-type picker: Ollama (default) or an OpenAI-compatible server. */
+@Composable
+private fun ServerTypeDropdown(
+    selected: RemoteServerType,
+    enabled: Boolean,
+    onSelect: (RemoteServerType) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Server type: ", style = MaterialTheme.typography.bodyMedium)
+        AssistChip(
+            onClick = { open = true },
+            enabled = enabled,
+            label = { Text(selected.displayLabel()) },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            RemoteServerType.entries.forEach { type ->
+                DropdownMenuItem(
+                    text = { Text(type.displayLabel()) },
+                    onClick = { onSelect(type); open = false },
+                )
+            }
+        }
+    }
+}
+
+private fun RemoteServerType.displayLabel(): String = when (this) {
+    RemoteServerType.OLLAMA -> "Ollama"
+    RemoteServerType.OPENAI -> "OpenAI-compatible"
+}
+
 private fun AppFontFamily.displayLabel(): String = when (this) {
     AppFontFamily.System -> "System default"
     AppFontFamily.SansSerif -> "Sans-serif"
@@ -895,6 +1019,7 @@ private fun SectionHeaderWithToggle(
     title: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    toggleEnabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -908,7 +1033,7 @@ private fun SectionHeaderWithToggle(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = toggleEnabled)
     }
 }
 

@@ -3,6 +3,7 @@ package com.contextsolutions.mobileagent.inference
 import com.contextsolutions.mobileagent.platform.HttpEngineFactory
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
+import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
@@ -39,27 +40,43 @@ class OllamaClient internal constructor(
      * null/blank ⇒ no auth header.
      */
     private val secureStorage: SecureStorage? = null,
+    /**
+     * PR #73 — diagnostic logcat sink. Logs the full outbound control-plane
+     * request: method, URL (incl. port) and the Bearer token. **Prints the API
+     * key in cleartext** — a deliberate debug aid; logcat is on-device only.
+     */
+    private val logger: (String) -> Unit = {},
 ) {
 
-    constructor(httpEngineFactory: HttpEngineFactory, secureStorage: SecureStorage? = null) :
-        this(httpEngineFactory.create(), secureStorage)
+    constructor(
+        httpEngineFactory: HttpEngineFactory,
+        secureStorage: SecureStorage? = null,
+        logger: (String) -> Unit = {},
+    ) : this(httpEngineFactory.create(), secureStorage, logger)
 
     /**
-     * GET `<baseUrl>/api/tags` → the installed models. Vision-capability is a
-     * best-effort heuristic on the model name + reported families (Ollama
-     * surfaces a `clip`/`mllama` family or a known vision name for multimodal
-     * models); it only sorts the Settings vision dropdown, never gates anything.
-     * Returns an empty list on any error (caller treats empty as "unreachable").
+     * Model discovery → the installed models, by [serverType] (PR #73): Ollama
+     * hits `GET <baseUrl>/api/tags`, an OpenAI-compatible server hits
+     * `GET <baseUrl>/v1/models`. Vision-capability is a best-effort heuristic on
+     * the model name (Ollama also surfaces a `clip`/`mllama` family); it only
+     * sorts the Settings vision dropdown, never gates anything. Returns an empty
+     * list on any error (caller treats empty as "unreachable").
      */
-    suspend fun listModels(baseUrl: String): List<OllamaModel> = try {
-        val response = client.get("${baseUrl.trimEnd('/')}/api/tags") {
+    suspend fun listModels(
+        baseUrl: String,
+        serverType: RemoteServerType = RemoteServerType.OLLAMA,
+    ): List<OllamaModel> = try {
+        val url = "${baseUrl.trimEnd('/')}${serverType.modelsPath}"
+        logger("GET $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"}")
+        val response = client.get(url) {
             timeout { requestTimeoutMillis = LIST_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
             apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
         if (!response.status.isSuccess()) {
             emptyList()
-        } else {
-            parseModels(response.bodyAsText())
+        } else when (serverType) {
+            RemoteServerType.OLLAMA -> parseModels(response.bodyAsText())
+            RemoteServerType.OPENAI -> parseOpenAiModels(response.bodyAsText())
         }
     } catch (c: CancellationException) {
         throw c
@@ -71,10 +88,15 @@ class OllamaClient internal constructor(
      * Cheap reachability check used by [OllamaInferenceEngine.loadModel] before
      * committing to the remote backend; on false the router falls back to the
      * on-device model. Tight timeout so an unreachable host doesn't stall the
-     * first turn.
+     * first turn. Probes the [serverType]'s model-list endpoint (PR #73).
      */
-    suspend fun health(baseUrl: String): Boolean = try {
-        client.get("${baseUrl.trimEnd('/')}/api/tags") {
+    suspend fun health(
+        baseUrl: String,
+        serverType: RemoteServerType = RemoteServerType.OLLAMA,
+    ): Boolean = try {
+        val url = "${baseUrl.trimEnd('/')}${serverType.modelsPath}"
+        logger("GET $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} (health)")
+        client.get(url) {
             timeout { requestTimeoutMillis = HEALTH_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
             apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }.status.isSuccess()
@@ -95,6 +117,14 @@ class OllamaClient internal constructor(
             val families = obj["details"]?.jsonObject?.get("families")?.jsonArray
                 ?.mapNotNull { it.jsonPrimitive.content }.orEmpty()
             OllamaModel(name = name, isVisionCapable = isVisionCapable(name, families))
+        }.sortedBy { it.name }
+    }.getOrDefault(emptyList())
+
+    /** Parse the OpenAI `/v1/models` shape `{"data":[{"id":"…"}]}` (PR #73). */
+    private fun parseOpenAiModels(raw: String): List<OllamaModel> = runCatching {
+        JSON.parseToJsonElement(raw).jsonObject["data"]?.jsonArray.orEmpty().mapNotNull { el ->
+            val name = el.jsonObject["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            OllamaModel(name = name, isVisionCapable = isVisionCapable(name, emptyList()))
         }.sortedBy { it.name }
     }.getOrDefault(emptyList())
 

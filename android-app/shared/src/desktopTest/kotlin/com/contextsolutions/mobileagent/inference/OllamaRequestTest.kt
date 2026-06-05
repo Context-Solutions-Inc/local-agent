@@ -1,7 +1,9 @@
 package com.contextsolutions.mobileagent.inference
 
+import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
@@ -47,6 +49,22 @@ class OllamaRequestTest {
         ).jsonObject
         assertEquals("gemma3:4b", out["model"]!!.jsonPrimitive.content)
         assertEquals("30m", out["keep_alive"]!!.jsonPrimitive.content)
+        assertEquals(true, out["stream"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun omitsKeepAliveForOpenAiServer() {
+        // PR #73 — keep_alive is Ollama-specific; a strict OpenAI server may reject it.
+        val out = json.parseToJsonElement(
+            buildOllamaChatRequest(
+                req(history = listOf(HistoryMessage(HistoryRole.USER, "Hi"))),
+                model = "gpt-4o-mini",
+                temperature = 0.7f,
+                keepAlive = "30m",
+                serverType = RemoteServerType.OPENAI,
+            ),
+        ).jsonObject
+        assertFalse(out.containsKey("keep_alive"))
         assertEquals(true, out["stream"]!!.jsonPrimitive.content.toBoolean())
     }
 
