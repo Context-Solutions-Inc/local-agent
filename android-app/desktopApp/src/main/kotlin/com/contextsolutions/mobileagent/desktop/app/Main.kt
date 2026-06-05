@@ -1,11 +1,13 @@
 package com.contextsolutions.mobileagent.desktop.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.decodeToImageBitmap
@@ -76,8 +78,12 @@ import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.ui.navigation.AppNavHost
 import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
 import com.contextsolutions.mobileagent.ui.theme.DesktopWindowPreferences
+import com.contextsolutions.mobileagent.ui.theme.ThemeMode
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
 import com.contextsolutions.mobileagent.ui.theme.UiZoom
+import java.awt.Color
+import kotlin.math.roundToInt
+import kotlin.system.exitProcess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -357,34 +363,61 @@ fun main() {
     }
 
     application {
-        // Shared shutdown path: the tray "Quit" item AND the no-tray window-close both
-        // use it. Without a tray, hiding the window would trap it (no Show/Quit
+        // Shared shutdown path: the tray "Shut down" item AND the no-tray window-close
+        // both use it. Without a tray, hiding the window would trap it (no Show/Shut down
         // affordance), so close must actually exit.
         fun shutdown() {
-            linkServer.stop()
-            warmModel.unload()
-            appScope.cancel()
-            exitApplication()
+            // Best-effort cleanup, each guarded so a failure can't divert us before the
+            // process exit below (a half-run shutdown was part of why tray Shut down misbehaved
+            // — PR #71). We deliberately do NOT call exitApplication(): it only ends the
+            // Compose composition (the AWT SystemTray + tray popup keep AWT's non-daemon
+            // thread alive, so the JVM lingers) and its window teardown could surface the
+            // hidden main window for an instant. exitProcess(0) terminates immediately and
+            // unconditionally; the OS drops the tray icon when the process dies.
+            runCatching { linkServer.stop() }
+            runCatching { warmModel.unload() }
+            runCatching { appScope.cancel() }
+            exitProcess(0)
         }
 
         var windowVisible by remember { mutableStateOf(true) }
 
+        // Theme + UI-zoom prefs, collected up here so BOTH the styled tray menu (PR #71)
+        // and the main Window below share them. desktopApp has no koin-compose, so we read
+        // the singletons off the Koin graph and collect their flows. (PR #59: this is what
+        // makes the desktop light/auto/dark selector actually drive the colour scheme.)
+        val zoomPrefs = koin.get<DesktopThemePreferences>()
+        val uiZoom by zoomPrefs.uiZoomFlow().collectAsState(initial = zoomPrefs.uiZoom())
+        val themePrefs = koin.get<ThemePreferences>()
+        val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
+        val fontScale by themePrefs.fontScaleFlow().collectAsState(initial = themePrefs.fontScale())
+        val fontFamily by themePrefs.fontFamilyFlow().collectAsState(initial = themePrefs.fontFamily())
+        // Colours for the Swing tray menu, tracking the resolved theme + zoom. Held in a
+        // rememberUpdatedState so the long-lived install lambda reads the live value at
+        // show time. (System mode on Linux is unreliable — invariant #46 — but harmless
+        // here: the menu just follows isSystemInDarkTheme's best guess.)
+        val darkResolved = when (themeMode) {
+            ThemeMode.Light -> false
+            ThemeMode.Dark -> true
+            ThemeMode.System -> isSystemInDarkTheme()
+        }
+        val trayStyle = rememberUpdatedState(trayMenuStyle(darkResolved, uiZoom))
+
         if (traySupported) {
-            // Raw AWT tray (AwtTray) instead of Compose's `Tray()` so the icon and menu
-            // text can be enlarged 2× (issue #68 — Compose's Tray exposes no font hook
-            // and renders the icon only at the tray's preferred size). On install it
-            // routes clock + task notifications to the tray; if the AWT peer fails to
-            // create (the GNOME/Wayland trap), it returns null and the default logging
+            // Raw AWT tray (AwtTray) instead of Compose's `Tray()` so the icon can be
+            // enlarged 2× (issue #68 — Compose's Tray exposes no font hook and renders the
+            // icon only at the tray's preferred size). The menu is a STYLED Swing
+            // JPopupMenu (PR #71) — not native AWT (unstyleable on Linux) and not a Compose
+            // window (AWT's tray pointer-grab eats the click; see AwtTray). On install it
+            // routes clock + task notifications to the tray; if the AWT peer fails to create
+            // (the GNOME/Wayland trap) it returns null and the default logging
             // DesktopNotificationPresenter stays in place (degrade to logs, not crash).
             DisposableEffect(Unit) {
                 val tray = AwtTray.install(
                     tooltip = "Mobile Agent",
-                    pausedInitially = false,
                     onShow = { windowVisible = true },
-                    onTogglePause = { paused ->
-                        if (paused) taskQueue.stop() else taskQueue.start()
-                    },
                     onQuit = { shutdown() },
+                    menuStyle = { trayStyle.value },
                 )
                 if (tray != null) presenter.setDelegate(tray.notificationPresenter)
                 onDispose { tray?.remove() }
@@ -428,12 +461,6 @@ fun main() {
                     )
                 }
         }
-        // Desktop-only whole-UI zoom: Ctrl/Cmd +/-/0 (invariant — the text-only font
-        // slider can't grow icons/forms; this scales LocalDensity.density app-wide).
-        // We read the concrete DesktopThemePreferences (the zoom methods aren't on the
-        // shared ThemePreferences interface) and persist each step.
-        val zoomPrefs = koin.get<DesktopThemePreferences>()
-        val uiZoom by zoomPrefs.uiZoomFlow().collectAsState(initial = zoomPrefs.uiZoom())
         Window(
             // With a tray, close hides to it (background runtime stays resident). With
             // no tray, close exits cleanly so the window can never be trapped.
@@ -467,15 +494,8 @@ fun main() {
             // in the background via the tray, so both gates pass through to Chat; the
             // model loads lazily on the first turn (WarmModel). Queue/download status
             // remains visible via tray notifications.
-            // PR #59: collect the theme preference and drive the colour scheme so
-            // the light/auto/dark selector actually works on desktop. desktopApp has
-            // no koin-compose, so we read the ThemePreferences single off the Koin
-            // graph started above and collect its flow directly. Was a bare
-            // `MaterialTheme {}` that never read the preference, so toggling did nothing.
-            val themePrefs = koin.get<ThemePreferences>()
-            val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
-            val fontScale by themePrefs.fontScaleFlow().collectAsState(initial = themePrefs.fontScale())
-            val fontFamily by themePrefs.fontFamilyFlow().collectAsState(initial = themePrefs.fontFamily())
+            // Theme prefs (themeMode/fontScale/fontFamily/uiZoom) are collected above in
+            // the application scope so the tray popup shares them (PR #71).
             MobileAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily, densityScale = uiZoom) {
                 AppNavHost(
                     onboardingComplete = true,
@@ -484,6 +504,30 @@ fun main() {
                 )
             }
         }
+    }
+}
+
+/**
+ * Colours for the styled Swing tray menu, tracking the app's monochrome theme (PR #71).
+ * Mirrors `Theme.kt`'s Light/Dark monochrome schemes (surfaceContainer + onSurface +
+ * outlineVariant); font scales with the UI-zoom.
+ */
+private fun trayMenuStyle(dark: Boolean, uiZoom: Float): TrayMenuStyle {
+    val fontSize = (13f * uiZoom).roundToInt().coerceAtLeast(11)
+    return if (dark) {
+        TrayMenuStyle(
+            background = Color(0x1E, 0x1E, 0x1E),
+            foreground = Color(0xFF, 0xFF, 0xFF),
+            border = Color(0x3A, 0x3A, 0x3A),
+            fontSize = fontSize,
+        )
+    } else {
+        TrayMenuStyle(
+            background = Color(0xFF, 0xFF, 0xFF),
+            foreground = Color(0x00, 0x00, 0x00),
+            border = Color(0xC8, 0xC8, 0xC8),
+            fontSize = fontSize,
+        )
     }
 }
 

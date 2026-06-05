@@ -40,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.mobileagent.clock.AlarmDay
 import com.contextsolutions.mobileagent.clock.AlarmEntry
+import com.contextsolutions.mobileagent.ui.platform.rememberIsLandscape
 
 /**
  * Full-screen alarms surface (PR #17). Replaces the prior
@@ -207,8 +209,15 @@ private fun AlarmFormDialog(
     var days by remember { mutableStateOf(initial?.recurringDays ?: emptySet()) }
     var label by remember { mutableStateOf(initial?.label.orEmpty()) }
 
+    // Landscape: the horizontal TimePicker layout overlaps the number/AM-PM column
+    // in the platform-default-width dialog, so widen it ~2× (PR #71). Portrait is
+    // unchanged; desktop's rememberIsLandscape() is always false.
+    val landscape = rememberIsLandscape()
+
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = !landscape),
+        modifier = if (landscape) Modifier.fillMaxWidth(0.92f) else Modifier,
         title = { Text(if (initial == null) "New alarm" else "Edit alarm") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -33,7 +33,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimeInput
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.TopAppBar
@@ -365,12 +364,22 @@ private fun JobFormDialog(
 
     // Repeat (alarm-style): time-of-day + day-of-week chips → cron `m h * * dows`.
     val parsed = remember(initial) { initial?.cronExpression?.let(::parseJobCron) }
+    val init24 = parsed?.first ?: 9
     val timeState = rememberTimePickerState(
-        initialHour = parsed?.first ?: 9,
+        initialHour = init24,
         initialMinute = parsed?.second ?: 0,
         is24Hour = false,
     )
+    // Desktop uses replaceable 12-hour text fields + AM/PM (see the CRON branch
+    // below); these locals are the desktop source of truth, mirrored into the cron.
+    var hourText by remember { mutableStateOf(hourTo12(init24).toString()) }
+    var minuteText by remember { mutableStateOf((parsed?.second ?: 0).toString().padStart(2, '0')) }
+    var isPm by remember { mutableStateOf(init24 >= 12) }
     var days by remember { mutableStateOf(parsed?.third ?: emptySet()) }
+
+    // Unified 24-hour selection: desktop reads the text fields, mobile the dial.
+    val selHour = if (isDesktopPlatform) hourTo24(hourText.toIntOrNull() ?: 12, isPm) else timeState.hour
+    val selMinute = if (isDesktopPlatform) (minuteText.toIntOrNull() ?: 0).coerceIn(0, 59) else timeState.minute
 
     // Once (timer-style): an h/m/s duration → a one-shot fire at now + duration.
     val initSecs = remember(initial) {
@@ -396,10 +405,10 @@ private fun JobFormDialog(
 
     // PR #70 diagnostics — logs WHY Create is enabled/disabled. Desktop: console
     // running `:desktopApp:run`.
-    LaunchedEffect(name, command, scheduleType, days, totalMs, timeState.hour, timeState.minute) {
+    LaunchedEffect(name, command, scheduleType, days, totalMs, selHour, selMinute) {
         println(
             "[JobForm] create-enabled=$valid name.ok=${name.isNotBlank()} command.ok=${command.isNotBlank()} " +
-                "schedule=$scheduleType scheduleValid=$scheduleValid totalMs=$totalMs days=$days time=${timeState.hour}:${timeState.minute}",
+                "schedule=$scheduleType scheduleValid=$scheduleValid totalMs=$totalMs days=$days time=$selHour:$selMinute",
         )
     }
 
@@ -430,19 +439,39 @@ private fun JobFormDialog(
                 }
                 when (scheduleType) {
                     JobScheduleType.CRON -> {
-                        // Desktop uses the text-input variant: the analog clock's
-                        // selector knob obscured the selected digit under the
-                        // monochrome theme (issue #2), and typing suits a keyboard.
-                        // Mobile keeps the touch-friendly clock dial.
+                        // Desktop uses replaceable 12-hour text fields + AM/PM instead
+                        // of the analog clock: the dial's selector knob obscured the
+                        // selected digit under the monochrome theme (issue #2), and
+                        // Material3's TimeInput wouldn't let a typed digit replace the
+                        // existing one (PR #71). Mobile keeps the touch-friendly dial.
                         if (isDesktopPlatform) {
-                            TimeInput(state = timeState, colors = jobTimePickerColors())
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                ClockField(hourText, { hourText = it }, "Hour", 1..12, Modifier.weight(1f))
+                                Text(":")
+                                ClockField(minuteText, { minuteText = it }, "Min", 0..59, Modifier.weight(1f))
+                                FilterChip(
+                                    selected = !isPm,
+                                    onClick = { isPm = false },
+                                    label = { Text("AM") },
+                                    colors = selectedChipColors(),
+                                )
+                                FilterChip(
+                                    selected = isPm,
+                                    onClick = { isPm = true },
+                                    label = { Text("PM") },
+                                    colors = selectedChipColors(),
+                                )
+                            }
                         } else {
                             TimePicker(state = timeState, colors = jobTimePickerColors())
                         }
                         JobDaysChips(selected = days, onChange = { days = it })
                         // Echo the concrete 24-hour time + days so AM/PM can't be
                         // mistaken (e.g. 10:20 PM → 22:20), per issue #7.
-                        val time24 = "${timeState.hour.toString().padStart(2, '0')}:${timeState.minute.toString().padStart(2, '0')}"
+                        val time24 = "${selHour.toString().padStart(2, '0')}:${selMinute.toString().padStart(2, '0')}"
                         Text(
                             (if (days.isEmpty()) "Runs daily" else "Runs ${daysShortLabel(days)}") + " at $time24",
                             style = MaterialTheme.typography.bodySmall,
@@ -467,7 +496,7 @@ private fun JobFormDialog(
                     val cronExpr: String?
                     val fireAt: Long?
                     if (scheduleType == JobScheduleType.CRON) {
-                        cronExpr = buildJobCron(timeState.hour, timeState.minute, days)
+                        cronExpr = buildJobCron(selHour, selMinute, days)
                         fireAt = null
                     } else {
                         cronExpr = null
@@ -479,6 +508,36 @@ private fun JobFormDialog(
             ) { Text(if (initial == null) "Create" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** 24-hour → 12-hour clock face (0→12, 13→1, …). */
+private fun hourTo12(h24: Int): Int = ((h24 % 12).let { if (it == 0) 12 else it })
+
+/** 12-hour clock face + AM/PM → 24-hour. */
+private fun hourTo24(h12: Int, isPm: Boolean): Int {
+    val base = h12 % 12              // 12 → 0
+    return if (isPm) base + 12 else base
+}
+
+/**
+ * Desktop hour/minute field with REPLACE semantics (PR #71). `takeLast(2)` (not
+ * `take(2)`) shifts the value like an odometer — typing into a full "09" field
+ * replaces rather than being ignored, which Material3's `TimeInput` wouldn't do.
+ * Blank is accepted mid-edit; otherwise the value must land in `range`.
+ */
+@Composable
+private fun ClockField(value: String, onValueChange: (String) -> Unit, label: String, range: IntRange, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { raw ->
+            val digits = raw.filter(Char::isDigit).takeLast(2)
+            if (digits.isEmpty() || (digits.toIntOrNull()?.let { it in range } == true)) onValueChange(digits)
+        },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier,
     )
 }
 

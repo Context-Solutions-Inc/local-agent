@@ -3,17 +3,37 @@ package com.contextsolutions.mobileagent.desktop.app
 import com.contextsolutions.mobileagent.notification.AppNotification
 import com.contextsolutions.mobileagent.notification.NotificationKind
 import com.contextsolutions.mobileagent.notification.NotificationPresenter
-import java.awt.CheckboxMenuItem
+import java.awt.Color
 import java.awt.Font
 import java.awt.Image
-import java.awt.MenuItem
-import java.awt.PopupMenu
 import java.awt.RenderingHints
 import java.awt.SystemTray
 import java.awt.TrayIcon
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
+import javax.swing.BorderFactory
+import javax.swing.JMenuItem
+import javax.swing.JPopupMenu
+import javax.swing.JWindow
+import javax.swing.SwingUtilities
+import javax.swing.border.EmptyBorder
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
 import kotlin.math.roundToInt
+
+/**
+ * Colours + font size for the themed tray menu, supplied per-show by the caller so the
+ * menu tracks the app's light/dark theme and UI-zoom (PR #71). Plain AWT [Color]s — the
+ * menu is Swing, deliberately not Compose (see [AwtTray]).
+ */
+data class TrayMenuStyle(
+    val background: Color,
+    val foreground: Color,
+    val border: Color,
+    val fontSize: Int,
+)
 
 /**
  * Raw AWT system-tray integration, replacing Compose Desktop's `Tray()` composable
@@ -31,7 +51,14 @@ import kotlin.math.roundToInt
  * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered [TRAY_SLOT_FACTOR]×
  *   larger than the reported `trayIconSize` (which GNOME/Pop under-reports), with
  *   auto-resize OFF, so the navy overfills the real slot instead of leaving light edges.
- * - **Menu:** every item uses a [SCALE]× font.
+ * - **Menu:** a STYLED Swing [JPopupMenu], not the native AWT [java.awt.PopupMenu]
+ *   (unstyleable Motif/X11 look on Linux) and not a Compose `Window` (PR #71 proved a
+ *   custom top-level window can't get the click: AWT's `TrayIcon` grabs the pointer on
+ *   the popup trigger to show its own popup, so the next click is swallowed by the tray
+ *   icon — it fell through to `onShow`). `JPopupMenu` cooperates with that grab and, via
+ *   the documented invisible-owner-window trick, receives input reliably on Linux. We
+ *   colour it from a per-show [TrayMenuStyle] so it tracks the app's light/dark theme.
+ *   Left-click / activate routes to `onShow`; the menu offers Show + Shut down.
  */
 class AwtTray private constructor(
     private val tray: SystemTray,
@@ -61,9 +88,6 @@ class AwtTray private constructor(
     }
 
     companion object {
-        /** 2× menu-item font (issue #68 — the tray menu text was too small). */
-        private const val SCALE = 2
-
         /**
          * How much larger than the reported `trayIconSize` to render the icon, to cover
          * the real (under-reported) slot on GNOME/Pop. Raise if light edges remain on the
@@ -72,22 +96,20 @@ class AwtTray private constructor(
         private const val TRAY_SLOT_FACTOR = 1.35
 
         /**
-         * AWT's heavyweight [PopupMenu] has no reliable default-font getter (the font
-         * is null until the native peer is created), so we derive the menu font from a
-         * fixed base point size rather than the look-and-feel.
-         */
-        private const val MENU_BASE_PT = 12
-
-        /**
          * Build + register the tray icon. Returns null if anything throws — the caller
          * then keeps the logging presenter and close-to-quit behaviour.
+         *
+         * @param onShow fired on left-click / activate (double-click on most DEs) and by
+         *   the menu's "Show" item.
+         * @param onQuit fired by the menu's "Shut down" item.
+         * @param menuStyle supplies the menu colours/font at show time so it tracks the
+         *   current theme + UI-zoom (PR #71).
          */
         fun install(
             tooltip: String,
-            pausedInitially: Boolean,
             onShow: () -> Unit,
-            onTogglePause: (Boolean) -> Unit,
             onQuit: () -> Unit,
+            menuStyle: () -> TrayMenuStyle,
         ): AwtTray? = runCatching {
             val tray = SystemTray.getSystemTray()
             val preferred = tray.trayIconSize // the tray's slot size, in LOGICAL px
@@ -107,43 +129,84 @@ class AwtTray private constructor(
                 .coerceAtLeast(maxOf(preferred.width, preferred.height))
             val image = loadIcon(side, side)
 
-            val menuFont = Font(Font.SANS_SERIF, Font.PLAIN, MENU_BASE_PT * SCALE)
-            val menu = PopupMenu().apply {
-                font = menuFont
-                add(
-                    MenuItem("Show").apply {
-                        font = menuFont
-                        addActionListener { onShow() }
-                    },
-                )
-                add(
-                    CheckboxMenuItem("Pause queue", pausedInitially).apply {
-                        font = menuFont
-                        addItemListener { onTogglePause(state) }
-                    },
-                )
-                addSeparator()
-                add(
-                    MenuItem("Quit").apply {
-                        font = menuFont
-                        addActionListener { onQuit() }
-                    },
-                )
-            }
-
-            val icon = TrayIcon(image, tooltip, menu).apply {
+            val icon = TrayIcon(image, tooltip).apply {
                 // Image is already the exact slot size, so auto-resize must stay OFF: its
                 // rescale filter bleeds a light 1px edge on the right/bottom (the "white
                 // lines"). 1:1 blit = navy edge-to-edge, no artifact.
                 isImageAutoSize = false
-                // Activating the icon (double-click on most DEs) shows the window.
+                // Activating the icon (single/double-click depending on DE) shows the window.
                 addActionListener { onShow() }
+                // Right-click → styled Swing JPopupMenu. `isPopupTrigger` fires on press on
+                // some platforms and release on others, so check both; `shown` de-dupes.
+                addMouseListener(object : MouseAdapter() {
+                    private var shownForGesture = false
+                    // Reset per gesture on press; the trigger may be press (Linux/X11) or
+                    // release (Windows), and some platforms flag both — guard so we show once.
+                    override fun mousePressed(e: MouseEvent) { shownForGesture = false; maybePopup(e) }
+                    override fun mouseReleased(e: MouseEvent) { maybePopup(e) }
+                    private fun maybePopup(e: MouseEvent) {
+                        if (e.isPopupTrigger && !shownForGesture) {
+                            shownForGesture = true
+                            showTrayMenu(e.xOnScreen, e.yOnScreen, menuStyle(), onShow, onQuit)
+                        }
+                    }
+                })
             }
             tray.add(icon)
             AwtTray(tray, icon)
         }.onFailure {
             System.err.println("[desktopApp] AWT tray install failed: ${it.message}")
         }.getOrNull()
+
+        /**
+         * Show the themed Swing context menu at the cursor. On Linux a [JPopupMenu] shown
+         * from a tray icon only receives input when anchored to a real, visible owner
+         * window (the documented workaround — without it the menu shows but its clicks are
+         * eaten by AWT's tray pointer grab, PR #71). So we map a 1×1 invisible [JWindow] at
+         * the cursor, show the popup on it, and dispose the owner when the menu closes.
+         */
+        private fun showTrayMenu(
+            x: Int,
+            y: Int,
+            style: TrayMenuStyle,
+            onShow: () -> Unit,
+            onQuit: () -> Unit,
+        ) = SwingUtilities.invokeLater {
+            val font = Font(Font.SANS_SERIF, Font.PLAIN, style.fontSize)
+            fun item(label: String, action: () -> Unit) = JMenuItem(label).apply {
+                isOpaque = true
+                background = style.background
+                foreground = style.foreground
+                this.font = font
+                border = EmptyBorder(6, 16, 6, 16)
+                addActionListener { action() }
+            }
+            val popup = JPopupMenu().apply {
+                // Heavyweight: the owner is 1×1, so the menu must be its own native window.
+                isLightWeightPopupEnabled = false
+                background = style.background
+                border = BorderFactory.createLineBorder(style.border, 1)
+                add(item("Show", onShow))
+                add(item("Shut down", onQuit))
+            }
+            val owner = JWindow().apply {
+                isAlwaysOnTop = true
+                setSize(1, 1)
+                setLocation(x, y)
+                isVisible = true
+                toFront()
+            }
+            popup.addPopupMenuListener(object : PopupMenuListener {
+                override fun popupMenuWillBecomeVisible(e: PopupMenuEvent) {}
+                override fun popupMenuWillBecomeInvisible(e: PopupMenuEvent) {
+                    SwingUtilities.invokeLater { owner.dispose() }
+                }
+                override fun popupMenuCanceled(e: PopupMenuEvent) {
+                    SwingUtilities.invokeLater { owner.dispose() }
+                }
+            })
+            popup.show(owner, 0, 0)
+        }
 
         /** Display scale factor (2.0 on HiDPI, 1.25/1.5 on fractional). 1.0 fallback. */
         private fun displayScale(): Double = runCatching {
