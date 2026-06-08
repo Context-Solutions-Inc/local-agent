@@ -147,6 +147,12 @@ kotlin {
                 // Desktop-only: the synced job model carries only the cronExpr string;
                 // only the desktop interprets it (never in commonMain).
                 implementation(libs.cron.utils)
+                // PR #74 — Secure Gateway desktop client SDK (E2EE relay for paid
+                // "anywhere access"). JVM-only (libsodium/JNA), consumed via mavenLocal.
+                // Pulls in com.securegateway:core transitively. Used for the relay
+                // pairing QR (DesktopClient.generatePairingQr); the relay transport
+                // itself is the stubbed follow-up (RelayLinkTransport).
+                implementation(libs.securegateway.java)
             }
         }
         val desktopTest by getting {

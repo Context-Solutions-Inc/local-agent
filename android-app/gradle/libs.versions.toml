@@ -42,6 +42,8 @@ koin = "4.2.1"
 # Networking
 ktor = "3.0.2"
 okhttp = "4.12.0"
+# Secure Gateway client SDK (PR #74), built from ../secure-gateway/sdk → mavenLocal.
+securegateway = "0.1.0"
 # Desktop LLM runtime: NOT a JNI binding. PR #55 (Option 3) replaced the
 # net.ladenthin:llama JNI dep with llama.cpp's reference `llama-server` subprocess
 # reached over localhost HTTP (LlamaServerInferenceEngine, ktor-client-cio). The JNI
@@ -236,6 +238,12 @@ firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
 # OkHttp (logging interceptor for redacting sensitive data)
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-logging-interceptor = { module = "com.squareup.okhttp3:logging-interceptor", version.ref = "okhttp" }
+
+# Secure Gateway client SDK (PR #74) — desktop relay (E2EE websocket) for paid
+# "anywhere access". Built from ../secure-gateway/sdk, consumed via mavenLocal().
+# JVM-only; wired into :shared/desktopMain. Android consumes the :android variant
+# in the transport follow-up PR (needs lazysodium-android, see CLAUDE.md #40).
+securegateway-java = { module = "com.securegateway:java", version.ref = "securegateway" }
 
 # Test
 junit = { module = "junit:junit", version.ref = "junit" }

@@ -54,7 +54,13 @@ import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.preferences.DesktopDesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
+import com.contextsolutions.mobileagent.preferences.DesktopSubscriptionPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.subscription.DesktopSubscriptionUiController
+import com.contextsolutions.mobileagent.subscription.RelayGatewayClient
+import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
+import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
+import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.memory.DesktopMemoryPreferences
 import com.contextsolutions.mobileagent.memory.EmbedderEngine
 import com.contextsolutions.mobileagent.memory.MemoryPreferences
@@ -77,6 +83,9 @@ import com.contextsolutions.mobileagent.platform.HttpEngineFactory
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.contextsolutions.mobileagent.search.BraveKeyProvider
 import com.contextsolutions.mobileagent.search.BraveSearchClient
 import com.contextsolutions.mobileagent.search.DefaultBraveKeyProvider
@@ -212,6 +221,31 @@ val desktopModule: Module = module {
         DesktopOllamaPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "ollama_prefs.json")))
     }
     single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { System.err.println("[OllamaClient] $it") }) }
+
+    // PR #74 — paid "anywhere access" (Secure Gateway relay subscription).
+    single<SubscriptionPreferences> {
+        DesktopSubscriptionPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "subscription_prefs.json")))
+    }
+    single { RelayGatewayClient(get<HttpEngineFactory>(), logger = { System.err.println("[RelayGateway] $it") }) }
+    single {
+        RelaySubscriptionService(
+            client = get(),
+            prefs = get(),
+            secureStorage = get(),
+            urlOpener = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            gatewayBaseUrl = RelaySubscriptionService.gatewayUrlFromEnv(),
+            subscriptionPortalUrl = RelaySubscriptionService.portalUrlFromEnv(),
+            logger = { System.err.println("[Subscription] $it") },
+        )
+    }
+    single<SubscriptionUiController> {
+        DesktopSubscriptionUiController(
+            service = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            logger = { System.err.println("[Subscription] $it") },
+        )
+    }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },

@@ -67,6 +67,7 @@ import com.contextsolutions.mobileagent.task.TaskRepository
 import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
 import com.contextsolutions.mobileagent.link.DesktopLinkServer
+import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
 import com.contextsolutions.mobileagent.link.LanAddress
 import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
@@ -209,13 +210,21 @@ fun main() {
     // publish the pairing-QR payload (LAN IP + port + token + device id) for the
     // Settings screen.
     val desktopLinkPrefs = koin.get<DesktopLinkPreferences>()
+    // PR #74 — paid "anywhere access". The link server hosts the Stripe Checkout
+    // success callback; the service claims the credential and re-validates on launch.
+    val subscription = koin.get<RelaySubscriptionService>()
     val linkServer = DesktopLinkServer(
         preferences = desktopLinkPrefs,
         sessionProvider = { warmModel.session() },
         syncService = koin.get<LinkSyncService>(),
         connectionStatus = koin.get<MutableDesktopLinkConnectionStatus>(),
+        onSubscribeCallback = { code -> subscription.handleClaimCode(code) },
         logger = { System.err.println("[DesktopLink] $it") },
     )
+    // The checkout redirect targets the link server's loopback port.
+    subscription.callbackPortProvider = { linkServer.boundPort.takeIf { it > 0 } }
+    // Launch-time subscription re-validation (only if an account exists locally, #74).
+    appScope.launch { runCatching { subscription.refresh() } }
     appScope.launch {
         runCatching {
             val port = linkServer.start()

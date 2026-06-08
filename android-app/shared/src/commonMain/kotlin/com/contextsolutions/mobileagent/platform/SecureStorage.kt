@@ -41,4 +41,15 @@ object SecureStorageKeys {
      * pattern as [BRAVE_API_KEY]; read per-request so a change applies next turn.
      */
     const val OLLAMA_API_KEY = "ollama_api_key"
+
+    /**
+     * Secure Gateway account secret for paid "anywhere access" (PR #74). Minted
+     * once by the gateway at checkout-claim time (form `acct_….<rand>`) and used
+     * as the `Authorization: Bearer` credential for the gateway's authenticated
+     * endpoints (pairing-token, token issue, `GET /v1/subscription`). Desktop-only.
+     * Same encrypted-at-rest, never-logged discipline as [BRAVE_API_KEY]; the
+     * account_id/subscription_id/license_id (non-secret) live in
+     * `subscription_prefs.json`, never here.
+     */
+    const val RELAY_ACCOUNT_SECRET = "relay_account_secret"
 }

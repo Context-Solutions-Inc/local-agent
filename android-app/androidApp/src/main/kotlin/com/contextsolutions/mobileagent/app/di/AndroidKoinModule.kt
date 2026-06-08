@@ -85,6 +85,10 @@ import com.contextsolutions.mobileagent.preferences.DataStoreSearchPreferencesRe
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionPreferences
+import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionUiController
+import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
+import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.preferences.SharedPreferencesDesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.SharedPreferencesOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.LocationCatalog
@@ -235,6 +239,11 @@ val androidModule: Module = module {
     // PR #56 — remote Ollama config + client + engine (shared OpenAI-compatible
     // engine; only the prefs store is Android-specific).
     single<OllamaPreferences> { SharedPreferencesOllamaPreferences(androidContext()) }
+    // PR #74 — the phone never subscribes (it only scans); paid "anywhere access"
+    // is provisioned on the desktop. Bind the always-empty subscription state so
+    // the shared Settings UI compiles and reports "no subscription".
+    single<SubscriptionPreferences> { NoOpSubscriptionPreferences() }
+    single<SubscriptionUiController> { NoOpSubscriptionUiController() }
     single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { Log.i("OllamaClient", it) }) }
     single {
         OllamaConnectionMonitor(

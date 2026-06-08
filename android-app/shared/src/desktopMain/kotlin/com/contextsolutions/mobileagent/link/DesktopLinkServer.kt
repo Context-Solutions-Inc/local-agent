@@ -62,6 +62,14 @@ class DesktopLinkServer(
     private val syncService: LinkSyncService,
     /** Updated as phones connect/disconnect (their held `/sync/subscribe` SSE). */
     private val connectionStatus: MutableDesktopLinkConnectionStatus? = null,
+    /**
+     * PR #74 — handles the Stripe Checkout success redirect (`GET
+     * /subscribe/callback?claim_code=…`). The browser is redirected here by the
+     * gateway after payment; the handler exchanges the one-time code for the
+     * account credential. Unauthenticated (the browser has no bearer); loopback
+     * binding + a single-use code are the controls. Returns true on success.
+     */
+    private val onSubscribeCallback: (suspend (claimCode: String) -> Boolean)? = null,
     private val preferredPort: Int = DesktopLinkConfig.DEFAULT_PORT,
     private val logger: (String) -> Unit = {},
 ) {
@@ -127,6 +135,28 @@ class DesktopLinkServer(
             }
             routing {
                 get("/ping") { call.respondText("ok") }
+
+                // PR #74 — Stripe Checkout success redirect. Browser-facing (no
+                // bearer); the gateway only ever redirects a one-time claim_code
+                // to this loopback address. Hands the code to the subscription
+                // service, then shows a "return to the app" page.
+                get("/subscribe/callback") {
+                    val code = call.request.queryParameters["claim_code"].orEmpty()
+                    val canceled = call.request.queryParameters["status"] == "canceled"
+                    val ok = !canceled && code.isNotBlank() &&
+                        (onSubscribeCallback?.invoke(code) ?: false)
+                    val message = when {
+                        canceled -> "Checkout canceled. You can close this tab."
+                        ok -> "Subscription activated. You can return to the Mobile Agent app."
+                        else -> "Could not finish activation. Return to the app and try again."
+                    }
+                    call.respondText(
+                        "<!doctype html><meta charset=utf-8><title>Mobile Agent</title>" +
+                            "<body style=\"font-family:sans-serif;text-align:center;margin-top:4em\">" +
+                            "<h2>$message</h2></body>",
+                        ContentType.Text.Html,
+                    )
+                }
 
                 get("/health") {
                     if (!call.authorized()) return@get call.unauthorized()

@@ -33,7 +33,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -523,6 +525,9 @@ fun SettingsScreen(
                 onScanned = { viewModel.applyScannedLink(it) },
                 onUnpair = { viewModel.unpairDesktop() },
                 onDisconnectMobile = { viewModel.disconnectMobileDevice() },
+                showUpgrade = viewModel.subscriptionAvailable,
+                onUpgrade = { viewModel.upgradeToAnywhereAccess() },
+                onManageSubscription = { viewModel.openSubscriptionSettings() },
             )
 
             // PR #56 — Remote Ollama server. When configured, the large chat
@@ -608,16 +613,37 @@ private fun DesktopLinkSection(
     onScanned: (String) -> Unit,
     onUnpair: () -> Unit,
     onDisconnectMobile: () -> Unit,
+    showUpgrade: Boolean = false,
+    onUpgrade: () -> Unit = {},
+    onManageSubscription: () -> Unit = {},
 ) {
     // The desktop HOSTS the link (shows a QR + the connected phone, no toggle); the
     // phone JOINS it (toggle + pairing copy + scanner). PR #57.
     if (isDesktopPlatform) {
+        val anywhere = state.subscription.isActive // PR #74 — paid relay active
         SectionHeader("Mobile Agent Connection")
         Text(
-            "Let the Mobile Agent app on your phone connect to this desktop over your " +
-                "local network. Scan the code below from the phone's Settings.",
+            if (anywhere) {
+                "Let the Mobile Agent app on your phone connect to this desktop anywhere. " +
+                    "Scan the code below from the phone's Settings."
+            } else {
+                "Let the Mobile Agent app on your phone connect to this desktop over your " +
+                    "local network. Scan the code below from the phone's Settings."
+            },
             style = MaterialTheme.typography.bodySmall,
         )
+        // PR #74 — the upgrade / subscription-settings link. Hidden unless the
+        // desktop has a configured gateway (showUpgrade); label + action flip once
+        // a subscription is active.
+        if (showUpgrade) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = { if (anywhere) onManageSubscription() else onUpgrade() },
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text(if (anywhere) "Subscription Settings" else "Upgrade to anywhere connection")
+            }
+        }
         Spacer(Modifier.height(8.dp))
         ConnectedMobileRow(state = state, onDisconnect = onDisconnectMobile)
         Spacer(Modifier.height(8.dp))

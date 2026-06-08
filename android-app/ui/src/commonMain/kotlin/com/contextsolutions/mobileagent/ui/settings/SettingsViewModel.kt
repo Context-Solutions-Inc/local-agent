@@ -26,6 +26,8 @@ import com.contextsolutions.mobileagent.preferences.OllamaConfig
 import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.search.SearchCacheDao
+import com.contextsolutions.mobileagent.subscription.SubscriptionState
+import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryUploader
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,7 @@ class SettingsViewModel(
     private val desktopLinkStatusProvider: DesktopLinkStatusProvider,
     private val desktopLinkQrProvider: DesktopLinkQrProvider,
     private val desktopLinkConnectionStatus: DesktopLinkConnectionStatus,
+    private val subscription: SubscriptionUiController,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -103,7 +106,22 @@ class SettingsViewModel(
         desktopLinkConnectionStatus.mobileConnected
             .onEach { c -> _state.update { it.copy(mobileConnected = c) } }
             .launchIn(viewModelScope)
+        // PR #74 — mirror the paid "anywhere access" subscription state so the
+        // desktop "Mobile Agent Connection" section flips its copy + upgrade link
+        // when a subscription becomes active (or is revoked).
+        subscription.stateFlow()
+            .onEach { s -> _state.update { it.copy(subscription = s) } }
+            .launchIn(viewModelScope)
     }
+
+    /** PR #74 — start (or resume) the Stripe Checkout flow. Desktop-only. */
+    fun upgradeToAnywhereAccess() = subscription.onUpgrade()
+
+    /** PR #74 — open the Stripe Customer Portal / account page. Desktop-only. */
+    fun openSubscriptionSettings() = subscription.onManage()
+
+    /** Whether the upgrade UI should show (desktop with a configured gateway). */
+    val subscriptionAvailable: Boolean get() = subscription.available
 
     /** Toggle the "Desktop Agent Connection". Keeps any paired peer + token. */
     fun setAutoDesktopLinkEnabled(enabled: Boolean) {
@@ -493,6 +511,8 @@ data class SettingsUiState(
     val desktopLinkQrPayload: String? = null,
     /** Desktop-only: whether a paired phone is currently connected to this desktop. */
     val mobileConnected: Boolean = false,
+    /** PR #74 — paid "anywhere access" subscription state (desktop; EMPTY on mobile). */
+    val subscription: SubscriptionState = SubscriptionState.EMPTY,
 ) {
     /**
      * The link is *active* (routing chat to the desktop) only when enabled, paired,
