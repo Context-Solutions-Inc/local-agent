@@ -222,6 +222,26 @@ fallback needs no display (X11/Wayland/Quartz) — safe on a true headless serve
 > task/job consumers racing the same SQLite rows). Stop the service before opening the GUI,
 > and vice versa.
 
+### Implementation notes (CLAUDE.md invariant #53)
+
+`MOBILEAGENT_HEADLESS=1` only changes **window startup** — the full background runtime
+(jobs / clock / tasks / link / warm-LLM / aux engines) is launched on `appScope`
+**before** the `application{}` window block, so headless and GUI share the exact same
+runtime bring-up. The tray probe runs first, then:
+
+- **(a) tray available** → enter `application{}` with `windowVisible = false` (starts
+  minimized to tray; the tray's Show / Shut-down drive it — the same machinery as
+  hide-to-tray).
+- **(b) no tray** (display-less server, or the GNOME/Wayland tray trap, invariant #46) →
+  fully windowless: block the non-daemon main thread on a `CountDownLatch`, with a
+  SIGTERM / Ctrl-C shutdown hook mirroring the GUI `shutdown()` (linkServer.stop /
+  warmModel.unload / appScope.cancel — **no** `exitProcess`).
+
+Nothing before the window touches AWT/Skia (`AppIcon` is `lazy`), so the windowless path
+is display-less-safe. The single-instance file lock (`<app-data>/.instance.lock`) is
+shared across modes (the "One instance only" note above). Same env-gate convention as
+`DI_CHECK` / `MOBILEAGENT_LLAMA_SERVER_VARIANT`.
+
 ### End-to-end deploy
 
 1. **Build the standalone app on the target OS** (jpackage cross-builds nothing):

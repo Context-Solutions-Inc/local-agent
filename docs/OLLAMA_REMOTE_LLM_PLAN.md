@@ -142,3 +142,41 @@ HTTPS and unaffected. Desktop (CIO) needs nothing.
    bring it back → reconnects within ~15 s.
 4. **Speed:** 2nd+ turns are fast (model stays warm via `keep_alive`).
 5. **Regression:** with nothing configured, both platforms behave exactly as before.
+
+## PR #73 — generalization to any OpenAI-compatible backend + SSL + on/off switch
+
+PR #73 ("Remote LLM Connection") generalized the seam to **two backend types** via
+`OllamaConfig.serverType` (`RemoteServerType.OLLAMA` / `OPENAI`), kept behind the **same**
+`InferenceEngine` / `OllamaInferenceEngine` / `OllamaClient` / `OllamaPreferences` names —
+they ARE the seam; extend, never rename. The Settings section was renamed **"Remote LLM
+Connection"**. The OpenAI type targets OpenAI / OpenRouter / LM Studio / vLLM /
+llama-server / LocalAI.
+
+- **(a) URL shape differs by type.**
+  - *Ollama:* `baseUrl()` = `scheme://host:port`; append `RemoteServerType.modelsPath`
+    (`/api/tags`) + `chatCompletionsPath` (`/v1/chat/completions`).
+  - *OpenAI:* the user supplies the **full base URL incl. any path** (OpenAI `base_url`
+    convention, e.g. `https://openrouter.ai/api/v1`), used verbatim; append `/models` +
+    `/chat/completions`. The **port field is ignored** and `isConfigured` doesn't require
+    it. `OllamaClient.parseOpenAiModels` reads `/v1/models`' `{"data":[{"id":…}]}`.
+- **(b) SSL.** `OllamaConfig.useSsl` flips the bare-host scheme to `https://`; an OpenAI
+  server forces it (`sslEnabled = useSsl || serverType == OPENAI`); an explicit
+  `http(s)://` the user typed always wins. The Settings SSL checkbox is locked-checked for
+  OpenAI. HTTPS uses the system trust store — **self-signed / custom-CA certs are out of
+  scope** (handshake fails).
+- **(c) `keep_alive` is Ollama-only** — `buildOllamaChatRequest` omits it for `OPENAI`
+  (strict servers reject unknown fields).
+- **(d) API key required for OpenAI** (Settings gates Save on `hasOllamaApiKey`); optional
+  for Ollama.
+- **(e) On/off switch.** `OllamaConfig.enabled` (default `true` so upgrades keep routing).
+  Routing gates on **`isActive = enabled && isConfigured`**, NOT `isConfigured`. Toggling
+  writes `enabled` to the persisted config (preserving server details) → `configFlow` →
+  re-decide.
+- **(f) Diagnostics.** `OllamaClient` / `OllamaInferenceEngine` log the full outbound URL +
+  Bearer token (cleartext) + body — a deliberate on-device debug aid that bypasses the
+  redacting ktor logger. A 200 with no SSE `data:` lines (e.g. a wrong base path returning
+  HTML) surfaces as an error, not an empty bubble.
+
+This is **CLAUDE.md hard invariant #44** — the full rule. The seam invariant itself:
+the remote path lives entirely behind `InferenceEngine`; `RoutingInferenceEngine` decides
+the backend once per `loadModel` and never gets special-cased above the seam.
