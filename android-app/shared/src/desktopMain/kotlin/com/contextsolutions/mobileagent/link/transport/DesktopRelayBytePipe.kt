@@ -23,23 +23,41 @@ import kotlin.coroutines.resumeWithException
  * frames arrive on SDK threads → buffered through an unlimited [Channel] so the
  * coroutine collector never drops one.
  */
-class DesktopRelayBytePipe(private val client: DesktopClient) : RelayBytePipe {
+class DesktopRelayBytePipe(
+    private val client: DesktopClient,
+    private val logger: (String) -> Unit = {},
+) : RelayBytePipe {
 
     private val inboundChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private val _state = MutableStateFlow(LinkConnectionState.DOWN)
+    private var inboundCount = 0L
 
     init {
-        client.onMessage { bytes -> inboundChannel.trySend(bytes) }
-        client.onStateChange { state -> _state.value = state.toLinkState() }
+        client.onMessage { bytes ->
+            inboundCount++
+            if (inboundCount <= 3L || inboundCount % 50L == 0L) {
+                logger("pipe: inbound #$inboundCount (${bytes.size}B)")
+            }
+            inboundChannel.trySend(bytes)
+        }
+        client.onStateChange { state ->
+            val mapped = state.toLinkState()
+            logger("pipe: state $state -> $mapped")
+            _state.value = mapped
+        }
     }
 
-    override suspend fun send(bytes: ByteArray) = client.send(bytes).awaitVoid()
+    override suspend fun send(bytes: ByteArray) {
+        logger("pipe: send ${bytes.size}B (state=${_state.value})")
+        client.send(bytes).awaitVoid()
+    }
 
     override val inbound: Flow<ByteArray> = inboundChannel.receiveAsFlow()
 
     override val state: StateFlow<LinkConnectionState> = _state.asStateFlow()
 
     override suspend fun close() {
+        logger("pipe: close()")
         runCatching { client.close() }
         inboundChannel.close()
         _state.value = LinkConnectionState.DISABLED

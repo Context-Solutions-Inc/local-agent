@@ -10,6 +10,7 @@ import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaModel
 import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.MobileLinkKind
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
 import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import kotlin.uuid.ExperimentalUuidApi
@@ -29,6 +30,7 @@ import com.contextsolutions.mobileagent.preferences.RemoteServerType
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.search.SearchCacheDao
 import com.contextsolutions.mobileagent.subscription.SubscriptionState
+import com.contextsolutions.mobileagent.subscription.RelayDisconnector
 import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryUploader
@@ -68,6 +70,7 @@ class SettingsViewModel(
     private val desktopLinkQrProvider: DesktopLinkQrProvider,
     private val desktopLinkConnectionStatus: DesktopLinkConnectionStatus,
     private val subscription: SubscriptionUiController,
+    private val relayDisconnector: RelayDisconnector,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -108,6 +111,9 @@ class SettingsViewModel(
         desktopLinkConnectionStatus.mobileConnected
             .onEach { c -> _state.update { it.copy(mobileConnected = c) } }
             .launchIn(viewModelScope)
+        desktopLinkConnectionStatus.connectionKind
+            .onEach { k -> _state.update { it.copy(mobileConnectionKind = k) } }
+            .launchIn(viewModelScope)
         // PR #74 — mirror the paid "anywhere access" subscription state so the
         // desktop "Mobile Agent Connection" section flips its copy + upgrade link
         // when a subscription becomes active (or is revoked).
@@ -136,8 +142,13 @@ class SettingsViewModel(
      * the QR parsed (pairing reachability is reflected later by the status dot).
      */
     fun applyScannedLink(rawQr: String): Boolean {
+        // TESTING diagnostics (revert with the relay logging). Sanitized — never log the
+        // raw QR or the account secret (it sits last in the relay JSON, after `endpoints`).
+        val head = rawQr.trim().take(40).replace("\n", " ")
+        println("[Relay/scan] applyScannedLink: ${rawQr.length} chars; head='$head'")
         // LAN `magent://link` QR (PR #57).
         LinkPairingPayload.parse(rawQr)?.let { payload ->
+            println("[Relay/scan] -> matched LAN magent:// host=${payload.host}:${payload.port}")
             val self = desktopLinkPreferences.config().selfDeviceId
             desktopLinkPreferences.setConfig(
                 desktopLinkPreferences.config().copy(
@@ -160,6 +171,7 @@ class SettingsViewModel(
         // the QR carries the desktop's account secret, stored in SecureStorage. The
         // transport provider pairs + connects the relay in the background.
         RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
+            println("[Relay/scan] -> matched RELAY v=${relay.v} relay='${relay.endpoints["relay"]}' auth='${relay.endpoints["auth"]}' token=${relay.pairingToken.take(6)}… secret=${if (relay.accountSecret.isBlank()) "MISSING" else "present"}")
             if (relay.accountSecret.isNotBlank()) {
                 secureStorage.put(SecureStorageKeys.RELAY_ACCOUNT_SECRET, relay.accountSecret)
             }
@@ -177,24 +189,45 @@ class SettingsViewModel(
             )
             return true
         }
+        println("[Relay/scan] -> UNRECOGNIZED: not a LAN magent:// URI and not a valid relay QR " +
+            "(relay needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
         return false
     }
 
     /** Forget the paired desktop (and disable the link). Mobile side. */
     fun unpairDesktop() {
+        // Relay (gateway) link: revoke the pairing at the gateway first (frees the slot +
+        // cuts the desktop's view of this phone) WHILE the MobileClient is still alive,
+        // then clear local state. LAN: just forget locally.
+        if (desktopLinkPreferences.config().accessMode == LinkAccessMode.RELAY) {
+            viewModelScope.launch {
+                runCatching { relayDisconnector.disconnect() }
+                desktopLinkPreferences.clear()
+                secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
+                // Drop the saved pairing too: its pairId is now revoked at the gateway, and a
+                // fresh scan brings a new single-use token anyway.
+                secureStorage.remove(SecureStorageKeys.RELAY_PAIRING_STATE)
+            }
+            return
+        }
         desktopLinkPreferences.clear()
         // Drop the relay account secret the QR conveyed — don't leave it on the phone.
         secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
+        secureStorage.remove(SecureStorageKeys.RELAY_PAIRING_STATE)
     }
 
     /**
-     * Desktop side: disconnect the paired phone by rotating the pairing token and
-     * forgetting the phone. The old token stops authorizing immediately (the phone
-     * goes offline → red), the QR republishes with the new token, and the user
-     * re-scans to reconnect.
+     * Desktop side: disconnect the connected phone. For a relay connection, revoke the
+     * pairing at the gateway (the phone drops + the pair slot frees) and re-mint a fresh
+     * QR via [relayDisconnector]. For LAN, rotate the pairing token and forget the phone —
+     * the old token stops authorizing immediately and the QR republishes for a re-scan.
      */
     @OptIn(ExperimentalUuidApi::class)
     fun disconnectMobileDevice() {
+        if (desktopLinkConnectionStatus.connectionKind.value == MobileLinkKind.RELAY) {
+            viewModelScope.launch { relayDisconnector.disconnect() }
+            return
+        }
         desktopLinkPreferences.setConfig(
             desktopLinkPreferences.config().copy(
                 pairingToken = Uuid.random().toString(),
@@ -496,6 +529,7 @@ class SettingsViewModel(
             desktopLinkStatus = desktopLinkStatusProvider.status.value,
             desktopLinkQrPayload = desktopLinkQrProvider.qrPayload.value,
             mobileConnected = desktopLinkConnectionStatus.mobileConnected.value,
+            mobileConnectionKind = desktopLinkConnectionStatus.connectionKind.value,
         ).also {
             // Load cache count off the main thread.
             viewModelScope.launch(Dispatchers.IO) {
@@ -541,6 +575,8 @@ data class SettingsUiState(
     val desktopLinkQrPayload: String? = null,
     /** Desktop-only: whether a paired phone is currently connected to this desktop. */
     val mobileConnected: Boolean = false,
+    /** Desktop-only: which transport the connected phone is on (LAN vs gateway/relay). */
+    val mobileConnectionKind: MobileLinkKind = MobileLinkKind.NONE,
     /** PR #74 — paid "anywhere access" subscription state (desktop; EMPTY on mobile). */
     val subscription: SubscriptionState = SubscriptionState.EMPTY,
 ) {

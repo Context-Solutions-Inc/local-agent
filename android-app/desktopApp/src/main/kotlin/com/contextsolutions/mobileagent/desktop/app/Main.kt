@@ -74,6 +74,7 @@ import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
 import com.contextsolutions.mobileagent.link.LanAddress
 import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
+import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.desktop.app.ui.theme.MobileAgentDesktopTheme
@@ -266,12 +267,19 @@ fun main() {
     // LAN server, which stays the same-network fast path + offline/revoked fallback.
     val relayHost = koin.get<DesktopRelayHost>()
     appScope.launch {
-        koin.get<SubscriptionPreferences>().stateFlow()
-            .map { it.isActive }
+        // Re-run the lifecycle when the subscription's active state changes OR when a
+        // Disconnect re-arms (relayHost.rearm bumps after revoking the pairing), so the
+        // desktop re-mints a fresh QR for the next phone — like the LAN token rotation.
+        combine(
+            koin.get<SubscriptionPreferences>().stateFlow().map { it.isActive },
+            relayHost.rearm,
+        ) { active, epoch -> active to epoch }
             .distinctUntilChanged()
-            .collectLatest { active ->
+            .collectLatest { (active, _) ->
+                // Drop any prior session (revoked by a peer Unpair, or our own Disconnect)
+                // before (re)arming, so generatePairingQr() builds a fresh client + token.
+                relayHost.close()
                 if (!active) {
-                    relayHost.close()
                     relayQrPayload.value = null
                     return@collectLatest
                 }
@@ -284,10 +292,21 @@ fun main() {
                         System.err.println("[Relay] connected; serving framed link requests")
                     }
                 }.onFailure {
-                    System.err.println("[Relay] setup failed: ${it.message}")
+                    // A re-arm (or subscription change) cancels the in-flight mint via
+                    // collectLatest — that's normal control flow, not a relay failure.
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    reportRelaySetupFailure(it)
                     relayQrPayload.value = null
                 }
             }
+    }
+    // Mirror the relay pipe state into the "Mobile Agent Connection" status so the
+    // Settings page shows "Phone connected" when a phone is attached over the relay
+    // (the LAN SSE subscriber count only covers the LAN path). #55.
+    appScope.launch {
+        relayHost.state.collect { st ->
+            koin.get<MutableDesktopLinkConnectionStatus>().setRelay(st == LinkConnectionState.UP)
+        }
     }
 
     val taskRunner = DesktopTaskRunner(
@@ -606,6 +625,33 @@ fun main() {
             }
         }
     }
+}
+
+/**
+ * Print a clear, actionable banner when the relay (anywhere-access) setup fails, instead of
+ * a terse one-liner — the failure means the desktop is silently falling back to the LAN QR,
+ * so the user needs to know why and how to fix it (#55). Interprets the common auth-service
+ * reason codes carried in the exception message.
+ */
+private fun reportRelaySetupFailure(error: Throwable) {
+    val msg = error.message ?: error.toString()
+    val fix = when {
+        "capacity_exceeded" in msg ->
+            "The subscription's pairing slots (max_pairs, default 1) are full — likely an old/other " +
+                "desktop still holds the slot. Unpair it (POST /v1/pairings/unpair), raise max_pairs on the " +
+                "Stripe price + re-subscribe, reuse the same desktop install (relay_identity.key) so it re-pairs, " +
+                "or restart the gateway to reset (memory store)."
+        "license_not_found" in msg || "license_invalid" in msg || "no_subscription" in msg ->
+            "The account has no valid license. Re-subscribe and confirm 'license provisioned' appears in the " +
+                "gateway log before pairing (needs AUTH_STRIPE_SECRET_KEY + the webhook to provision)."
+        "401" in msg || "unauthorized" in msg ->
+            "The account secret was rejected (often a gateway restart with AUTH_STORE=memory). Clear the desktop " +
+                "subscription and re-claim against the current gateway."
+        else -> "See the cause above; check the gateway (cmd/auth) log for the matching error."
+    }
+    System.err.println("┌─ [Relay] anywhere-access UNAVAILABLE — NOT publishing the relay QR (falling back to LAN).")
+    System.err.println("│  cause: $msg")
+    System.err.println("└─ fix:   $fix")
 }
 
 /**

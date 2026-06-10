@@ -4,6 +4,9 @@ import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -40,6 +43,9 @@ class DefaultLinkTransportProvider(
     @Volatile
     private var relayPipe: RelayBytePipe? = null
 
+    private val _relayState = MutableStateFlow(LinkConnectionState.DISABLED)
+    override val relayState: StateFlow<LinkConnectionState> = _relayState.asStateFlow()
+
     init {
         if (relayFactory != null) {
             scope.launch {
@@ -57,9 +63,15 @@ class DefaultLinkTransportProvider(
                             }
                             val transport = RelayLinkTransport(pipe, scope)
                             mutex.withLock { relayPipe = pipe; relay = transport }
-                            logger("relay pipe established")
+                            logger("relay pipe established (state=${pipe.state.value})")
                             // Re-decide the backend as the relay comes up/down.
-                            launch { pipe.state.collect { onRelayConnectivityChanged() } }
+                            launch {
+                                pipe.state.collect {
+                                    _relayState.value = it
+                                    logger("relay pipe state -> $it")
+                                    onRelayConnectivityChanged()
+                                }
+                            }
                             onRelayConnectivityChanged()
                         }.onFailure { logger("relay setup failed: ${it.message}") }
                     }
@@ -67,17 +79,38 @@ class DefaultLinkTransportProvider(
         }
     }
 
+    @Volatile
+    private var lastSelection: String? = null
+
+    private fun select(reason: String, transport: LinkTransport?): LinkTransport? {
+        if (lastSelection != reason) {
+            lastSelection = reason
+            logger("select: $reason")
+        }
+        return transport
+    }
+
     override fun current(): LinkTransport? {
         val cfg = preferences.config()
-        if (!cfg.isLinkConfigured) return null
+        if (!cfg.isLinkConfigured) return select("none (link not configured)", null)
         if (cfg.accessMode == LinkAccessMode.RELAY) {
-            val pipe = relayPipe ?: return null
-            return if (pipe.state.value == LinkConnectionState.UP) relay else null
+            val pipe = relayPipe ?: return select("none — relay pipe not established", null)
+            val st = pipe.state.value
+            return if (st == LinkConnectionState.UP) select("relay (wss)", relay)
+            else select("none — relay $st (not UP)", null)
         }
-        return lan
+        return select("lan", lan)
+    }
+
+    override suspend fun unpairRelay() {
+        // Revoke at the gateway via the live pipe (MobileClient) BEFORE teardown, so the
+        // account secret + pair id are still available, then drop the pipe.
+        relayPipe?.let { runCatching { it.unpair() } }
+        teardownRelay()
     }
 
     private suspend fun teardownRelay() {
+        _relayState.value = LinkConnectionState.DISABLED
         val pipe = mutex.withLock {
             val p = relayPipe
             relayPipe = null

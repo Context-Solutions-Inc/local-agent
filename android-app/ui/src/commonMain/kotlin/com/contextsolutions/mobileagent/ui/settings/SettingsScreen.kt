@@ -20,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
+import com.contextsolutions.mobileagent.link.MobileLinkKind
+import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
@@ -675,10 +677,12 @@ private fun DesktopLinkSection(
 @Composable
 private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit) {
     val paired = state.desktopLinkConfig.pairedDeviceId.isNotBlank()
-    val (label, color) = when {
-        !paired -> "No phone paired yet" to MaterialTheme.colorScheme.outline
-        state.mobileConnected -> "Phone connected" to Color(0xFF43A047)
-        else -> "Phone paired (offline)" to MaterialTheme.colorScheme.outline
+    val (label, color) = when (state.mobileConnectionKind) {
+        MobileLinkKind.RELAY -> "Phone connected via gateway" to Color(0xFF43A047)
+        MobileLinkKind.LAN -> "Phone connected via LAN" to Color(0xFF43A047)
+        MobileLinkKind.NONE ->
+            (if (paired) "Phone paired (offline)" else "No phone paired yet") to
+                MaterialTheme.colorScheme.outline
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -695,7 +699,7 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
             Spacer(Modifier.width(8.dp))
             Text(label, style = MaterialTheme.typography.bodyMedium, color = color)
         }
-        if (paired) {
+        if (paired || state.mobileConnectionKind != MobileLinkKind.NONE) {
             OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
         }
     }
@@ -704,12 +708,14 @@ private fun ConnectedMobileRow(state: SettingsUiState, onDisconnect: () -> Unit)
 @Composable
 private fun DesktopLinkStatusRow(state: SettingsUiState) {
     val cfg = state.desktopLinkConfig
+    val relay = cfg.accessMode == LinkAccessMode.RELAY
     val (label, color) = when {
         !cfg.enabled -> "Off" to MaterialTheme.colorScheme.outline
         !cfg.isPaired -> "No desktop paired" to MaterialTheme.colorScheme.outline
         state.desktopLinkStatus == DesktopLinkStatus.UP ->
-            "Connected to ${cfg.peerHost}" to Color(0xFF43A047)
-        else -> "Desktop unreachable (${cfg.peerHost})" to Color(0xFFE53935)
+            (if (relay) "Connected to gateway" else "Connected to LAN (${cfg.peerHost})") to Color(0xFF43A047)
+        else ->
+            (if (relay) "Gateway unreachable" else "LAN unreachable (${cfg.peerHost})") to Color(0xFFE53935)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(

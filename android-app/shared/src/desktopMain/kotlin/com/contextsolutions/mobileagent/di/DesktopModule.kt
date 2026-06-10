@@ -58,6 +58,7 @@ import com.contextsolutions.mobileagent.preferences.DesktopSubscriptionPreferenc
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
 import com.contextsolutions.mobileagent.subscription.DesktopSubscriptionUiController
+import com.contextsolutions.mobileagent.subscription.RelayDisconnector
 import com.contextsolutions.mobileagent.subscription.RelayGatewayClient
 import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
 import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
@@ -260,6 +261,8 @@ val desktopModule: Module = module {
             logger = { System.err.println("[Relay] $it") },
         )
     }
+    // Desktop "Disconnect" for a relay connection revokes the pairing via the relay host.
+    single<RelayDisconnector> { get<DesktopRelayHost>() }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },

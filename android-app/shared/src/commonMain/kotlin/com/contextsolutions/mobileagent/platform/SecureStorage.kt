@@ -52,4 +52,29 @@ object SecureStorageKeys {
      * `subscription_prefs.json`, never here.
      */
     const val RELAY_ACCOUNT_SECRET = "relay_account_secret"
+
+    /**
+     * Persisted result of a completed relay pairing (PR #77 follow-up), as a small JSON blob
+     * `{pairingToken, deviceId, pairId, desktopPublicKey}`. The relay QR's pairing token is
+     * single-use, so a reconnect (Desktop Agent Connection toggle off→on, or an app relaunch)
+     * cannot replay it — it would fail `401 pairing_token_invalid`. Instead the phone reuses
+     * this to call `MobileClient.connect()` directly, skipping `pair()`. Keyed by the scanned
+     * QR's `pairingToken`: a freshly scanned QR (new token, e.g. after a desktop re-mint) no
+     * longer matches, so the phone pairs fresh and overwrites this. Not a high-value secret
+     * (the account secret stays in [RELAY_ACCOUNT_SECRET]); co-located here for one encrypted
+     * store on the relay credential path.
+     */
+    const val RELAY_PAIRING_STATE = "relay_pairing_state"
+
+    /**
+     * The desktop's relay device id (`dev_…`), persisted on first pairing-QR mint and reused
+     * across restarts (PR #77 follow-up). The desktop X25519 identity already persists (the
+     * `relay_identity.key` keystore file), but the gateway *device id* did not — so every
+     * restart/re-mint registered a NEW device, and with the old pairing still holding the
+     * account's single `max_pairs` slot the gateway returned `capacity_exceeded`, leaving the
+     * desktop on the LAN QR. Restoring the same device id makes the gateway treat the mint as
+     * a re-pair (reuses the slot, FR-2.2). Desktop-only; not a secret (co-located with the
+     * relay account secret for one store on the relay credential path).
+     */
+    const val RELAY_DESKTOP_DEVICE_ID = "relay_desktop_device_id"
 }

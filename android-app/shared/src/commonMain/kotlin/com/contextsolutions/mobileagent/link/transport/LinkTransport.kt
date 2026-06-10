@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.link.transport
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * The mobile↔desktop link transport seam (relay follow-up to PR #57).
@@ -80,7 +82,23 @@ enum class LinkConnectionState { UP, DOWN, DISABLED }
 interface LinkTransportProvider {
     /** The transport to use right now, or `null` when the link isn't configured. */
     fun current(): LinkTransport?
+
+    /**
+     * Live state of the relay pipe (UP/DOWN/DISABLED), so the status UI can show
+     * relay connectivity — there's no LAN `/health` endpoint to poll over the relay.
+     * Defaults to a constant DISABLED for implementations without a relay.
+     */
+    val relayState: StateFlow<LinkConnectionState> get() = DISABLED_RELAY_STATE
+
+    /**
+     * Revoke the relay pairing at the gateway and tear down the relay pipe (the mobile
+     * "Unpair"). Default no-op for providers without a relay.
+     */
+    suspend fun unpairRelay() {}
 }
+
+private val DISABLED_RELAY_STATE: StateFlow<LinkConnectionState> =
+    MutableStateFlow(LinkConnectionState.DISABLED)
 
 /**
  * The desktop-side seam: the ONE implementation of each link route body, shared

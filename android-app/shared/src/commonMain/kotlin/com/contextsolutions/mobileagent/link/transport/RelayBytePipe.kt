@@ -23,5 +23,12 @@ interface RelayBytePipe {
     /** Live connection state (derived from the SDK's `onStateChange`). */
     val state: StateFlow<LinkConnectionState>
 
+    /**
+     * Revoke this pairing at the gateway (FR-2.5) so the peer's session is cut and the pair
+     * slot freed (the phone "Unpair" / desktop "Disconnect"). Default no-op for pipes that
+     * don't drive revocation. Call [close] afterward to drop the local session.
+     */
+    suspend fun unpair() {}
+
     suspend fun close()
 }

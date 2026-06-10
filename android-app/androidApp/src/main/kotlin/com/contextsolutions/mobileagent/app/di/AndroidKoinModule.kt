@@ -87,6 +87,8 @@ import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionPreferences
 import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionUiController
+import com.contextsolutions.mobileagent.subscription.RelayDisconnector
+import com.contextsolutions.mobileagent.subscription.RelayUnpairDisconnector
 import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
 import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.preferences.SharedPreferencesDesktopLinkPreferences
@@ -250,6 +252,8 @@ val androidModule: Module = module {
     // the shared Settings UI compiles and reports "no subscription".
     single<SubscriptionPreferences> { NoOpSubscriptionPreferences() }
     single<SubscriptionUiController> { NoOpSubscriptionUiController() }
+    // Mobile "Unpair" revokes the relay pairing at the gateway via the live MobileClient.
+    single<RelayDisconnector> { RelayUnpairDisconnector(get<LinkTransportProvider>()) }
     single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { Log.i("OllamaClient", it) }) }
     single {
         OllamaConnectionMonitor(
@@ -282,7 +286,7 @@ val androidModule: Module = module {
         LanLinkTransport(get<HttpEngineFactory>()) { get<DesktopLinkPreferences>().config() }
     }
     single<RelayBytePipeFactory> {
-        AndroidRelayBytePipeFactory(androidContext(), logger = { Log.i("Relay", it) })
+        AndroidRelayBytePipeFactory(androidContext(), get<SecureStorage>(), logger = { Log.i("Relay", it) })
     }
     single<LinkTransportProvider> {
         DefaultLinkTransportProvider(
@@ -311,7 +315,11 @@ val androidModule: Module = module {
         )
     }
     single<DesktopLinkStatusProvider> {
-        PollingDesktopLinkStatusProvider(preferences = get(), client = get())
+        PollingDesktopLinkStatusProvider(
+            preferences = get(),
+            client = get(),
+            relayState = get<LinkTransportProvider>().relayState,
+        )
     }
     // Mobile shows no QR (it scans one) — a null provider keeps the shared
     // Settings UI's DesktopLinkQrProvider injection valid on both platforms.

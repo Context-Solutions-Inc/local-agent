@@ -1,5 +1,7 @@
 package com.contextsolutions.mobileagent.inference
 
+import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
+import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +46,9 @@ interface DesktopLinkStatusProvider {
 class PollingDesktopLinkStatusProvider(
     private val preferences: DesktopLinkPreferences,
     private val client: DesktopLinkClient,
+    // Relay pipe state (mobile, when subscribed). In RELAY mode there's no LAN
+    // `/health` to poll, so the dot mirrors this instead. Null on desktop / LAN-only.
+    private val relayState: StateFlow<LinkConnectionState>? = null,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
 ) : DesktopLinkStatusProvider {
@@ -56,6 +61,18 @@ class PollingDesktopLinkStatusProvider(
             preferences.configFlow().collectLatest { cfg ->
                 if (!cfg.isLinkConfigured) {
                     _status.value = DesktopLinkStatus.DISABLED
+                    return@collectLatest
+                }
+                // Relay path: reflect the live relay pipe state (no LAN host to probe).
+                if (cfg.accessMode == LinkAccessMode.RELAY) {
+                    val rs = relayState ?: run {
+                        _status.value = DesktopLinkStatus.DISABLED
+                        return@collectLatest
+                    }
+                    rs.collect { st ->
+                        _status.value =
+                            if (st == LinkConnectionState.UP) DesktopLinkStatus.UP else DesktopLinkStatus.DOWN
+                    }
                     return@collectLatest
                 }
                 val baseUrl = cfg.baseUrl() ?: run {

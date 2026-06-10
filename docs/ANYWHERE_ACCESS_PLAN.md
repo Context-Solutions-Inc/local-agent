@@ -268,3 +268,83 @@ relay → `4004` revoke fallback) is the manual procedure above; the device-spec
 covered (does the arm64 crypto load + round-trip) is now proven by `RelayCryptoSmokeTest`.
 
 The chat-header relay status dot remains deferred (cosmetic — relay chat + sync work without it).
+
+# Relay UX, reconnect & robustness (mobile-agent PR #77 / secure-gateway PR #9)
+
+The follow-up after the relay validated end-to-end on a Pixel 7 — the unpair/disconnect path,
+transport-aware status, the on-device SDK fixes found during validation, and the two
+reconnect bugs (mobile re-pair-on-reconnect, desktop QR-vanishes-on-restart). All shipped;
+the live-relay run (Stripe subscribe → relay QR → camera scan → chat+sync → revoke fallback)
+remains the manual procedure above.
+
+## Reconnect without re-pairing (the load-bearing fixes)
+
+The relay QR's **pairing token is single-use** (one `completePairing`). Both sides originally
+re-ran the *pairing* flow on every reconnect, replaying the spent token:
+
+- **Mobile — `401 pairing_token_invalid` on toggle/relaunch.** `AndroidRelayBytePipeFactory`
+  called `MobileClient.pair()` every time it rebuilt the pipe (Desktop Agent Connection toggled
+  off→on, or an app relaunch). Fix: persist `{pairingToken, deviceId, pairId, desktopPublicKey}`
+  in `SecureStorage` (`RELAY_PAIRING_STATE`) after a successful pair; on `create()`, if the saved
+  token matches **this** QR's token, restore it through the SDK's new
+  `MobileConfig.pairId`/`desktopPublicKeyB64` and call `connect()` directly (`MobileClient.isPaired()`
+  gates it). A freshly scanned QR (new token, e.g. after a desktop re-mint) no longer matches →
+  pairs fresh and overwrites. Mobile Unpair clears the saved pairing (its `pairId` is revoked).
+- **Desktop — relay QR vanishes on restart (falls back to the LAN `magent://` QR).** Each launch
+  `DesktopRelayHost.newClient()` rebuilt `DesktopClient` without a device id, so
+  `generatePairingQr()` registered a **new** `dev_…` every time (the X25519 identity persisted via
+  `relay_identity.key`, but the gateway device id did not). The gateway only skips the capacity
+  check for a **re-pair on the same desktop device id**; with a new id and the prior pairing still
+  holding the account's single `max_pairs` slot, `createPairingToken` returned `capacity_exceeded`,
+  the relay arm threw, and `Main.kt` published the LAN QR. Fix: persist the device id
+  (`RELAY_DESKTOP_DEVICE_ID`) and restore it into `DesktopConfig.deviceId`, reading it back via the
+  SDK's new `DesktopClient.deviceId()`. The re-mint is then a re-pair — capacity check skipped, slot
+  + `pair_id` reused — so the relay QR keeps publishing across restarts.
+  - **One-time transition:** the persist only happens on a *successful* mint, which needs a free
+    slot. To establish the device id when a stale pairing already holds the slot, free it once —
+    **Unpair from the phone** (desktop re-arms → persists its device id), or the
+    delete-prefs+re-subscribe reset. Subsequent restarts then reuse it. Watch for
+    `host: persisted desktop device id=dev_…`.
+
+## UX + robustness (relay UX commit)
+
+- **Transport-aware status.** The "Mobile/Desktop Agent Connection" sections name the transport —
+  mobile: *"Connected to gateway"* / *"Connected to LAN (host)"*; desktop: *"Phone connected via
+  gateway/LAN"* — via `LinkTransportProvider.relayState` + `DesktopLinkConnectionStatus.connectionKind`
+  (`MobileLinkKind`); the LAN `/health` poll can't see the relay.
+- **Unpair / Disconnect through the gateway.** `RelayDisconnector` seam (commonMain): mobile
+  `RelayUnpairDisconnector` revokes via the live `MobileClient`; desktop `DesktopRelayHost` revokes
+  then re-arms a fresh QR. `SettingsViewModel` branches `unpairDesktop()`/`disconnectMobileDevice()`
+  on the connection kind. Desktop re-arm on peer revoke (`REVOKED→DISABLED`) cancels its watcher
+  before its own unpair to avoid a double re-arm.
+- **Crash-safe pipe.** `AndroidRelayBytePipe` drops sends after close (pairs with the gateway
+  `ConnectionManager.close()` crash fix in #9).
+
+## SDK + gateway fixes (secure-gateway PR #9)
+
+- `AuthClient` HTTP on `java.net.HttpURLConnection` (not `java.net.http.HttpClient`, absent on
+  Android → was `NoClassDefFoundError` on-device); `MobileClient.unpair()`/`DesktopClient.unpair()`;
+  crash-safe `ConnectionManager.close()`; `MobileClient.isPaired()`/`deviceId()`/`desktopPublicKeyB64()`
+  + `DesktopClient.deviceId()` for the reconnect/restart fixes above.
+- **Billing:** checkout-completion reuses the customer's existing account when
+  `customer.subscription.created` arrived before `checkout.session.completed`, fixing a
+  claim/license mismatch (`404 license_not_found`).
+
+## Local test-setup requirements (learned the hard way)
+
+- **Redis shared backplane is REQUIRED** for unpair/revocation to propagate auth → relay: separate
+  `memory` backplanes don't talk, so the desktop only ever sees `PEER_OFFLINE`, never `REVOKED`.
+  Run `redis-server` and set `AUTH_BACKPLANE=redis AUTH_REDIS_ADDR=127.0.0.1:6379` +
+  `RELAY_BACKPLANE=redis RELAY_REDIS_ADDR=127.0.0.1:6379`.
+- QR endpoints must be the desktop's **LAN IP**, not `127.0.0.1` (the phone can't reach the
+  desktop's loopback). `AUTH_PUBLIC_URL` + `AUTH_RELAY_URL` must use the LAN IP; `AUTH_JWT_ISSUER`
+  == `RELAY_JWT_ISSUER`. With `AUTH_STORE=memory`, an auth restart wipes accounts → clear the
+  desktop subscription + re-claim.
+- Don't run `connectedAndroidTest` casually — it can wipe the phone's relay pairing/app data; use
+  `installDebug`.
+
+> **Diagnostics retained for UAT.** The `RELAY_ONLY_DEBUG` relay-pin in
+> `DefaultLinkTransportProvider` has been **removed** — the normal LAN fallback is restored
+> (`current()` returns the relay only when `accessMode == RELAY` *and* the pipe is UP, else LAN
+> /on-device). The `[sdk]`/`pipe:`/`select:`/`[Relay/scan]` diagnostic logging is **kept** for
+> ongoing user-acceptance testing on main; strip it once UAT signs off. `RelayCryptoSmokeTest` stays.

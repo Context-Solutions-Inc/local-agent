@@ -29,7 +29,13 @@ actual fun DesktopLinkPairingControls(
     onUnpair: () -> Unit,
 ) {
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let(onScanned)
+        val raw = result.contents
+        // TESTING diagnostics (revert with the relay logging): did the scanner return content?
+        android.util.Log.i(
+            "Relay",
+            "scan result: " + if (raw == null) "CANCELLED / unreadable (no contents)" else "${raw.length} chars",
+        )
+        raw?.let(onScanned)
     }
     Column {
         if (state.desktopLinkConfig.isPaired) {
