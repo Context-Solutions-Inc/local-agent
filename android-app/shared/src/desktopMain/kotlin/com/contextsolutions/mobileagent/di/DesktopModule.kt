@@ -28,7 +28,6 @@ import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
 import com.contextsolutions.mobileagent.inference.OllamaInferenceEngine
 import com.contextsolutions.mobileagent.inference.RoutingInferenceEngine
-import com.contextsolutions.mobileagent.inference.DesktopLinkClient
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.PollingDesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
@@ -293,8 +292,7 @@ val desktopModule: Module = module {
     // PR #57 — the desktop *hosts* the link (QR + server live here) and never
     // routes its own chat to itself, so the desktop-link backend is NOT wired
     // into RoutingInferenceEngine here (left null); the desktop uses
-    // DesktopLinkPreferences only for its device id, pairing token, and recording
-    // the paired mobile.
+    // DesktopLinkPreferences only for its device id and recording the paired mobile.
     single<InferenceEngine> {
         RoutingInferenceEngine(
             local = LlamaServerInferenceEngine(
@@ -313,24 +311,23 @@ val desktopModule: Module = module {
         )
     }
 
-    // PR #57 — desktop link host config + control-plane client + status provider.
-    // The status provider reports DISABLED on desktop (the link is never enabled
-    // here), so the chat-header link dot is hidden. The Ktor link server is wired
-    // separately below (DesktopLinkServer).
+    // PR #57 — desktop link host config + status provider. The status provider
+    // reports DISABLED on desktop (the link is never enabled here — the desktop is
+    // the host, not a client), so the chat-header link dot is hidden. The loopback
+    // callback server is wired separately in Main.kt (DesktopLinkServer).
     single<DesktopLinkPreferences> {
         DesktopDesktopLinkPreferences(
             DesktopJsonStore(File(DesktopAppDirs.dataDir(), "desktop_link_prefs.json")),
         )
     }
-    single { DesktopLinkClient(get<HttpEngineFactory>()) }
     single<DesktopLinkStatusProvider> {
-        PollingDesktopLinkStatusProvider(preferences = get(), client = get())
+        PollingDesktopLinkStatusProvider(preferences = get())
     }
 
     // PR #57 — sync engine (desktop side). The desktop is the sync SERVER, so it
-    // needs LinkSyncService (the DesktopLinkServer's /sync/* endpoints drive it)
-    // + the LocalChangeBus (fires the /sync/subscribe SSE on desktop-side writes).
-    // The DesktopLinkServer itself is constructed in Main.kt (it needs WarmModel).
+    // needs LinkSyncService (the relay frame dispatcher's sync methods drive it)
+    // + the LocalChangeBus (fires the sync-subscribe stream on desktop-side writes).
+    // The link request handler + relay host are constructed in Main.kt (they need WarmModel).
     single { LocalChangeBus() }
     single<SyncWatermarkStore> {
         DesktopSyncWatermarkStore(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "sync_state.json")))

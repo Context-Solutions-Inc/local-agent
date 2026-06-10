@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 
 /**
- * Android [DesktopLinkPreferences] (PR #57), the counterpart of the desktop
- * [DesktopDesktopLinkPreferences]. Backed by a non-encrypted SharedPreferences
- * file — the paired endpoint + token are LAN configuration, not high-value
- * credentials. The whole [DesktopLinkConfig] is one JSON blob; a corrupt/missing
+ * Android [DesktopLinkPreferences] (PR #57; relay-only since PR #80), the
+ * counterpart of the desktop [DesktopDesktopLinkPreferences]. Backed by a
+ * non-encrypted SharedPreferences file — the scanned relay QR JSON is pairing
+ * configuration (the high-value account secret lives in SecureStorage, not here).
+ * The whole [DesktopLinkConfig] is one JSON blob decoded with `ignoreUnknownKeys`
+ * (so blobs written before the LAN fields were dropped still load); a corrupt/missing
  * value falls back to [DesktopLinkConfig.EMPTY] so a schema change can't crash an
  * install. A stable [DesktopLinkConfig.selfDeviceId] is minted on first read.
  */

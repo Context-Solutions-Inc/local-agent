@@ -5,10 +5,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Supplies the desktop pairing-QR payload string ([LinkPairingPayload.encode]) to
- * the shared Settings UI (PR #57). On desktop it carries the running link
- * server's `magent://link?…` URI (the UI renders it as a QR image, desktop-only).
- * On mobile it is always null — the phone scans a QR, it doesn't show one.
+ * Supplies the desktop pairing-QR payload string to the shared Settings UI (PR #57;
+ * relay-only since PR #80). On desktop it carries the Secure Gateway **relay** QR
+ * JSON, published only while a subscription is active (the UI renders it as a QR
+ * image, desktop-only). On mobile it is always null — the phone scans a QR, it
+ * doesn't show one.
  */
 interface DesktopLinkQrProvider {
     val qrPayload: StateFlow<String?>

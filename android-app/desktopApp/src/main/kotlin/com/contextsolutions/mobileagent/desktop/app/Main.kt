@@ -71,8 +71,6 @@ import com.contextsolutions.mobileagent.link.DesktopLinkServer
 import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
 import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
 import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
-import com.contextsolutions.mobileagent.link.LanAddress
-import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
@@ -236,43 +234,34 @@ fun main() {
         syncService = koin.get<LinkSyncService>(),
     )
     val linkServer = DesktopLinkServer(
-        preferences = desktopLinkPrefs,
-        handler = linkHandler,
-        connectionStatus = koin.get<MutableDesktopLinkConnectionStatus>(),
         onSubscribeCallback = { code -> subscription.handleClaimCode(code) },
         logger = { System.err.println("[DesktopLink] $it") },
     )
-    // The checkout redirect targets the link server's loopback port.
+    // The checkout redirect targets the loopback callback server's port.
     subscription.callbackPortProvider = { linkServer.boundPort.takeIf { it > 0 } }
     // Launch-time subscription re-validation (only if an account exists locally, #74).
     appScope.launch { runCatching { subscription.refresh() } }
-    // The relay pairing QR (JSON), published while subscribed; null otherwise. It
-    // takes precedence over the LAN `magent://` QR so a subscribed desktop shows
-    // the "anywhere" QR, falling back to LAN when the subscription lapses/revokes.
+    // The relay pairing QR (JSON). Published only while a subscription is active
+    // (minted by the relay lifecycle below); null otherwise. PR #80 removed the LAN
+    // `magent://` QR — the relay is the only pairing path, so an unsubscribed desktop
+    // shows no QR at all.
     val relayQrPayload = MutableStateFlow<String?>(null)
     appScope.launch {
         runCatching {
-            val port = linkServer.start()
-            val host = LanAddress.primaryIpv4()
-            // Republish the pairing QR whenever the token/device id changes (e.g.
-            // a Disconnect rotates the token), so a fresh phone scans a valid QR
-            // and the old phone's stale token is rejected. Relay QR wins when set.
-            val lanQr = desktopLinkPrefs.configFlow()
-                .map { cfg -> host?.let { LinkPairingPayload(it, port, cfg.pairingToken, cfg.selfDeviceId).encode() } }
-            combine(lanQr, relayQrPayload) { lan, relay -> relay ?: lan }
-                .distinctUntilChanged()
+            linkServer.start() // serves /ping + the Stripe /subscribe/callback (loopback)
+            // relayQrPayload is a StateFlow (already conflated/distinct) → collect directly.
+            relayQrPayload
                 .onEach { payload ->
                     koin.get<MutableDesktopLinkQr>().set(payload)
                     System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready" else "unavailable"}")
                 }
                 .launchIn(appScope)
-        }.onFailure { System.err.println("[DesktopLink] server failed to start: ${it.message}") }
+        }.onFailure { System.err.println("[DesktopLink] callback server failed to start: ${it.message}") }
     }
 
-    // Relay transport lifecycle (follow-up). While a subscription is active, mint
-    // the relay QR, wait for the phone to pair, connect, and serve framed link
-    // requests through the SAME handler as the LAN server — concurrently with the
-    // LAN server, which stays the same-network fast path + offline/revoked fallback.
+    // Relay transport lifecycle. While a subscription is active, mint the relay QR,
+    // wait for the phone to pair, connect, and serve framed link requests through the
+    // shared handler. The relay is the only mobile↔desktop pairing path (PR #80).
     val relayHost = koin.get<DesktopRelayHost>()
     appScope.launch {
         // Re-run the lifecycle when the subscription's active state changes OR when a
@@ -309,8 +298,7 @@ fun main() {
             }
     }
     // Mirror the relay pipe state into the "Mobile Agent Connection" status so the
-    // Settings page shows "Phone connected" when a phone is attached over the relay
-    // (the LAN SSE subscriber count only covers the LAN path). #55.
+    // Settings page shows "Phone connected" when a phone is attached over the relay. #55.
     appScope.launch {
         relayHost.state.collect { st ->
             koin.get<MutableDesktopLinkConnectionStatus>().setRelay(st == LinkConnectionState.UP)
@@ -644,6 +632,11 @@ fun main() {
 private fun reportRelaySetupFailure(error: Throwable) {
     val msg = error.message ?: error.toString()
     val fix = when {
+        "bad_devices" in msg ->
+            "The gateway didn't recognize this desktop's saved device id — usually a re-claim under a NEW " +
+                "account or a gateway restart with AUTH_STORE=memory. PR #80 auto-clears the stale id and " +
+                "re-registers, so a retry normally recovers; if it persists, clear the desktop subscription " +
+                "(delete subscription_prefs.json + RELAY_DESKTOP_DEVICE_ID) and re-claim against this gateway."
         "capacity_exceeded" in msg ->
             "The subscription's pairing slots (max_pairs, default 1) are full — likely an old/other " +
                 "desktop still holds the slot. Unpair it (POST /v1/pairings/unpair), raise max_pairs on the " +
@@ -657,7 +650,8 @@ private fun reportRelaySetupFailure(error: Throwable) {
                 "subscription and re-claim against the current gateway."
         else -> "See the cause above; check the gateway (cmd/auth) log for the matching error."
     }
-    System.err.println("┌─ [Relay] anywhere-access UNAVAILABLE — NOT publishing the relay QR (falling back to LAN).")
+    // PR #80 — the LAN QR is gone, so a relay-mint failure means NO pairing code is shown.
+    System.err.println("┌─ [Relay] anywhere-access UNAVAILABLE — NOT publishing a pairing QR (no LAN fallback since #80).")
     System.err.println("│  cause: $msg")
     System.err.println("└─ fix:   $fix")
 }

@@ -15,9 +15,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Selects the active [LinkTransport] from the link config. LAN is the default and
- * the fallback; when `accessMode == RELAY` the relay transport is used once the
- * relay pipe is connected.
+ * Selects the active [LinkTransport] from the link config (relay-only since PR #80).
+ * When the config is relay-configured the relay transport is used once the relay
+ * pipe is connected; otherwise there is no transport and the router falls back to
+ * the on-device model.
  *
  * The relay pipe is established eagerly in the background when the config becomes
  * relay-configured (pairing + connect is async), and torn down when it isn't.
@@ -28,7 +29,6 @@ import kotlinx.coroutines.sync.withLock
  */
 class DefaultLinkTransportProvider(
     private val preferences: DesktopLinkPreferences,
-    private val lan: LinkTransport,
     private val relayFactory: RelayBytePipeFactory? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val onRelayConnectivityChanged: () -> Unit = {},
@@ -93,13 +93,10 @@ class DefaultLinkTransportProvider(
     override fun current(): LinkTransport? {
         val cfg = preferences.config()
         if (!cfg.isLinkConfigured) return select("none (link not configured)", null)
-        if (cfg.accessMode == LinkAccessMode.RELAY) {
-            val pipe = relayPipe ?: return select("none — relay pipe not established", null)
-            val st = pipe.state.value
-            return if (st == LinkConnectionState.UP) select("relay (wss)", relay)
-            else select("none — relay $st (not UP)", null)
-        }
-        return select("lan", lan)
+        val pipe = relayPipe ?: return select("none — relay pipe not established", null)
+        val st = pipe.state.value
+        return if (st == LinkConnectionState.UP) select("relay (wss)", relay)
+        else select("none — relay $st (not UP)", null)
     }
 
     override suspend fun unpairRelay() {

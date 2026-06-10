@@ -180,3 +180,13 @@ llama-server / LocalAI.
 This is **CLAUDE.md hard invariant #44** — the full rule. The seam invariant itself:
 the remote path lives entirely behind `InferenceEngine`; `RoutingInferenceEngine` decides
 the backend once per `loadModel` and never gets special-cased above the seam.
+
+## PR #80 — desktop-link backend is relay-only
+
+The paired-desktop backend (priority 1 in `RoutingInferenceEngine`, added in PR #57) is now
+reached **exclusively over the Secure Gateway relay** — the LAN link was removed in PR #80
+(CLAUDE.md #56). The routing matrix is unchanged: when the phone is paired + the relay is up,
+the chat LLM routes to the desktop, which runs **its own** `RoutingInferenceEngine` and so
+serves from the desktop's remote Ollama/OpenAI server when one is configured (else local
+llama-server). The phone never sees that downstream endpoint. Locked by
+`DesktopLinkRelayRoutingTest` (desktopTest).

@@ -17,7 +17,6 @@ import com.contextsolutions.mobileagent.agent.ChatSessionController
 import com.contextsolutions.mobileagent.di.AgentLogger
 import com.contextsolutions.mobileagent.inference.AndroidMemoryHeadroomProvider
 import com.contextsolutions.mobileagent.inference.AndroidThermalStatusProvider
-import com.contextsolutions.mobileagent.inference.DesktopLinkClient
 import com.contextsolutions.mobileagent.inference.DesktopLinkInferenceEngine
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.PollingDesktopLinkStatusProvider
@@ -109,8 +108,8 @@ import com.contextsolutions.mobileagent.link.NoDesktopLinkConnection
 import com.contextsolutions.mobileagent.link.NoDesktopLinkQr
 import com.contextsolutions.mobileagent.link.transport.AndroidRelayBytePipeFactory
 import com.contextsolutions.mobileagent.link.transport.DefaultLinkTransportProvider
-import com.contextsolutions.mobileagent.link.transport.LanLinkTransport
-import com.contextsolutions.mobileagent.link.transport.LinkTransport
+import com.contextsolutions.mobileagent.link.transport.LinkMethod
+import com.contextsolutions.mobileagent.link.transport.LinkRequest
 import com.contextsolutions.mobileagent.link.transport.LinkTransportProvider
 import com.contextsolutions.mobileagent.link.transport.RelayBytePipeFactory
 import com.contextsolutions.mobileagent.sync.LastSyncStatus
@@ -272,26 +271,21 @@ val androidModule: Module = module {
         )
     }
 
-    // PR #57 — mobile↔desktop link: prefs + control-plane client + a second
-    // connection monitor (the OllamaConnectionMonitor class is generic over its
-    // health probe; this instance probes the desktop link server's /health) +
-    // the OpenAI-compatible engine that routes chat to the paired desktop. The
-    // status provider polls /health for the chat-header link dot.
+    // PR #57 (relay-only since PR #80) — mobile↔desktop link: prefs + a connection
+    // monitor (the OllamaConnectionMonitor class is generic over its health probe;
+    // this instance probes the desktop over the current relay transport) + the
+    // OpenAI-compatible engine that routes chat to the paired desktop. The status
+    // provider mirrors the relay pipe state for the chat-header link dot.
     single<DesktopLinkPreferences> { SharedPreferencesDesktopLinkPreferences(androidContext()) }
-    single { DesktopLinkClient(get<HttpEngineFactory>()) }
-    // PR #57 / relay follow-up — the link transport seam. LAN today; the provider
-    // returns the relay transport when a subscription is active (added in the
-    // relay PR). The desktop-link engine + sync client route through the provider.
-    single<LinkTransport>(named("lan")) {
-        LanLinkTransport(get<HttpEngineFactory>()) { get<DesktopLinkPreferences>().config() }
-    }
+    // The link transport seam — the relay transport when a subscription is active +
+    // paired (else null → on-device fallback). The desktop-link engine + sync client
+    // route through the provider.
     single<RelayBytePipeFactory> {
         AndroidRelayBytePipeFactory(androidContext(), get<SecureStorage>(), logger = { Log.i("Relay", it) })
     }
     single<LinkTransportProvider> {
         DefaultLinkTransportProvider(
             preferences = get(),
-            lan = get(named("lan")),
             relayFactory = get(),
             // The relay has no pollable health URL — push a reload when it comes
             // up/down so the next turn re-decides (reuses the desktop-link monitor).
@@ -301,8 +295,11 @@ val androidModule: Module = module {
     }
     single(named("desktopLink")) {
         OllamaConnectionMonitor(
-            healthProbe = { url ->
-                get<DesktopLinkClient>().health(url, get<DesktopLinkPreferences>().config().pairingToken)
+            // Probe the desktop over whatever transport is current (the relay): a
+            // HEALTH unary that succeeds iff the relay pipe is up and the desktop answers.
+            healthProbe = { _ ->
+                val t = get<LinkTransportProvider>().current()
+                t != null && t.unary(LinkRequest(LinkMethod.HEALTH)).isSuccess
             },
             logger = { Log.i("DesktopLink", it) },
         )
@@ -317,7 +314,6 @@ val androidModule: Module = module {
     single<DesktopLinkStatusProvider> {
         PollingDesktopLinkStatusProvider(
             preferences = get(),
-            client = get(),
             relayState = get<LinkTransportProvider>().relayState,
         )
     }

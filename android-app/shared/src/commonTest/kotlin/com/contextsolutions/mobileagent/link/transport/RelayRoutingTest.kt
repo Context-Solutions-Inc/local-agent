@@ -8,10 +8,9 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** P4 routing: relay-QR detection, config gating, and LAN/relay transport selection. */
+/** P4 routing: relay-QR detection + config gating (relay-only since PR #80). */
 class RelayRoutingTest {
 
     private val relayQr = """
@@ -26,22 +25,22 @@ class RelayRoutingTest {
         assertEquals("sek", relay.accountSecret)
         assertEquals("dev-d", relay.desktopDeviceId)
 
+        // The old LAN `magent://` QR is no longer a recognized pairing payload.
         assertNull(RelayQrPayload.parseOrNull("magent://link?h=1.2.3.4&p=47215&t=tok&d=dev"))
         assertNull(RelayQrPayload.parseOrNull("""{"v":1,"endpoints":{}}""")) // no token/relay
         assertNull(RelayQrPayload.parseOrNull("not json"))
     }
 
     @Test
-    fun configGatesByAccessMode() {
-        val lan = DesktopLinkConfig(enabled = true, peerHost = "1.2.3.4", peerPort = 47215, pairingToken = "t")
-        assertTrue(lan.isLinkConfigured && !lan.isRelayConfigured)
-
-        val relay = DesktopLinkConfig(enabled = true, accessMode = LinkAccessMode.RELAY, relayQrJson = relayQr)
+    fun configGatesOnRelayQrAndToggle() {
+        val relay = DesktopLinkConfig(enabled = true, relayQrJson = relayQr)
         assertTrue(relay.isPaired && relay.isLinkConfigured && relay.isRelayConfigured)
-        assertNull(relay.baseUrl()) // relay has no LAN base URL
 
         val relayOff = relay.copy(enabled = false)
         assertTrue(!relayOff.isLinkConfigured && !relayOff.isRelayConfigured)
+
+        val noQr = DesktopLinkConfig(enabled = true)
+        assertTrue(!noQr.isPaired && !noQr.isLinkConfigured)
     }
 
     private class FakePrefs(private var cfg: DesktopLinkConfig) : DesktopLinkPreferences {
@@ -51,29 +50,17 @@ class RelayRoutingTest {
         override fun setConfig(config: DesktopLinkConfig) { cfg = config; flow.value = config }
     }
 
-    private class FakeTransport(override val target: String) : LinkTransport {
-        override suspend fun unary(request: LinkRequest) = LinkResponse(200, "")
-        override fun serverStream(request: LinkRequest): Flow<LinkStreamEvent> =
-            kotlinx.coroutines.flow.flow { emit(LinkStreamEvent.End(200)) }
-    }
-
     @Test
-    fun providerReturnsLanWhenLanConfiguredAndNullWhenUnconfigured() = runTest {
-        val lan = FakeTransport("lan")
-
-        val unconfigured = DefaultLinkTransportProvider(FakePrefs(DesktopLinkConfig()), lan)
+    fun providerNullWhenUnconfigured() = runTest {
+        val unconfigured = DefaultLinkTransportProvider(FakePrefs(DesktopLinkConfig()))
         assertNull(unconfigured.current())
-
-        val lanCfg = DesktopLinkConfig(enabled = true, peerHost = "1.2.3.4", peerPort = 47215, pairingToken = "t")
-        val provider = DefaultLinkTransportProvider(FakePrefs(lanCfg), lan)
-        assertSame(lan, provider.current())
     }
 
     @Test
     fun providerReturnsNullForRelayUntilPipeConnects() = runTest {
         // No relay factory ⇒ relay-configured but no pipe ⇒ current() is null (→ local fallback).
-        val relayCfg = DesktopLinkConfig(enabled = true, accessMode = LinkAccessMode.RELAY, relayQrJson = relayQr)
-        val provider = DefaultLinkTransportProvider(FakePrefs(relayCfg), FakeTransport("lan"))
+        val relayCfg = DesktopLinkConfig(enabled = true, relayQrJson = relayQr)
+        val provider = DefaultLinkTransportProvider(FakePrefs(relayCfg))
         assertNull(provider.current())
     }
 }

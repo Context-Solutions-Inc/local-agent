@@ -15,10 +15,10 @@ import kotlinx.serialization.json.Json
  * as one JSON blob; a corrupt/missing value falls back to [DesktopLinkConfig.EMPTY].
  * A stable [DesktopLinkConfig.selfDeviceId] is minted on first read.
  *
- * On the desktop side the link is *hosted* (the QR + server live here); the
- * desktop never routes its own chat to itself, so [DesktopLinkConfig.enabled]
- * stays false. The desktop uses this store to hold its own device id + a generated
- * pairing token and to record which mobile has paired.
+ * On the desktop side the link is *hosted* (the relay QR is published here while
+ * subscribed); the desktop never routes its own chat to itself, so
+ * [DesktopLinkConfig.enabled] stays false. The desktop uses this store to hold its
+ * own device id and to record which mobile has paired.
  */
 @OptIn(ExperimentalUuidApi::class)
 class DesktopDesktopLinkPreferences(private val store: DesktopJsonStore) : DesktopLinkPreferences {

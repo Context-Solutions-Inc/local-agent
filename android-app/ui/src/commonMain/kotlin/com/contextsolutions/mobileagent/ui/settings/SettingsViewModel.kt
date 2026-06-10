@@ -2,8 +2,6 @@ package com.contextsolutions.mobileagent.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.contextsolutions.mobileagent.inference.DesktopLinkClient
-import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
 import com.contextsolutions.mobileagent.link.transport.RelayQrPayload
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
@@ -12,9 +10,6 @@ import com.contextsolutions.mobileagent.inference.OllamaModel
 import com.contextsolutions.mobileagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.MobileLinkKind
 import com.contextsolutions.mobileagent.link.DesktopLinkQrProvider
-import com.contextsolutions.mobileagent.link.LinkPairingPayload
-import kotlin.uuid.ExperimentalUuidApi
-import kotlin.uuid.Uuid
 import com.contextsolutions.mobileagent.preferences.DesktopLinkConfig
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.language.LanguagePreferences
@@ -65,7 +60,6 @@ class SettingsViewModel(
     private val ollamaPreferences: OllamaPreferences,
     private val ollamaClient: OllamaClient,
     private val desktopLinkPreferences: DesktopLinkPreferences,
-    private val desktopLinkClient: DesktopLinkClient,
     private val desktopLinkStatusProvider: DesktopLinkStatusProvider,
     private val desktopLinkQrProvider: DesktopLinkQrProvider,
     private val desktopLinkConnectionStatus: DesktopLinkConnectionStatus,
@@ -137,39 +131,17 @@ class SettingsViewModel(
     }
 
     /**
-     * Apply a scanned desktop QR: store the peer endpoint + token, enable the
-     * link, then POST `/pair` so the desktop records this phone. Returns true if
-     * the QR parsed (pairing reachability is reflected later by the status dot).
+     * Apply a scanned desktop **relay** QR (PR #80 — the LAN `magent://` path is gone).
+     * The phone has no subscription of its own; the QR carries the desktop's account
+     * secret, stored in [SecureStorage]. Persisting + enabling the config makes the
+     * transport provider pair + connect the relay in the background. Returns true if
+     * the QR parsed as a valid relay QR.
      */
     fun applyScannedLink(rawQr: String): Boolean {
         // TESTING diagnostics (revert with the relay logging). Sanitized — never log the
         // raw QR or the account secret (it sits last in the relay JSON, after `endpoints`).
         val head = rawQr.trim().take(40).replace("\n", " ")
         println("[Relay/scan] applyScannedLink: ${rawQr.length} chars; head='$head'")
-        // LAN `magent://link` QR (PR #57).
-        LinkPairingPayload.parse(rawQr)?.let { payload ->
-            println("[Relay/scan] -> matched LAN magent:// host=${payload.host}:${payload.port}")
-            val self = desktopLinkPreferences.config().selfDeviceId
-            desktopLinkPreferences.setConfig(
-                desktopLinkPreferences.config().copy(
-                    enabled = true,
-                    accessMode = LinkAccessMode.LAN,
-                    relayQrJson = "",
-                    peerHost = payload.host,
-                    peerPort = payload.port,
-                    pairingToken = payload.token,
-                    pairedDeviceId = payload.deviceId,
-                ),
-            )
-            viewModelScope.launch {
-                val baseUrl = "http://${payload.host}:${payload.port}"
-                withContext(Dispatchers.IO) { desktopLinkClient.pair(baseUrl, payload.token, self) }
-            }
-            return true
-        }
-        // Relay QR (anywhere access). The phone has no subscription of its own —
-        // the QR carries the desktop's account secret, stored in SecureStorage. The
-        // transport provider pairs + connects the relay in the background.
         RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
             println("[Relay/scan] -> matched RELAY v=${relay.v} relay='${relay.endpoints["relay"]}' auth='${relay.endpoints["auth"]}' token=${relay.pairingToken.take(6)}… secret=${if (relay.accountSecret.isBlank()) "MISSING" else "present"}")
             if (relay.accountSecret.isNotBlank()) {
@@ -178,62 +150,38 @@ class SettingsViewModel(
             desktopLinkPreferences.setConfig(
                 desktopLinkPreferences.config().copy(
                     enabled = true,
-                    accessMode = LinkAccessMode.RELAY,
                     relayQrJson = rawQr,
                     pairedDeviceId = relay.desktopDeviceId,
-                    // Clear stale LAN endpoint so the LAN path can't be picked.
-                    peerHost = "",
-                    peerPort = null,
-                    pairingToken = "",
                 ),
             )
             return true
         }
-        println("[Relay/scan] -> UNRECOGNIZED: not a LAN magent:// URI and not a valid relay QR " +
-            "(relay needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
+        println("[Relay/scan] -> UNRECOGNIZED: not a valid relay QR " +
+            "(needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
         return false
     }
 
     /** Forget the paired desktop (and disable the link). Mobile side. */
     fun unpairDesktop() {
-        // Relay (gateway) link: revoke the pairing at the gateway first (frees the slot +
-        // cuts the desktop's view of this phone) WHILE the MobileClient is still alive,
-        // then clear local state. LAN: just forget locally.
-        if (desktopLinkPreferences.config().accessMode == LinkAccessMode.RELAY) {
-            viewModelScope.launch {
-                runCatching { relayDisconnector.disconnect() }
-                desktopLinkPreferences.clear()
-                secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
-                // Drop the saved pairing too: its pairId is now revoked at the gateway, and a
-                // fresh scan brings a new single-use token anyway.
-                secureStorage.remove(SecureStorageKeys.RELAY_PAIRING_STATE)
-            }
-            return
+        // Revoke the pairing at the gateway first (frees the slot + cuts the desktop's
+        // view of this phone) WHILE the MobileClient is still alive, then clear local state.
+        viewModelScope.launch {
+            runCatching { relayDisconnector.disconnect() }
+            desktopLinkPreferences.clear()
+            secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
+            // Drop the saved pairing too: its pairId is now revoked at the gateway, and a
+            // fresh scan brings a new single-use token anyway.
+            secureStorage.remove(SecureStorageKeys.RELAY_PAIRING_STATE)
         }
-        desktopLinkPreferences.clear()
-        // Drop the relay account secret the QR conveyed — don't leave it on the phone.
-        secureStorage.remove(SecureStorageKeys.RELAY_ACCOUNT_SECRET)
-        secureStorage.remove(SecureStorageKeys.RELAY_PAIRING_STATE)
     }
 
     /**
-     * Desktop side: disconnect the connected phone. For a relay connection, revoke the
-     * pairing at the gateway (the phone drops + the pair slot frees) and re-mint a fresh
-     * QR via [relayDisconnector]. For LAN, rotate the pairing token and forget the phone —
-     * the old token stops authorizing immediately and the QR republishes for a re-scan.
+     * Desktop side: disconnect the connected phone. Revokes the relay pairing at the
+     * gateway (the phone drops + the pair slot frees) and re-mints a fresh QR via
+     * [relayDisconnector].
      */
-    @OptIn(ExperimentalUuidApi::class)
     fun disconnectMobileDevice() {
-        if (desktopLinkConnectionStatus.connectionKind.value == MobileLinkKind.RELAY) {
-            viewModelScope.launch { relayDisconnector.disconnect() }
-            return
-        }
-        desktopLinkPreferences.setConfig(
-            desktopLinkPreferences.config().copy(
-                pairingToken = Uuid.random().toString(),
-                pairedDeviceId = "",
-            ),
-        )
+        viewModelScope.launch { relayDisconnector.disconnect() }
     }
 
     fun saveBraveKey(key: String) {

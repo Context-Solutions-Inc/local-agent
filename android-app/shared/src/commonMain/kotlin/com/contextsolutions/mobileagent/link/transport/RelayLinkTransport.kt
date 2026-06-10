@@ -4,11 +4,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Mobile [LinkTransport] over the E2EE relay (relay follow-up to PR #57). Frames
- * link requests onto a [RelayBytePipe] via a [FrameMultiplexer]; the desktop's
- * [FrameDispatcher] answers. Used when a relay subscription is active and the
- * phone paired via the relay QR (vs the LAN `magent://` QR). Same surface as
- * [LanLinkTransport], so the desktop-link engine / sync client are unchanged.
+ * Mobile [LinkTransport] over the E2EE relay (PR #57 relay path; the only link
+ * transport since PR #80). Frames link requests onto a [RelayBytePipe] via a
+ * [FrameMultiplexer]; the desktop's [FrameDispatcher] answers. Used when a relay
+ * subscription is active and the phone paired via the relay QR.
  */
 class RelayLinkTransport(
     pipe: RelayBytePipe,

@@ -1,14 +1,14 @@
 package com.contextsolutions.mobileagent.preferences
 
-import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 
 /**
- * Persistent user preference for the **mobile↔desktop agent link** (PR #57). When
- * the user pairs their phone to their desktop agent over the LAN (by scanning a QR
- * code shown on the desktop's Settings page), the phone records the desktop's
- * endpoint + a pairing token here. While the link is enabled and the desktop is
+ * Persistent user preference for the **mobile↔desktop agent link** (PR #57; LAN
+ * path removed in PR #80). The user pairs their phone to their desktop agent by
+ * scanning the Secure Gateway **relay** QR shown on the desktop's Settings page
+ * (only available while the desktop holds an active subscription). The scanned
+ * relay QR JSON is recorded here. While the link is enabled and the relay is
  * reachable:
  *
  *  - the *large chat LLM* routes to the desktop agent (which itself decides local
@@ -51,59 +51,33 @@ interface DesktopLinkPreferences {
 }
 
 /**
- * Mobile↔desktop link configuration.
+ * Mobile↔desktop link configuration (relay-only since PR #80).
  *
  * @property enabled the user's "Desktop Agent Connection" toggle. Independent of whether
  *   a peer is paired — the link is *active* only when [enabled] AND a peer is set.
- * @property peerHost the paired desktop's LAN IP/hostname (no scheme), from the QR.
- * @property peerPort the desktop link server's bound port, from the QR.
- * @property pairingToken bearer token (from the QR) sent on every request so the
- *   desktop rejects un-paired LAN clients. Plain HTTP by design (trusted LAN).
- * @property pairedDeviceId the desktop's stable device id (from the QR).
+ * @property pairedDeviceId the desktop's stable device id (from the relay QR).
  * @property selfDeviceId this install's stable id (minted on first read).
+ * @property relayQrJson the scanned Secure Gateway relay QR JSON; enough to re-pair /
+ *   reconnect over the E2EE relay.
  */
 @Serializable
 data class DesktopLinkConfig(
     val enabled: Boolean = false,
-    val peerHost: String = "",
-    val peerPort: Int? = null,
-    val pairingToken: String = "",
     val pairedDeviceId: String = "",
     val selfDeviceId: String = "",
-    /** LAN (the `magent://` QR) or RELAY (the Secure Gateway relay QR). */
-    val accessMode: LinkAccessMode = LinkAccessMode.LAN,
-    /** The scanned relay QR JSON (`accessMode == RELAY`); enough to re-pair/reconnect. */
     val relayQrJson: String = "",
 ) {
-    /**
-     * True once a desktop is paired (regardless of the [enabled] toggle): a LAN
-     * peer (host/port/token) OR a relay peer (the scanned relay QR).
-     */
+    /** True once a desktop is paired (regardless of the [enabled] toggle): a scanned relay QR. */
     val isPaired: Boolean
-        get() = when (accessMode) {
-            LinkAccessMode.RELAY -> relayQrJson.isNotBlank()
-            LinkAccessMode.LAN -> peerHost.isNotBlank() && peerPort != null && pairingToken.isNotBlank()
-        }
+        get() = relayQrJson.isNotBlank()
 
     /** The gate that makes the link the active backend: toggled on AND paired. */
     val isLinkConfigured: Boolean
         get() = enabled && isPaired
 
-    /** Relay path active: toggled on, relay mode, with a scanned relay QR. */
+    /** Relay path active: toggled on, with a scanned relay QR. (Relay is the only path.) */
     val isRelayConfigured: Boolean
-        get() = enabled && accessMode == LinkAccessMode.RELAY && relayQrJson.isNotBlank()
-
-    /**
-     * Base URL of the desktop link server, e.g. `http://192.168.1.20:47215`.
-     * Null when host/port are unset. A bare IP/hostname gets an `http://` scheme
-     * (the LAN link is plain HTTP); an explicit scheme is preserved.
-     */
-    fun baseUrl(): String? {
-        if (peerHost.isBlank() || peerPort == null) return null
-        val h = peerHost.trim().trimEnd('/')
-        val withScheme = if (h.startsWith("http://") || h.startsWith("https://")) h else "http://$h"
-        return "$withScheme:$peerPort"
-    }
+        get() = isLinkConfigured
 
     companion object {
         const val DEFAULT_PORT = 47215

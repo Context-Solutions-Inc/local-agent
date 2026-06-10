@@ -505,15 +505,20 @@ fun ChatScreen(
                             onClick = onOpenAlarms,
                         )
                     }
-                    // PR #70 — Jobs. Shown on BOTH platforms and ALWAYS enabled,
-                    // even when the desktop link is offline/unconfigured: it opens
-                    // the last-synced list from local storage. (Pause/resume inside
-                    // is gated on the link being UP; viewing never is.)
-                    IconButton(onClick = onOpenJobs) {
-                        Icon(
-                            imageVector = RuleSettingsIcon,
-                            contentDescription = "Jobs",
-                        )
+                    // PR #70 / #80 — Jobs. On the desktop (the job HOST) it's always
+                    // shown. On mobile it appears ONLY when a desktop is paired
+                    // (status != DISABLED, i.e. a relay QR has been scanned), since
+                    // jobs are meaningless without a desktop to run them. It stays
+                    // visible while paired-but-offline so the last-synced list is
+                    // still viewable; pause/resume inside is gated on the link being UP.
+                    val jobsLinkStatus by koinInject<DesktopLinkStatusProvider>().status.collectAsState()
+                    if (isDesktopPlatform || jobsLinkStatus != DesktopLinkStatus.DISABLED) {
+                        IconButton(onClick = onOpenJobs) {
+                            Icon(
+                                imageVector = RuleSettingsIcon,
+                                contentDescription = "Jobs",
+                            )
+                        }
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(

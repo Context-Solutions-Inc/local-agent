@@ -69,19 +69,44 @@ class DesktopRelayHost(
             // Reuse the desktop device id across restarts so a re-mint is a re-pair (reuses the
             // max_pairs slot) rather than a new device the gateway rejects as capacity_exceeded.
             deviceId = secureStorage.get(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID)
+            // PR #80 — keep the X25519 identity in the encrypted SecureStorage (secrets.p12)
+            // rather than the SDK's plaintext `relay_identity.key` file. The legacy file path is
+            // passed so an existing identity migrates in once, then the plaintext file is removed.
+            keyStore = SecureStorageKeyStore(secureStorage, keyStorePath) { this@DesktopRelayHost.logger(it) }
             logger = java.util.function.Consumer { this@DesktopRelayHost.logger("[sdk] $it") }
-        }.keyStoreFile(keyStorePath)
+        }
         return SecureGateway.desktop(config)
     }
 
     /** Mint the relay pairing QR as the JSON string embedded in the QR (B4); carries the account secret. */
     fun generatePairingQr(): String {
         logger("host: minting relay pairing QR (gateway=$gatewayBaseUrl relay=$relayWsUrl)")
+        return runCatching { mintQr() }.getOrElse { err ->
+            // A persisted desktop device id the gateway no longer recognizes makes
+            // createPairingToken fail with `bad_devices` — e.g. the subscription was
+            // re-claimed under a NEW account, or the gateway's in-memory store was reset
+            // (AUTH_STORE=memory). Since PR #80 there is no LAN QR to fall back to, so
+            // self-heal: drop the stale id, rebuild the client (→ ensureDevice registers
+            // a fresh device), and retry the mint once.
+            if (isStaleDeviceError(err)) {
+                logger("host: desktop device id rejected (${err.message}); clearing + re-registering a fresh device")
+                secureStorage.remove(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID)
+                runCatching { client?.close() }
+                client = null
+                mintQr()
+            } else {
+                throw err
+            }
+        }
+    }
+
+    private fun mintQr(): String {
         val client = ensureClient()
         val qr = client.generatePairingQr().toJson()
-        // Persist the device id the SDK just registered so the NEXT launch reuses it (above).
-        // Without this the desktop falls back to the LAN QR on every restart once a pairing
-        // already occupies the account's single slot.
+        // Persist the device id the SDK just registered so the NEXT launch reuses it
+        // (newClient reads it back). Without this the desktop registers a new device on
+        // every restart once a pairing already occupies the account's single slot →
+        // capacity_exceeded.
         client.deviceId()?.let { id ->
             if (secureStorage.get(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID) != id) {
                 secureStorage.put(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID, id)
@@ -89,6 +114,17 @@ class DesktopRelayHost(
             }
         }
         return qr
+    }
+
+    /**
+     * True when the gateway rejected our persisted desktop device id as unknown
+     * (`bad_devices`) — recoverable by clearing it and registering a fresh device.
+     * NOT `capacity_exceeded` (a valid prior pairing holds the slot; a new device
+     * would still be rejected and would leak), which the caller surfaces instead.
+     */
+    private fun isStaleDeviceError(t: Throwable): Boolean {
+        val m = (t.message.orEmpty() + " " + (t.cause?.message ?: ""))
+        return "bad_devices" in m
     }
 
     /** Block until the phone completes pairing (blocking poll — call on an IO dispatcher). */

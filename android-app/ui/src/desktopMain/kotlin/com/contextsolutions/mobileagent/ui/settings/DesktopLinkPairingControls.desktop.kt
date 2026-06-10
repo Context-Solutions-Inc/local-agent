@@ -18,9 +18,12 @@ import com.google.zxing.qrcode.QRCodeWriter
 import java.awt.image.BufferedImage
 
 /**
- * Desktop pairing controls (PR #57): renders the running link server's pairing
- * payload ([SettingsUiState.desktopLinkQrPayload]) as a QR for the phone to scan.
- * The desktop never scans/unpairs from here, so [onScanned]/[onUnpair] are unused.
+ * Desktop pairing controls (PR #57; relay-only since PR #80): renders the Secure
+ * Gateway **relay** pairing payload ([SettingsUiState.desktopLinkQrPayload]) as a QR
+ * for the phone to scan — but ONLY while a subscription is active. Without a
+ * subscription there is no pairing path, so no QR is shown (the section's "Upgrade
+ * to anywhere connection" link is the only call to action). The desktop never
+ * scans/unpairs from here, so [onScanned]/[onUnpair] are unused.
  */
 @Composable
 actual fun DesktopLinkPairingControls(
@@ -28,7 +31,9 @@ actual fun DesktopLinkPairingControls(
     onScanned: (String) -> Unit,
     onUnpair: () -> Unit,
 ) {
-    val payload = state.desktopLinkQrPayload
+    // Gate on the subscription explicitly (the payload is also null when unsubscribed,
+    // since Main.kt only publishes the relay QR while subscribed — belt and braces).
+    val payload = state.desktopLinkQrPayload.takeIf { state.subscription.isActive }
     Column {
         if (payload != null) {
             val bitmap = remember(payload) { encodeQr(payload, QR_PX) }
@@ -43,7 +48,7 @@ actual fun DesktopLinkPairingControls(
             )
         } else {
             Text(
-                "Connect this computer to your local network to show a pairing QR.",
+                "Subscribe to anywhere access to show a pairing code for your phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

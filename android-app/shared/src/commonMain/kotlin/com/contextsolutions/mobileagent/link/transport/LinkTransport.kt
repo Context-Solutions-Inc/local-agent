@@ -5,25 +5,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * The mobile↔desktop link transport seam (relay follow-up to PR #57).
+ * The mobile↔desktop link transport seam (PR #57; relay-only since PR #80).
  *
- * The phone reaches the desktop agent two ways: over the LAN ([LanLinkTransport],
- * plain HTTP, PR #57) or — when a relay subscription is active — over the Secure
- * Gateway's end-to-end-encrypted relay WebSocket (`RelayLinkTransport`, the
- * follow-up). Both speak the SAME small request/response + server-stream surface
- * so the callers (the desktop-link [com.contextsolutions.mobileagent.inference.InferenceEngine],
- * the sync client, the status provider) never branch on access mode — they ask
- * [LinkTransportProvider] for the active transport and issue [LinkRequest]s.
+ * The phone reaches the desktop agent over the Secure Gateway's end-to-end-encrypted
+ * relay WebSocket ([RelayLinkTransport]) when a relay subscription is active. The
+ * callers (the desktop-link [com.contextsolutions.mobileagent.inference.InferenceEngine],
+ * the sync client, the status provider) never branch on transport — they ask
+ * [LinkTransportProvider] for the active transport and issue [LinkRequest]s. (The
+ * original LAN HTTP transport was removed in PR #80; this seam remains so the relay
+ * stays decoupled from its callers.)
  *
- * The existing wire payloads ride **unchanged** in [LinkRequest.body] /
- * [LinkResponse.body] / [LinkStreamEvent.Data.body] (OpenAI chat JSON, the
- * post-`data:` SSE chunk strings, `SyncBundle` JSON), so swapping LAN↔relay never
- * touches the OpenAI/Ollama/Sync (de)serialization.
+ * The wire payloads ride **unchanged** in [LinkRequest.body] / [LinkResponse.body] /
+ * [LinkStreamEvent.Data.body] (OpenAI chat JSON, the post-`data:` SSE chunk strings,
+ * `SyncBundle` JSON), so the relay framing never touches the OpenAI/Ollama/Sync
+ * (de)serialization.
  */
 interface LinkTransport {
     /**
-     * Stable id of the current endpoint — the LAN `baseUrl`, or a constant like
-     * `"relay"`. Used purely as the reconnect-watch key for the desktop-link
+     * Stable id of the current endpoint — a constant like `"relay"`. Used purely as
+     * the reconnect-watch key for the desktop-link
      * [com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor].
      */
     val target: String
@@ -34,12 +34,12 @@ interface LinkTransport {
     /**
      * Request → a stream of server-pushed items, terminated by exactly one
      * [LinkStreamEvent.End] or [LinkStreamEvent.Error]. Cancelling the collector
-     * tears the stream down (LAN: close the SSE; relay: send a CANCEL frame).
+     * tears the stream down (the relay sends a CANCEL frame).
      */
     fun serverStream(request: LinkRequest): Flow<LinkStreamEvent>
 }
 
-/** The link methods, mirroring the [LanLinkTransport] / desktop-server routes. */
+/** The link methods, mirroring the desktop request-handler routes. */
 enum class LinkMethod(val streaming: Boolean) {
     HEALTH(false),
     PAIR(false),

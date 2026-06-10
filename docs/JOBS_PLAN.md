@@ -40,9 +40,12 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   `StateFlow` (the `tasks`/`todos` pattern) goes stale and synced jobs never appear
   on the phone until an app restart. The reactive query repaints on any write to the
   `jobs` table on that driver (both directions).
-- **Mobile Jobs icon is ALWAYS enabled** (Material Symbol `rule_settings`, a
-  hand-built `ImageVector` since the pinned material-icons-extended predates it),
-  even offline/unlinked — it opens the last-synced list. A header shows **"Synced Nm
+- **Mobile Jobs icon shows only when paired** (Material Symbol `rule_settings`, a
+  hand-built `ImageVector` since the pinned material-icons-extended predates it).
+  Originally (PR #70) it was always shown; **PR #80** gates it on
+  `isDesktopPlatform || DesktopLinkStatus != DISABLED` — there's no point offering it
+  on a phone with no desktop to run jobs. Once paired it **stays visible even when the
+  relay is offline** so it opens the last-synced list. A header shows **"Synced Nm
   ago • Offline"** (persisted `LastSyncStore` + reactive `MutableLastSyncStatus`, set
   when `SyncController` reaches the peer). Pause/resume is **view-only offline**
   (enabled only when the desktop controls: `isAdmin || link UP`) **and** only while
@@ -84,7 +87,8 @@ Two scheduling modes:
 
 Jobs **execute exclusively on the desktop** (it has the OS shell, the warm model,
 and a persistent background runtime). The mobile app is a **remote view + limited
-control** surface when LAN-linked.
+control** surface when paired (over the Secure Gateway relay; the LAN link was
+removed in PR #80, CLAUDE.md #56).
 
 ## 2. Ownership & trust boundary (security)
 
@@ -94,7 +98,7 @@ This is the load-bearing rule, because a job can run arbitrary OS commands:
 |---|---|---|---|
 | Create / edit / delete | ✅ | ❌ | ❌ |
 | Run now | ✅ | ❌ | ❌ |
-| View list + status / last result | ✅ | ✅ | ❌ (icon disabled) |
+| View list + status / last result | ✅ | ✅ | ❌ (icon hidden) |
 | Pause / resume | ✅ | ✅ | ❌ |
 
 - **Commands are only ever *defined* on the desktop**, a locally-trusted context.
@@ -103,8 +107,9 @@ This is the load-bearing rule, because a job can run arbitrary OS commands:
 - Enforcement point: the desktop's `LinkSyncService.applyFromPeer` accepts only
   `paused` (and benign status) changes to **existing** jobs from a remote peer, and
   **rejects remote inserts and job tombstones**. (See §6.)
-- The LAN link is still gated by the QR pairing bearer token (PR #57). Pause/resume
-  rides the normal authenticated sync path.
+- The link is gated by the Secure Gateway relay pairing (E2EE; the phone scans the
+  desktop's subscription-gated relay QR — PR #80). Pause/resume rides the normal
+  authenticated sync path. (Pre-#80 this was the LAN QR pairing bearer token, PR #57.)
 - Jobs run with the desktop user's privileges. The UI shows the full job list +
   command text so scheduled commands are auditable. (No privilege escalation, no
   "run as another user" in v1.)

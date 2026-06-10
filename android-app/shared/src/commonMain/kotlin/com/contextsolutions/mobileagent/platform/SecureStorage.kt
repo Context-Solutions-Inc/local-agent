@@ -77,4 +77,13 @@ object SecureStorageKeys {
      * relay account secret for one store on the relay credential path).
      */
     const val RELAY_DESKTOP_DEVICE_ID = "relay_desktop_device_id"
+
+    /**
+     * The desktop's relay **X25519 identity private key** (hex), stored in [SecureStorage]
+     * instead of the SDK's loose `relay_identity.key` plaintext file (PR #80). Keeping it in
+     * the encrypted store unifies the relay credential material (account secret + device id +
+     * identity) under one tier and removes a plaintext private key from disk. Desktop-only;
+     * migrated from the legacy file on first read (see `SecureStorageKeyStore`).
+     */
+    const val RELAY_IDENTITY_KEY = "relay_identity_key"
 }

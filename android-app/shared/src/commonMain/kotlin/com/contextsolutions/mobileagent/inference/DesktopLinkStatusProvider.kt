@@ -1,17 +1,14 @@
 package com.contextsolutions.mobileagent.inference
 
-import com.contextsolutions.mobileagent.link.transport.LinkAccessMode
 import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** State of the mobile↔desktop link for the chat header dot (PR #57). */
@@ -37,20 +34,19 @@ interface DesktopLinkStatusProvider {
 }
 
 /**
- * [DesktopLinkStatusProvider] that polls the paired desktop's `/health` so the dot
- * reflects reachability live (independent of whether a chat turn has run yet).
- * Re-probes immediately when the link config changes (toggle / re-pair) and stops
- * polling when the link isn't configured. Used on both platforms — on desktop the
- * link is never enabled, so it simply reports [DesktopLinkStatus.DISABLED].
+ * [DesktopLinkStatusProvider] that reflects the live Secure Gateway **relay** pipe
+ * state for the chat-header dot (relay-only since PR #80). Reports
+ * [DesktopLinkStatus.DISABLED] when the link isn't configured (toggle off / no
+ * relay QR scanned), else mirrors [relayState] (UP → connected, anything else →
+ * unreachable). Used on both platforms — on desktop the link is never enabled, so
+ * it simply reports [DesktopLinkStatus.DISABLED].
  */
 class PollingDesktopLinkStatusProvider(
     private val preferences: DesktopLinkPreferences,
-    private val client: DesktopLinkClient,
-    // Relay pipe state (mobile, when subscribed). In RELAY mode there's no LAN
-    // `/health` to poll, so the dot mirrors this instead. Null on desktop / LAN-only.
+    // Relay pipe state (mobile, when subscribed). Null on desktop, where the link
+    // is never enabled and the dot stays DISABLED.
     private val relayState: StateFlow<LinkConnectionState>? = null,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
 ) : DesktopLinkStatusProvider {
 
     private val _status = MutableStateFlow(DesktopLinkStatus.DISABLED)
@@ -59,36 +55,17 @@ class PollingDesktopLinkStatusProvider(
     init {
         scope.launch {
             preferences.configFlow().collectLatest { cfg ->
-                if (!cfg.isLinkConfigured) {
+                val rs = relayState
+                if (!cfg.isLinkConfigured || rs == null) {
                     _status.value = DesktopLinkStatus.DISABLED
                     return@collectLatest
                 }
-                // Relay path: reflect the live relay pipe state (no LAN host to probe).
-                if (cfg.accessMode == LinkAccessMode.RELAY) {
-                    val rs = relayState ?: run {
-                        _status.value = DesktopLinkStatus.DISABLED
-                        return@collectLatest
-                    }
-                    rs.collect { st ->
-                        _status.value =
-                            if (st == LinkConnectionState.UP) DesktopLinkStatus.UP else DesktopLinkStatus.DOWN
-                    }
-                    return@collectLatest
-                }
-                val baseUrl = cfg.baseUrl() ?: run {
-                    _status.value = DesktopLinkStatus.DISABLED
-                    return@collectLatest
-                }
-                while (isActive) {
-                    val ok = client.health(baseUrl, cfg.pairingToken)
-                    _status.value = if (ok) DesktopLinkStatus.UP else DesktopLinkStatus.DOWN
-                    delay(pollIntervalMs)
+                // Reflect the live relay pipe state (the relay has no pollable URL).
+                rs.collect { st ->
+                    _status.value =
+                        if (st == LinkConnectionState.UP) DesktopLinkStatus.UP else DesktopLinkStatus.DOWN
                 }
             }
         }
-    }
-
-    private companion object {
-        const val DEFAULT_POLL_INTERVAL_MS = 10_000L
     }
 }

@@ -1,5 +1,19 @@
 # Paid "anywhere access" — relay subscription (PR #74)
 
+> **PR #80 — LAN link removed (read this first).** The original LAN link (PR #57:
+> `magent://` QR, plain-HTTP link server, LAN IP discovery) is **gone** on both
+> platforms; the Secure Gateway **relay is now the only** mobile↔desktop pairing
+> path. Consequences: the desktop pairing QR appears **only while a subscription is
+> active** and carries **only** the relay payload (no `magent://` fallback); the
+> mobile **Jobs icon** shows only when paired; relayed chat still routes through the
+> desktop's `RoutingInferenceEngine`, so a remote LLM configured on the desktop
+> serves the turn. Throughout the historical sections below, **ignore every claim
+> that "the LAN path stays intact / is the offline-or-revoked fallback"** — when a
+> subscription lapses or the relay drops, the phone now falls back to its **on-device
+> model**, not to LAN. Deleted: `LanLinkTransport`, `LinkPairingPayload`,
+> `LinkAccessMode`, `LanAddress`, `DesktopLinkClient`; `DesktopLinkServer` keeps only
+> the loopback `/ping` + `/subscribe/callback`. See CLAUDE.md invariant **#56**.
+
 Lets a desktop user buy a monthly **Secure Gateway** relay subscription so the
 phone reaches the desktop from **anywhere**, instead of LAN-only (PR #57). Spans
 two repos: this client + **secure-gateway PR #6** (the Stripe Checkout +
@@ -348,3 +362,52 @@ re-ran the *pairing* flow on every reconnect, replaying the spent token:
 > (`current()` returns the relay only when `accessMode == RELAY` *and* the pipe is UP, else LAN
 > /on-device). The `[sdk]`/`pipe:`/`select:`/`[Relay/scan]` diagnostic logging is **kept** for
 > ongoing user-acceptance testing on main; strip it once UAT signs off. `RelayCryptoSmokeTest` stays.
+
+## Gotcha — `bad_devices` 400 on pairing → no QR (PR #80)
+
+**Symptom (desktop log):** `host: minting relay pairing QR …` then
+`anywhere-access UNAVAILABLE … cause: auth service returned 400 (bad_devices)`, and **no QR
+renders** in Settings.
+
+**Cause.** The desktop persists its gateway device id (`RELAY_DESKTOP_DEVICE_ID`, in
+`secrets.p12`) and restores it into `DesktopConfig.deviceId` so a restart re-pairs into the same
+`max_pairs` slot (#55). The SDK's `DesktopClient.ensureDevice()` only registers a device when the
+id is `null`, so a **stale** saved id is reused verbatim. If that id belongs to a *prior* account
+or gateway run — you **re-subscribed under a new `acct_…`**, or the gateway was restarted with
+`AUTH_STORE=memory` (which wipes its device table) — the gateway's `deviceForRole(…, RoleDesktop)`
+finds nothing and `createPairingToken` returns `400 bad_devices`. Before PR #80 this fell back to
+the LAN `magent://` QR, masking the bug; PR #80 removed that fallback, so it now surfaces as "no QR".
+
+**Self-heal (shipped, PR #80).** `DesktopRelayHost.generatePairingQr()` catches `bad_devices`,
+clears `RELAY_DESKTOP_DEVICE_ID`, rebuilds the `DesktopClient` (so `ensureDevice` re-registers a
+**fresh** device under the current account), and retries the mint once. Watch for:
+`host: desktop device id rejected (… bad_devices); clearing + re-registering a fresh device`.
+**Only `bad_devices`** self-heals — `capacity_exceeded` (a valid prior pairing legitimately holds
+the single slot) is left to the operator (unpair the other desktop / raise `max_pairs` / restart
+a memory-store gateway).
+
+**Manual reset alternative.** Stop the desktop, delete
+`~/.local/share/MobileAgent/subscription_prefs.json` and the relay entries in `secrets.p12`
+(`RELAY_ACCOUNT_SECRET` / `RELAY_DESKTOP_DEVICE_ID` / `RELAY_IDENTITY_KEY` — or just delete
+`secrets.p12` to wipe all app secrets), then re-subscribe and it registers fresh.
+
+**Upstream root cause.** `ensureDevice`'s skip-when-non-null lives in the SDK
+(`secure-gateway/sdk/java/.../DesktopClient.java`); a future SDK fix could re-register on a
+`bad_devices` response so the client recovers without the host-side retry.
+
+## Relay identity key — stored in secrets.p12, not a plaintext file (PR #80)
+
+The SDK's default `FileKeyStore` (`config.keyStoreFile(path)`) persists the desktop's **X25519
+identity private key** to `relay_identity.key` as **plaintext hex**, protected only by `chmod 0600`
+— flagged during #80 review as an avoidable cleartext private key on disk. `DesktopRelayHost` now
+injects a custom `SecureStorageKeyStore` (desktopMain, implements `com.securegateway.core.keystore.KeyStore`)
+via `DesktopConfig.keyStore`, which keeps the hex key in the app's encrypted `DesktopSecureStorage`
+(`secrets.p12`) under `SecureStorageKeys.RELAY_IDENTITY_KEY` — alongside the account secret + device
+id, one credential tier. On first run it **migrates** any existing `relay_identity.key` into the
+store and deletes the plaintext file, so a paired desktop keeps its identity (and its phone) without
+re-pairing. Covered by `SecureStorageKeyStoreTest`.
+
+**Tier caveat (unchanged posture).** `secrets.p12`'s PKCS#12 password is per-user-derived by default
+(or `MOBILEAGENT_KEYSTORE_PASSWORD`), so this matches the account-secret tier — it defends against
+casual disk inspection, not a process already running as the user. The genuine hardening is an OS
+keyring (Secret Service / Keychain / DPAPI) via the SDK's `OsKeyStore` seam — still deferred.
