@@ -30,6 +30,8 @@ class LlamaServerProcess(
     private val mmprojPath: String?,
     private val ctxTokens: Int,
     private val gpuLayers: Int,
+    /** Pin Vulkan offload to a single device id (e.g. `Vulkan1`); null ⇒ all GPUs (#78). */
+    private val vulkanDevice: String? = null,
     private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -49,38 +51,25 @@ class LlamaServerProcess(
     suspend fun start(readyTimeoutMs: Long = 120_000): String = withContext(ioDispatcher) {
         val port = freePort()
         val url = "http://127.0.0.1:$port"
-        val cmd = buildList {
-            add(binary.absolutePath)
-            add("-m"); add(modelPath)
-            mmprojPath?.let { add("--mmproj"); add(it) }
-            add("--host"); add("127.0.0.1")
-            add("--port"); add(port.toString())
-            add("-c"); add(ctxTokens.toString())
-            add("-ngl"); add(gpuLayers.toString())
-            // Single-user desktop: one slot (auto picks 4, splitting the KV cache for no
-            // benefit and 4x the memory). Flash attention speeds Gemma's SWA decode.
-            add("--parallel"); add("1")
-            add("-fa"); add("on")
-            add("--jinja")
-            add("--no-webui")
-            add("--api-key"); add(apiKey)
-            // Power-user tuning without a rebuild, e.g. KV-cache quant for a bandwidth-bound
-            // iGPU: MOBILEAGENT_LLAMA_SERVER_ARGS="--cache-type-k q8_0 --cache-type-v q8_0".
-            System.getenv(ENV_EXTRA_ARGS)?.trim()?.takeIf { it.isNotEmpty() }
-                ?.split(Regex("\\s+"))?.let { addAll(it) }
-        }
+        val cmd = buildServerArgs(
+            binary = binary.absolutePath,
+            modelPath = modelPath,
+            mmprojPath = mmprojPath,
+            host = "127.0.0.1",
+            port = port,
+            ctxTokens = ctxTokens,
+            gpuLayers = gpuLayers,
+            vulkanDevice = vulkanDevice,
+            apiKey = apiKey,
+            extraArgs = System.getenv(ENV_EXTRA_ARGS),
+        )
         logger("starting: ${cmd.joinToString(" ").replace(apiKey, "<key>")}")
 
         val pb = ProcessBuilder(cmd)
             .directory(binary.parentFile)
             .redirectErrorStream(true)
-        // The shared libs sit beside the binary; put that dir on the native lib path.
-        val libDir = binary.parentFile.absolutePath
-        pb.environment().apply {
-            merge("LD_LIBRARY_PATH", libDir) { old, new -> "$new${File.pathSeparator}$old" }
-            merge("DYLD_LIBRARY_PATH", libDir) { old, new -> "$new${File.pathSeparator}$old" }
-            merge("PATH", libDir) { old, new -> "$new${File.pathSeparator}$old" }
-        }
+            // The shared libs sit beside the binary; put that dir on the native lib path.
+            .withNativeLibPath(binary.parentFile)
         val proc = pb.start()
         process = proc
         baseUrl = url
@@ -146,5 +135,61 @@ class LlamaServerProcess(
 
         /** Grab a free localhost port (small race window between close and server bind). */
         fun freePort(): Int = ServerSocket(0).use { it.localPort }
+    }
+}
+
+/**
+ * Build the `llama-server` argv. Pure + `internal` so the launch flags — notably the GPU
+ * device pin (#78) and the `MOBILEAGENT_LLAMA_SERVER_ARGS` escape hatch — are unit-testable
+ * without spawning a process. [vulkanDevice] adds `--device <id>` (e.g. `Vulkan1`) only when
+ * non-blank **and** [gpuLayers] > 0 (it's meaningless on the CPU fallback). The extra-args
+ * escape hatch stays last so a manual `--device` there can still override the pin.
+ */
+internal fun buildServerArgs(
+    binary: String,
+    modelPath: String,
+    mmprojPath: String?,
+    host: String,
+    port: Int,
+    ctxTokens: Int,
+    gpuLayers: Int,
+    vulkanDevice: String?,
+    apiKey: String,
+    extraArgs: String?,
+): List<String> = buildList {
+    add(binary)
+    add("-m"); add(modelPath)
+    mmprojPath?.let { add("--mmproj"); add(it) }
+    add("--host"); add(host)
+    add("--port"); add(port.toString())
+    add("-c"); add(ctxTokens.toString())
+    add("-ngl"); add(gpuLayers.toString())
+    // Pin Vulkan offload to one device so a multi-GPU box ignores the slow iGPU (#78).
+    if (gpuLayers > 0) {
+        vulkanDevice?.trim()?.takeIf { it.isNotEmpty() }?.let { add("--device"); add(it) }
+    }
+    // Single-user desktop: one slot (auto picks 4, splitting the KV cache for no
+    // benefit and 4x the memory). Flash attention speeds Gemma's SWA decode.
+    add("--parallel"); add("1")
+    add("-fa"); add("on")
+    add("--jinja")
+    add("--no-webui")
+    add("--api-key"); add(apiKey)
+    // Power-user tuning without a rebuild, e.g. KV-cache quant for a bandwidth-bound
+    // iGPU: MOBILEAGENT_LLAMA_SERVER_ARGS="--cache-type-k q8_0 --cache-type-v q8_0".
+    extraArgs?.trim()?.takeIf { it.isNotEmpty() }?.split(Regex("\\s+"))?.let { addAll(it) }
+}
+
+/**
+ * Put the binary's own dir on the native library search path (the shared `.so`/`.dylib`/`.dll`
+ * sit beside the binary). Shared by the server launch and the `--list-devices` probe (#78) so
+ * the probe finds the same Vulkan/Metal driver the server uses.
+ */
+internal fun ProcessBuilder.withNativeLibPath(libDir: File): ProcessBuilder = apply {
+    val path = libDir.absolutePath
+    environment().apply {
+        merge("LD_LIBRARY_PATH", path) { old, new -> "$new${File.pathSeparator}$old" }
+        merge("DYLD_LIBRARY_PATH", path) { old, new -> "$new${File.pathSeparator}$old" }
+        merge("PATH", path) { old, new -> "$new${File.pathSeparator}$old" }
     }
 }

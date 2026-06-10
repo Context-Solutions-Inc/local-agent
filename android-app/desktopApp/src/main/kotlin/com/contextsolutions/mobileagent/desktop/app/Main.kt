@@ -76,6 +76,7 @@ import com.contextsolutions.mobileagent.link.LinkPairingPayload
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkConnectionStatus
 import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.link.MutableDesktopLinkQr
+import com.contextsolutions.mobileagent.preferences.DesktopGpuPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.desktop.app.ui.theme.MobileAgentDesktopTheme
 import com.contextsolutions.mobileagent.sync.LinkSyncService
@@ -208,6 +209,13 @@ fun main() {
     // PR #56 — drop the resident model when the Ollama server goes offline (fall
     // back to local) or comes back (reconnect), so the next turn re-decides.
     koin.get<OllamaConnectionMonitor>().reloadRequests
+        .onEach { warmModel.invalidate() }
+        .launchIn(appScope)
+    // PR #78 — drop the resident model when the GPU device pin changes so the next turn
+    // re-launches llama-server pinned to the chosen device. drop(1) skips the startup replay.
+    koin.get<DesktopGpuPreferences>().devicePinFlow()
+        .drop(1)
+        .distinctUntilChanged()
         .onEach { warmModel.invalidate() }
         .launchIn(appScope)
 

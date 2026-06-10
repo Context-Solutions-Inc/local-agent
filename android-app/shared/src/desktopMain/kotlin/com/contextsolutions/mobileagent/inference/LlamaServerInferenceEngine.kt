@@ -53,6 +53,8 @@ class LlamaServerInferenceEngine(
     private val binaryStore: LlamaServerBinaryStore,
     /** Resolves the mmproj path (null ⇒ no vision); consulted only when `enableVision`. */
     private val mmprojPathProvider: () -> String? = { null },
+    /** Resolves the Vulkan device pin (null ⇒ all GPUs); consulted only on the GPU variant (#78). */
+    private val devicePinProvider: () -> String? = { null },
     private val defaultTemperature: Float = InferenceConfig().temperature,
     private val logger: (String) -> Unit = { System.err.println("[LlamaServer] $it") },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -114,12 +116,15 @@ class LlamaServerInferenceEngine(
     ): StartedServer {
         val binary = binaryStore.ensure(wantGpu)
         val gpuLayers = if (wantGpu) GPU_ALL_LAYERS else 0
+        // Pin the GPU device only on the GPU variant; the CPU fallback ignores it (#78).
+        val vulkanDevice = if (wantGpu) devicePinProvider() else null
         val process = LlamaServerProcess(
             binary = binary,
             modelPath = modelPath,
             mmprojPath = mmproj,
             ctxTokens = config.kvCacheTokens,
             gpuLayers = gpuLayers,
+            vulkanDevice = vulkanDevice,
             logger = logger,
         )
         val baseUrl = process.start()

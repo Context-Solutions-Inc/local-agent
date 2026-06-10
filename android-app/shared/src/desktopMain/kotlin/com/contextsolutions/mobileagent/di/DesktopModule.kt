@@ -22,6 +22,7 @@ import com.contextsolutions.mobileagent.ui.theme.DesktopThemePreferences
 import com.contextsolutions.mobileagent.ui.theme.DesktopWindowPreferences
 import com.contextsolutions.mobileagent.ui.theme.ThemePreferences
 import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
+import com.contextsolutions.mobileagent.inference.LlamaServerDevices
 import com.contextsolutions.mobileagent.inference.LlamaServerInferenceEngine
 import com.contextsolutions.mobileagent.inference.OllamaClient
 import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
@@ -52,6 +53,7 @@ import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.JobService
 import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.preferences.DesktopDesktopLinkPreferences
+import com.contextsolutions.mobileagent.preferences.DesktopGpuPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopOllamaPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopSubscriptionPreferences
@@ -216,6 +218,12 @@ val desktopModule: Module = module {
     // loadModel) enables vision via `--mmproj`.
     single { LlamaServerBinaryStore(logger = { System.err.println("[LlamaServer] $it") }) }
 
+    // PR #78 — desktop GPU device pin. The persisted pin rides into the llama-server
+    // launch args as `--device <id>` so a multi-GPU box ignores the slow iGPU; the
+    // enumerator backs the Settings "Detect devices" button.
+    single { DesktopGpuPreferences(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "gpu_prefs.json"))) }
+    single { LlamaServerDevices(binaryStore = get(), logger = { System.err.println("[LlamaServer] $it") }) }
+
     // PR #56 — remote Ollama config + client + engine. The OpenAI-compatible
     // OllamaInferenceEngine is shared (commonMain); only the prefs store is
     // desktop-specific (file-JSON under app-data).
@@ -292,6 +300,11 @@ val desktopModule: Module = module {
             local = LlamaServerInferenceEngine(
                 binaryStore = get(),
                 mmprojPathProvider = { DesktopModelInventory.resolveMmprojPath() },
+                // PR #78 — env override wins (for headless, #53) over the stored Settings pin.
+                devicePinProvider = {
+                    System.getenv("MOBILEAGENT_LLAMA_SERVER_DEVICE")?.takeIf { it.isNotBlank() }
+                        ?: get<DesktopGpuPreferences>().devicePin()
+                },
                 logger = { System.err.println("[LlamaServer] $it") },
             ),
             ollama = get<OllamaInferenceEngine>(),

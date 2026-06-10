@@ -337,6 +337,10 @@ fun SettingsScreen(
             // where the OS owns voice selection.
             DesktopVoiceSection()
 
+            // PR #78 — desktop-only GPU device pin for the local llama-server. Renders
+            // nothing on Android (LiteRT-LM, no device selection).
+            DesktopGpuSection()
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
             // M6 Phase C — opt-in telemetry. PRD §3.2.1 + §4.4 explicit-opt-in
