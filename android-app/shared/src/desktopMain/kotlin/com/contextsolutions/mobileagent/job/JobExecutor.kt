@@ -75,10 +75,12 @@ class JobExecutor(
         }
         val response = result.output.ifBlank { if (status == JobRunStatus.SUCCEEDED) "(no output)" else "(no output)" }
 
-        // Assistant = response. Plain (not markdown) — it's raw command output.
+        // Assistant = response. Render as markdown so command output (tables, headers, bold,
+        // etc.) formats in the chat bubble; the renderMarkdown flag rides the conversation sync
+        // so mobile renders it formatted too.
         conversations.appendMessage(
             convId,
-            ChatMessage.Assistant(text = response, renderMarkdown = false),
+            ChatMessage.Assistant(text = response, renderMarkdown = true),
             finishedAt,
         )
         jobs.finishRun(

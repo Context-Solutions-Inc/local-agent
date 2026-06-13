@@ -1,6 +1,10 @@
 package com.contextsolutions.mobileagent.ui.markdown
 
+import android.text.Spannable
+import android.text.method.ArrowKeyMovementMethod
+import android.text.style.ClickableSpan
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.widget.TextView
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +29,13 @@ import kotlin.math.roundToInt
  * (size, line-height, letter-spacing, `includeFontPadding=false`) so markdown
  * text lines up with the plain-text path; `setTextIsSelectable(true)` gives the
  * TextView its own copy/select toolbar.
+ *
+ * Links: a selectable TextView installs [ArrowKeyMovementMethod], which swallows
+ * the touch events a `LinkMovementMethod` needs — so markdown links render styled
+ * but never fire on tap. [LinkAwareMovementMethod] restores link taps (fired on
+ * ACTION_UP) while keeping selection intact by extending the selection movement
+ * method rather than replacing it. Applied AFTER [Markwon.setMarkdown] so it wins
+ * over Markwon's own `MovementMethodPlugin`.
  */
 @Composable
 actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
@@ -73,6 +84,39 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
             // ext-latex only recognizes `$$…$$`; normalize the model's `$…$` /
             // `\(…\)` / `\[…\]` first (shared LatexNormalizer).
             markwon.setMarkdown(tv, LatexNormalizer.normalize(text))
+            // Re-assert after setMarkdown (Markwon installs LinkMovementMethod,
+            // which would break selection) so taps AND selection both work.
+            tv.movementMethod = LinkAwareMovementMethod
         },
     )
+}
+
+/**
+ * Selection-friendly link movement. Extends [ArrowKeyMovementMethod] so a
+ * selectable TextView keeps its touch-selection behavior, but intercepts a
+ * tap that lands on a [ClickableSpan] and fires it on ACTION_UP. ACTION_DOWN
+ * is not consumed, so long-press/drag still starts a selection.
+ */
+private object LinkAwareMovementMethod : ArrowKeyMovementMethod() {
+    override fun onTouchEvent(widget: TextView, buffer: Spannable, event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_UP) {
+            val x = event.x.toInt() - widget.totalPaddingLeft + widget.scrollX
+            val y = event.y.toInt() - widget.totalPaddingTop + widget.scrollY
+            val layout = widget.layout
+            if (layout != null) {
+                val line = layout.getLineForVertical(y)
+                // Reject taps in the empty area past a line's text so a tap to the
+                // right of a link-terminated line doesn't spuriously fire it.
+                if (x.toFloat() in layout.getLineLeft(line)..layout.getLineRight(line)) {
+                    val off = layout.getOffsetForHorizontal(line, x.toFloat())
+                    val links = buffer.getSpans(off, off, ClickableSpan::class.java)
+                    if (links.isNotEmpty()) {
+                        links[0].onClick(widget)
+                        return true
+                    }
+                }
+            }
+        }
+        return super.onTouchEvent(widget, buffer, event)
+    }
 }

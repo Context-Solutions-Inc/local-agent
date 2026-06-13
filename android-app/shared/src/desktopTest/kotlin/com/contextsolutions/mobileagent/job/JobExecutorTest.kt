@@ -68,7 +68,7 @@ class JobExecutorTest {
         assertEquals("hello from job", (user as ChatMessage.User).text)
         assertTrue(assistant is ChatMessage.Assistant)
         assertEquals("hello from job", (assistant as ChatMessage.Assistant).text)
-        assertEquals(false, assistant.renderMarkdown)
+        assertEquals(true, assistant.renderMarkdown)
 
         // A finished run row links the same conversation.
         val run = jobs.runsForJob("job-echo").single()
