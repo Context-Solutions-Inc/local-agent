@@ -277,7 +277,7 @@ commands run from `android-app/`.
 
 ```bash
 cd android-app
-./gradlew :desktopApp:run
+MOBILEAGENT_GATEWAY_URL=https://auth.contextsolutions.com MOBILEAGENT_RELAY_WS_URL=wss://relay.contextsolutions.com/v1/connect ./gradlew :desktopApp:run
 ```
 
 This opens the chat window and starts the system tray + the warm-model /
