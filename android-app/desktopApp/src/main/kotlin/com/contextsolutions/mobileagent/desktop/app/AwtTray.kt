@@ -72,7 +72,7 @@ class AwtTray private constructor(
                 notification.body,
                 when (notification.kind) {
                     NotificationKind.ALARM, NotificationKind.TIMER -> TrayIcon.MessageType.WARNING
-                    NotificationKind.TASK, NotificationKind.INFO -> TrayIcon.MessageType.INFO
+                    NotificationKind.TASK, NotificationKind.JOB, NotificationKind.INFO -> TrayIcon.MessageType.INFO
                 },
             )
         }

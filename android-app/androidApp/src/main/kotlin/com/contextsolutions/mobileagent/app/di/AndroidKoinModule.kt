@@ -125,10 +125,16 @@ import com.contextsolutions.mobileagent.sync.SharedPreferencesSyncWatermarkStore
 import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
+import com.contextsolutions.mobileagent.app.notification.AndroidNotificationPresenter
+import com.contextsolutions.mobileagent.job.JobBadge
+import com.contextsolutions.mobileagent.job.JobCompletionNotifier
+import com.contextsolutions.mobileagent.job.JobNotificationPrefs
 import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.RelayRemoteJobRunner
 import com.contextsolutions.mobileagent.job.RemoteJobRunner
+import com.contextsolutions.mobileagent.job.SharedPreferencesJobNotificationPrefs
 import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
+import com.contextsolutions.mobileagent.notification.NotificationPresenter
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.SharedPreferencesLanguagePreferences
 import com.contextsolutions.mobileagent.telemetry.SharedPreferencesTelemetryConsentManager
@@ -222,6 +228,18 @@ val androidModule: Module = module {
     // scheduler/executor (jobs run only on the desktop).
     single { get<MobileAgentDatabase>().jobsQueries }
     single<JobRepository> { SqlDelightJobRepository(queries = get(), bus = get()) }
+    // PR #85 — mobile-only job-completion signals (header badge + OS notification).
+    single<NotificationPresenter> { AndroidNotificationPresenter(androidContext()) }
+    single<JobNotificationPrefs> { SharedPreferencesJobNotificationPrefs(androidContext()) }
+    single { JobBadge(repository = get(), prefs = get()) }
+    single {
+        JobCompletionNotifier(
+            repository = get(),
+            presenter = get(),
+            prefs = get(),
+            logger = { Log.i("JobNotifier", it) },
+        )
+    }
     single { get<MobileAgentDatabase>().conversationsQueries }
     single { get<MobileAgentDatabase>().todosQueries }
     single { get<MobileAgentDatabase>().memoriesQueries }

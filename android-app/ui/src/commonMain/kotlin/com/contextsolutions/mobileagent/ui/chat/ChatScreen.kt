@@ -48,6 +48,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -109,9 +111,12 @@ import com.contextsolutions.mobileagent.inference.DesktopLinkStatus
 import com.contextsolutions.mobileagent.inference.DesktopLinkStatusProvider
 import com.contextsolutions.mobileagent.inference.SystemMemoryStatusProvider
 import com.contextsolutions.mobileagent.inference.ThermalStatus
+import com.contextsolutions.mobileagent.job.JobBadge
 import com.contextsolutions.mobileagent.platform.UrlOpener
 import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.voice.Dictation
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -513,11 +518,29 @@ fun ChatScreen(
                     // still viewable; pause/resume inside is gated on the link being UP.
                     val jobsLinkStatus by koinInject<DesktopLinkStatusProvider>().status.collectAsState()
                     if (isDesktopPlatform || jobsLinkStatus != DesktopLinkStatus.DISABLED) {
+                        // PR #85 — numbered bubble when synced job runs finished unseen
+                        // (mobile-only: JobBadge is bound on Android, absent on desktop).
+                        // Same count-bubble style the alarm/timer/todo icons used pre-#26:
+                        // the bubble matches the icon's tint so it reads as part of the icon.
+                        val jobBadge = getKoin().getOrNull<JobBadge>()
+                        val unseenFlow = remember(jobBadge) { jobBadge?.unseenCount ?: MutableStateFlow(0) }
+                        val unseenJobRuns by unseenFlow.collectAsState()
                         IconButton(onClick = onOpenJobs) {
-                            Icon(
-                                imageVector = RuleSettingsIcon,
-                                contentDescription = "Jobs",
-                            )
+                            if (unseenJobRuns > 0) {
+                                val iconTint = LocalContentColor.current
+                                val digitColor = MaterialTheme.colorScheme.surface
+                                BadgedBox(
+                                    badge = {
+                                        Badge(containerColor = iconTint, contentColor = digitColor) {
+                                            Text(unseenJobRuns.toString())
+                                        }
+                                    },
+                                ) {
+                                    Icon(imageVector = RuleSettingsIcon, contentDescription = "Jobs")
+                                }
+                            } else {
+                                Icon(imageVector = RuleSettingsIcon, contentDescription = "Jobs")
+                            }
                         }
                     }
                     IconButton(onClick = onOpenSettings) {

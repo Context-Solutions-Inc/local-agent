@@ -16,6 +16,7 @@ import com.contextsolutions.mobileagent.app.di.androidModule
 import com.contextsolutions.mobileagent.di.agentCoreModule
 import com.contextsolutions.mobileagent.ui.di.uiModule
 import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
+import com.contextsolutions.mobileagent.job.JobCompletionNotifier
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
@@ -30,6 +31,7 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -54,8 +56,12 @@ class MobileAgentApplication : Application() {
     private val desktopLinkPreferences: DesktopLinkPreferences by inject()
     private val desktopLinkConnectionMonitor: OllamaConnectionMonitor by inject(named("desktopLink"))
     private val syncController: SyncController by inject()
+    private val jobCompletionNotifier: JobCompletionNotifier by inject()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Foreground-only job-completion observer (PR #85); cancelled when backgrounded. */
+    private var jobNotifierJob: Job? = null
 
     /**
      * Count of currently-`onStart`'d activities. The watchdog runs only
@@ -181,6 +187,10 @@ class MobileAgentApplication : Application() {
         override fun onActivityStarted(activity: Activity) {
             if (startedActivityCount == 0) {
                 mainThreadWatchdog.start()
+                // PR #85 — observe synced job completions only while foregrounded
+                // (matches mobile sync, which also runs foreground). Re-start fresh
+                // so each foreground session re-baselines + re-dedupes.
+                jobNotifierJob = jobCompletionNotifier.start(appScope)
             }
             startedActivityCount++
         }
@@ -190,6 +200,8 @@ class MobileAgentApplication : Application() {
             startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
             if (startedActivityCount == 0) {
                 mainThreadWatchdog.stop()
+                jobNotifierJob?.cancel()
+                jobNotifierJob = null
             }
         }
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit

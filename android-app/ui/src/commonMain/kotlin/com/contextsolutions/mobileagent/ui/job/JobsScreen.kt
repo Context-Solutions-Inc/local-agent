@@ -88,6 +88,11 @@ fun JobsScreen(
     val jobs by viewModel.jobs.collectAsState()
     val lastSyncedAtMs by viewModel.lastSyncedAtMs.collectAsState()
     val linkStatus by viewModel.linkStatus.collectAsState()
+
+    // PR #85 — viewing the Jobs screen marks completed runs as seen (clears the
+    // chat-header badge). Re-fires on list changes so a run that finishes while
+    // the screen is open is acknowledged too. No-op on desktop.
+    LaunchedEffect(jobs) { viewModel.markSeen() }
     val isAdmin = viewModel.isAdmin
     // The desktop (admin) always controls its own jobs; mobile needs the link UP
     // to push a pause/resume.

@@ -83,6 +83,36 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   `AlertDialog`/menus light purple.
 - **Schema:** migration `9.sqm` (v9→v10) adds `jobs` + `job_runs` (`Jobs.sq`); cron
   parsing/next-fire via `cron-utils`, **desktopMain only**.
+- **Mobile completion signals (PR #85), mobile-only + foreground-only.** Two cues
+  fire when a desktop run finishes and lands on the phone via sync (jobs run only on
+  the desktop). Both read the same reactive `JobRepository.flow()` and treat a run as
+  *noteworthy* only when `lastRunStatus ∈ {SUCCEEDED, FAILED}` (RUNNING/CANCELLED never
+  signal — `Job.noteworthyRunAtEpochMs`):
+  - **Chat-header count bubble** on the Jobs icon (`BadgedBox` + a tinted numbered
+    `Badge` in `ChatScreen`, the same style the alarm/timer/todo icons used pre-PR #26
+    — the bubble matches the icon's `LocalContentColor` so it reads as part of the icon).
+    `JobBadge.unseenCount` = number of jobs whose latest run is noteworthy and newer than
+    a persisted **seen** watermark; opening the Jobs screen calls `JobsViewModel.markSeen()`
+    (a `LaunchedEffect(jobs)` so it re-marks on entry *and* on a completion while the
+    screen is open) → watermark advances → count drops to 0 and the bubble disappears.
+  - **Android OS notification** (`AndroidNotificationPresenter`, the first binding of the
+    commonMain `NotificationPresenter` seam; new `NotificationKind.JOB`, `job_runs`
+    channel, distinct success/error copy). `JobCompletionNotifier` observes the flow and
+    notifies each newly-noteworthy run, deduped by a persisted **notified** watermark.
+    The **first emission per process is a baseline** (advance the watermark, don't
+    notify) so the initial sync backfill of already-finished jobs doesn't storm.
+  - Both watermarks live in `JobNotificationPrefs` (Android `SharedPreferences` =
+    `job_notify_prefs`), mirroring `SyncWatermarkStore`. `JobBadge`/`JobCompletionNotifier`/
+    `JobNotificationPrefs` bind **only in `androidModule`** → null on desktop
+    (`JobsViewModel.badge` + `ChatScreen` resolve via `getOrNull`). The notifier is
+    started/stopped by the `WatchdogForegroundGate` (foreground-only, matching mobile
+    sync). No new permission (POST_NOTIFICATIONS already handled) and no foreground
+    service. Desktop already shows live job state, so it gets neither cue.
+- **Jobs list is sorted by last-run time (PR #85), both platforms.** `JobsViewModel.jobs`
+  maps the repo flow through `sortedWith(compareByDescending { lastRunAtEpochMs ?: Long.MIN_VALUE })`
+  — most-recently-run at the top, never-run jobs (null) at the bottom. The query is
+  creation-order and `sortedWith` is stable, so a brand-new unrun job lands at the very
+  bottom. Sorting in the shared VM covers desktop and mobile in one place.
 
 The numbered design sections below remain accurate for the scheduler/executor
 mechanics, persistence conventions, sync envelope reuse, Koin wiring, and the

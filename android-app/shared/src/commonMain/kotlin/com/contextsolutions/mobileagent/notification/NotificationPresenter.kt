@@ -28,7 +28,7 @@ interface NotificationPresenter {
 }
 
 /** What kind of event a notification represents — lets a presenter pick an icon/sound/urgency. */
-enum class NotificationKind { ALARM, TIMER, TASK, INFO }
+enum class NotificationKind { ALARM, TIMER, TASK, JOB, INFO }
 
 /**
  * A platform-agnostic notification payload. [id] namespaces the notification so

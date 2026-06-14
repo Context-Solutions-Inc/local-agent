@@ -78,6 +78,9 @@ val uiModule: Module = module {
             // Mobile binds a RemoteJobRunner (run-now over the link); desktop leaves
             // it null and uses the local admin. (PR #84)
             remoteRunner = getOrNull(),
+            // Mobile-only (PR #85): clears the chat-header unseen-completions badge
+            // when the Jobs screen is viewed. Null on desktop (no badge there).
+            badge = getOrNull(),
         )
     }
 }

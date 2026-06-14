@@ -9,6 +9,10 @@
     <string name="fgs_inference_title">Generating response…</string>
     <string name="fgs_inference_text">Tap to return to chat</string>
 
+    <!-- Job run completion notification (PR #85). -->
+    <string name="job_run_channel">Job results</string>
+    <string name="job_run_channel_desc">Posted when a scheduled job finishes running on your desktop.</string>
+
     <!-- Model download notification (PRD section 3.5). -->
     <string name="download_channel">Model download</string>
     <string name="download_channel_desc">Shown while the on-device model is downloading.</string>
