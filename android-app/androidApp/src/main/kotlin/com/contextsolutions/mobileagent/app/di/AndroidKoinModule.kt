@@ -126,6 +126,8 @@ import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
 import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.RelayRemoteJobRunner
+import com.contextsolutions.mobileagent.job.RemoteJobRunner
 import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.language.LanguagePreferences
 import com.contextsolutions.mobileagent.language.SharedPreferencesLanguagePreferences
@@ -347,6 +349,9 @@ val androidModule: Module = module {
         )
     }
     single { LinkSyncClient(get<LinkTransportProvider>()) }
+    // Mobile-only: run-now over the link (PR #84). Desktop runs jobs locally via
+    // JobService, so it leaves RemoteJobRunner unbound.
+    single<RemoteJobRunner> { RelayRemoteJobRunner(get<LinkTransportProvider>()) }
     single {
         SyncController(
             preferences = get(),

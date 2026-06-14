@@ -14,7 +14,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * Verifies the core PR #70 data flow on a POSIX host: a job runs its command with
  * the prompt passed as an argument, the response is captured, and a run
- * conversation (user = prompt, assistant = response) is created and linked to the
+ * conversation (user = job name, assistant = response) is created and linked to the
  * job's last run. Uses `echo`, so it's POSIX-only (skips on Windows).
  */
 class JobExecutorTest {
@@ -59,13 +59,13 @@ class JobExecutorTest {
         val convId = updated.lastRunConversationId
         assertTrue(convId != null, "last run conversation id is set")
 
-        // The conversation holds user = prompt, assistant = response (echoed prompt).
+        // The conversation holds user = job name, assistant = response (echoed prompt).
         val messages = conversations.loadMessages(convId!!)
         assertEquals(2, messages.size)
         val user = messages[0]
         val assistant = messages[1]
         assertTrue(user is ChatMessage.User)
-        assertEquals("hello from job", (user as ChatMessage.User).text)
+        assertEquals("echo job", (user as ChatMessage.User).text)
         assertTrue(assistant is ChatMessage.Assistant)
         assertEquals("hello from job", (assistant as ChatMessage.Assistant).text)
         assertEquals(true, assistant.renderMarkdown)

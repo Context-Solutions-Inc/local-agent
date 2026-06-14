@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -249,7 +251,23 @@ private fun JobRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val last = job.lastRunStatus
-            if (last != null) {
+            if (last == JobRunStatus.RUNNING) {
+                // Working indicator: a spinner while the run is in flight. On
+                // completion the row switches to the result text below (PR #84).
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = JobRunStatus.RUNNING.color(),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Running…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JobRunStatus.RUNNING.color(),
+                    )
+                }
+            } else if (last != null) {
                 Text(
                     text = buildString {
                         append(last.label())
@@ -268,14 +286,20 @@ private fun JobRow(
                 }
             }
         }
-        if (isAdmin) {
-            // Run-now is always available (except on a deleted/tombstoned job) so a
-            // job can be executed on demand at any time — before OR after its
-            // scheduled run — re-running into the SAME conversation thread. Edit and
-            // Delete are always active.
-            IconButton(onClick = onRunNow, enabled = job.deletedAtEpochMs == null) {
+        // Run-now is available wherever the job is controllable: desktop (admin)
+        // always, and mobile when the link is UP — the phone sends a RUN_JOB command
+        // to the desktop, which actually executes (PR #84). Disabled on a deleted job
+        // and while a run is already in flight. Edit/Delete stay desktop-only (a peer
+        // can't mutate a job definition).
+        if (canControl) {
+            IconButton(
+                onClick = onRunNow,
+                enabled = job.deletedAtEpochMs == null && job.lastRunStatus != JobRunStatus.RUNNING,
+            ) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Run now")
             }
+        }
+        if (isAdmin) {
             IconButton(onClick = onEdit) {
                 Icon(Icons.Filled.Edit, contentDescription = "Edit")
             }

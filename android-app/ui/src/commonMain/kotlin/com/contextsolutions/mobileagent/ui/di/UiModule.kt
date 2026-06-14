@@ -75,6 +75,9 @@ val uiModule: Module = module {
             lastSyncStatus = get(),
             linkStatusProvider = get(),
             admin = getOrNull(),
+            // Mobile binds a RemoteJobRunner (run-now over the link); desktop leaves
+            // it null and uses the local admin. (PR #84)
+            remoteRunner = getOrNull(),
         )
     }
 }

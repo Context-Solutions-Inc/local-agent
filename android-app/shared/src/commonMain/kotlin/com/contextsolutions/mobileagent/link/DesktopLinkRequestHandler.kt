@@ -33,6 +33,10 @@ class DesktopLinkRequestHandler(
     private val preferences: DesktopLinkPreferences,
     private val sessionProvider: suspend () -> InferenceSession,
     private val syncService: LinkSyncService,
+    // Run a job by id on demand (PR #84). Desktop binds this to the JobService;
+    // returns false when the id is unknown. Defaults to a no-op so non-desktop
+    // callers and existing tests compile unchanged.
+    private val runJob: suspend (String) -> Boolean = { false },
 ) : LinkRequestHandler {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -62,6 +66,15 @@ class DesktopLinkRequestHandler(
             val bundle = json.decodeFromString(SyncBundle.serializer(), request.body ?: "{}")
             syncService.applyFromPeer(bundle)
             LinkResponse(200, """{"ok":true}""")
+        }
+
+        LinkMethod.RUN_JOB -> {
+            val id = request.query["id"].orEmpty()
+            if (id.isNotBlank() && runJob(id)) {
+                LinkResponse(200, """{"ok":true}""")
+            } else {
+                LinkResponse(404, """{"error":"unknown job"}""")
+            }
         }
 
         LinkMethod.CHAT, LinkMethod.SYNC_SUBSCRIBE ->

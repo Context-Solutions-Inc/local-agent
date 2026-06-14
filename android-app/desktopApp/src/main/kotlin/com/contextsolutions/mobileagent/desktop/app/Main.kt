@@ -66,6 +66,8 @@ import com.contextsolutions.mobileagent.task.TaskQueue
 import com.contextsolutions.mobileagent.task.TaskRepository
 import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
+import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.JobService
 import com.contextsolutions.mobileagent.link.DesktopLinkRequestHandler
 import com.contextsolutions.mobileagent.link.DesktopLinkServer
 import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
@@ -228,10 +230,22 @@ fun main() {
     val subscription = koin.get<RelaySubscriptionService>()
     // The one implementation of each link route body, shared by the LAN server
     // and (in the relay follow-up) the relay frame dispatcher.
+    // PR #84 — a mobile peer may ask the desktop to run a job now (the phone can't
+    // spawn subprocesses). Guard on the id existing; the desktop is the authority.
+    val jobRepository = koin.get<JobRepository>()
+    val jobService = koin.get<JobService>()
     val linkHandler = DesktopLinkRequestHandler(
         preferences = desktopLinkPrefs,
         sessionProvider = { warmModel.session() },
         syncService = koin.get<LinkSyncService>(),
+        runJob = { id ->
+            if (jobRepository.get(id) != null) {
+                jobService.runNow(id)
+                true
+            } else {
+                false
+            }
+        },
     )
     val linkServer = DesktopLinkServer(
         onSubscribeCallback = { code -> subscription.handleClaimCode(code) },

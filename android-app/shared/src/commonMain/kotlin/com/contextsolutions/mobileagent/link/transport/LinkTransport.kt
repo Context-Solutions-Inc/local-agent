@@ -47,6 +47,9 @@ enum class LinkMethod(val streaming: Boolean) {
     SYNC_CHANGES(false),
     SYNC_UPSERT(false),
     SYNC_SUBSCRIBE(true),
+
+    /** Mobile asks the desktop to run a job now (PR #84); job id in `query["id"]`. */
+    RUN_JOB(false),
 }
 
 data class LinkRequest(

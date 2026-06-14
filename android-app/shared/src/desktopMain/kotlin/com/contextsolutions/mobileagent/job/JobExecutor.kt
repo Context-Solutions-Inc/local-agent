@@ -49,7 +49,10 @@ class JobExecutor(
         val convId = existing ?: "job-${newId()}".also {
             conversations.create(id = it, title = job.name, nowEpochMs = startedAt)
         }
-        conversations.appendMessage(convId, ChatMessage.User(job.prompt), startedAt)
+        // The conversation's user turn is the job NAME (the human-readable label),
+        // not the Command Argument (job.prompt) — the prompt is the command's input,
+        // the name is what reads sensibly in the chat thread (PR #84).
+        conversations.appendMessage(convId, ChatMessage.User(job.name), startedAt)
         jobs.insertRun(
             JobRun(
                 id = runId,
@@ -62,6 +65,17 @@ class JobExecutor(
                 response = null,
                 error = null,
             ),
+        )
+        // Surface RUNNING on the denormalized (synced) job row so the Jobs list shows
+        // a working indicator on BOTH desktop (reactive flow) and mobile (via sync)
+        // while the subprocess runs; the terminal recordLastRun below overwrites it.
+        jobs.recordLastRun(
+            id = job.id,
+            status = JobRunStatus.RUNNING,
+            atEpochMs = startedAt,
+            summary = null,
+            conversationId = convId,
+            nowEpochMs = startedAt,
         )
 
         val result = runCatching { runProcess(job) }.getOrElse { t ->

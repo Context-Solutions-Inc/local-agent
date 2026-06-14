@@ -8,6 +8,7 @@ import com.contextsolutions.mobileagent.job.Job
 import com.contextsolutions.mobileagent.job.JobAdmin
 import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.JobScheduleType
+import com.contextsolutions.mobileagent.job.RemoteJobRunner
 import com.contextsolutions.mobileagent.sync.LastSyncStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +36,9 @@ class JobsViewModel(
     private val lastSyncStatus: LastSyncStatus,
     linkStatusProvider: DesktopLinkStatusProvider,
     private val admin: JobAdmin? = null,
+    // Mobile-only: asks the desktop to run a job over the link (PR #84). Null on
+    // desktop, where the local [admin] runs jobs directly.
+    private val remoteRunner: RemoteJobRunner? = null,
 ) : ViewModel() {
 
     val jobs: StateFlow<List<Job>> = repository.flow()
@@ -113,6 +117,16 @@ class JobsViewModel(
     }
 
     fun runNow(id: String) {
-        admin?.runNow(id)
+        val a = admin
+        if (a != null) {
+            // Desktop: run locally.
+            a.runNow(id)
+            return
+        }
+        // Mobile: ask the desktop over the link. Online-only (button is gated on
+        // canControl, but guard here too).
+        val r = remoteRunner ?: return
+        if (linkStatus.value != DesktopLinkStatus.UP) return
+        viewModelScope.launch(Dispatchers.IO) { r.runNow(id) }
     }
 }
