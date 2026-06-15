@@ -91,4 +91,62 @@ class WeatherLocationResolverTest {
         assertNull(resolver.resolve("what's the weather today?"))
         assertNull(resolver.resolve(""))
     }
+
+    // -- resolveDetailed (PR #89: ambiguity-aware) ---------------------------
+
+    @Test
+    fun resolveDetailed_flags_ambiguous_city_without_qualifier() {
+        val r = resolver.resolveDetailed("what is the weather like in london")
+        val ambiguous = r as WeatherLocationResolver.Resolution.Ambiguous
+        assertEquals("London", ambiguous.city)
+        // Both Londons offered, no silent pick.
+        assertEquals(setOf("CA", "GB"), ambiguous.options.map { it.country }.toSet())
+    }
+
+    @Test
+    fun resolveDetailed_ambiguous_for_springfield() {
+        val r = resolver.resolveDetailed("weather in springfield")
+        val ambiguous = r as WeatherLocationResolver.Resolution.Ambiguous
+        assertEquals(setOf("IL", "MO"), ambiguous.options.map { it.regionCode }.toSet())
+    }
+
+    @Test
+    fun resolveDetailed_unique_when_state_qualifies() {
+        val r = resolver.resolveDetailed("weather in London, Ontario")
+        val unique = r as WeatherLocationResolver.Resolution.Unique
+        assertEquals("CA", unique.resolved.country)
+        assertEquals("ON", unique.resolved.regionCode)
+    }
+
+    @Test
+    fun resolveDetailed_unique_when_country_qualifies() {
+        // Full country name, alias, and code all disambiguate without a prompt.
+        assertEquals("GB", (resolver.resolveDetailed("weather in london england") as WeatherLocationResolver.Resolution.Unique).resolved.country)
+        assertEquals("GB", (resolver.resolveDetailed("weather in london uk") as WeatherLocationResolver.Resolution.Unique).resolved.country)
+        assertEquals("CA", (resolver.resolveDetailed("weather in london canada") as WeatherLocationResolver.Resolution.Unique).resolved.country)
+    }
+
+    @Test
+    fun resolveDetailed_does_not_use_onboarded_country_to_break_ties() {
+        // resolveDetailed takes no preferredCountry — a bare ambiguous city is
+        // ALWAYS ambiguous regardless of where the user onboarded.
+        assertEquals(
+            WeatherLocationResolver.Resolution.Ambiguous::class,
+            resolver.resolveDetailed("weather in london")::class,
+        )
+    }
+
+    @Test
+    fun resolveDetailed_unique_for_unambiguous_city() {
+        val r = resolver.resolveDetailed("weather in Toronto")
+        val unique = r as WeatherLocationResolver.Resolution.Unique
+        assertEquals("Toronto", unique.resolved.city)
+        assertEquals("ON", unique.resolved.regionCode)
+    }
+
+    @Test
+    fun resolveDetailed_none_when_no_city() {
+        assertEquals(WeatherLocationResolver.Resolution.None, resolver.resolveDetailed("what's the weather today?"))
+        assertEquals(WeatherLocationResolver.Resolution.None, resolver.resolveDetailed("the san diegans love sunshine"))
+    }
 }

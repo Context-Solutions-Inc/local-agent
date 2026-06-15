@@ -1,6 +1,8 @@
 package com.contextsolutions.mobileagent.search
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchSubtypeDetectorTest {
@@ -99,5 +101,27 @@ class SearchSubtypeDetectorTest {
         // like "CEO" / "ATM" must not trigger FINANCE.
         assertEquals(SearchSubtype.GENERAL, detector.detect("what does CEO stand for"))
         assertEquals(SearchSubtype.GENERAL, detector.detect("ATM near me"))
+    }
+
+    @Test
+    fun mentionsWeather_true_only_for_weather_vocabulary() {
+        // PR #89 — gates the WEATHER force-fire's catalog-city branch.
+        for (q in listOf(
+            "weather in london",
+            "what is the weather today for london",
+            "london forecast",
+            "is it raining in vancouver",
+            "temperature in new york",
+        )) {
+            assertTrue("expected weather mention: \"$q\"", SearchSubtypeDetector.mentionsWeather(q))
+        }
+        // City mentions with no weather word must NOT count — the reported bug.
+        for (q in listOf(
+            "what is the history of london",
+            "best restaurants in miami",
+            "how far is toronto from ottawa",
+        )) {
+            assertFalse("expected NO weather mention: \"$q\"", SearchSubtypeDetector.mentionsWeather(q))
+        }
     }
 }

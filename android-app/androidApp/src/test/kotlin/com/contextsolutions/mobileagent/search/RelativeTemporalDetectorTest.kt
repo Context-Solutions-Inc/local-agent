@@ -92,4 +92,33 @@ class RelativeTemporalDetectorTest {
         "now that i think about it", // no bare-"now" arm
         "how do tides work",
     )
+
+    // -- matchesPast (PR #89: WEATHER force-fire tense gate) -----------------
+
+    @Test
+    fun matchesPast_true_for_past_markers() {
+        for (q in listOf(
+            "what was the weather like in london last year",
+            "weather in miami yesterday",
+            "scores from last week",
+            "news from 3 days ago",
+            "what happened last night",
+        )) {
+            assertTrue("expected past match: \"$q\"", detector.matchesPast(q))
+        }
+    }
+
+    @Test
+    fun matchesPast_false_for_present_future_and_non_temporal() {
+        for (q in listOf(
+            "weather in london", // no temporal marker at all
+            "weather in london today",
+            "weather in london tomorrow",
+            "weather in london next week",
+            "what is the latest news", // recency, not past
+            "what is the history of london",
+        )) {
+            assertFalse("expected NO past match: \"$q\"", detector.matchesPast(q))
+        }
+    }
 }

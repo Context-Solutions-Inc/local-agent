@@ -191,6 +191,7 @@ class PreflightRouter(
             formatLogLine(
                 query,
                 decision,
+                thresholds = thresholds,
                 forcedExplicit = forcedExplicit,
                 forcedTemporal = !forcedExplicit && forceTemporal && pSearch <= thresholds.highBand,
             ),
@@ -201,6 +202,7 @@ class PreflightRouter(
     private fun formatLogLine(
         query: String,
         decision: PreflightDecision,
+        thresholds: PreflightThresholds,
         forcedExplicit: Boolean,
         forcedTemporal: Boolean,
     ): String {
@@ -212,6 +214,9 @@ class PreflightRouter(
         }
         val pSearch = decision.pSearchRequired
         val pStr = if (pSearch != null) " p_search_required=${pSearch.formatProb()}" else ""
+        // Surface the configured bands next to the score so it's clear how close
+        // pSearch landed to the high/low thresholds (#14 — they're tunable).
+        val bandsStr = " thresholds=[low=${thresholds.lowBand.formatProb()},high=${thresholds.highBand.formatProb()}]"
         val extra = when (decision) {
             is PreflightDecision.FireSearch ->
                 " subtype=${decision.subtype.name} rewritten=\"${redact(decision.rewrittenQuery)}\"" +
@@ -222,7 +227,7 @@ class PreflightRouter(
                     }
             else -> ""
         }
-        return "[preflight] decision=$name$pStr query=\"${redact(query)}\"$extra"
+        return "[preflight] decision=$name$pStr$bandsStr query=\"${redact(query)}\"$extra"
     }
 
     private fun Float.formatProb(): String {

@@ -88,6 +88,8 @@ import com.contextsolutions.mobileagent.platform.HttpEngineFactory
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
 import java.io.File
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -176,6 +178,9 @@ import org.koin.dsl.module
 // Lenient JSON for the bundled *_config.json / search_defaults.json assets,
 // matching androidModule's configJson (ignoreUnknownKeys + isLenient).
 private val configJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+// Wall-clock prefix for desktop stderr logs (no logcat off-device).
+private val AGENT_LOG_TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
 // Fallback when search_defaults.json can't be read (matches androidModule).
 private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}}}"""
@@ -632,6 +637,15 @@ val desktopModule: Module = module {
             isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
             cacheNamespace = "fin:",
         )
+    }
+
+    // AgentLogger is bound on Android (Log.i) but was unbound on desktop, so every
+    // AgentLoop "[turn] …" line (incl. the WEATHER force-fire decision) was silently
+    // dropped here. Bind it to timestamped stderr so the force-fire path is visible.
+    single<AgentLogger> {
+        AgentLogger { msg ->
+            System.err.println("[AgentLoop ${LocalTime.now().format(AGENT_LOG_TIME_FMT)}] $msg")
+        }
     }
 
     single {

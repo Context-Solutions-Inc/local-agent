@@ -24,10 +24,12 @@ import com.contextsolutions.mobileagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.mobileagent.preferences.UserLocation
 import com.contextsolutions.mobileagent.preferences.VerticalPreferences
 import com.contextsolutions.mobileagent.preferences.WeatherLocationResolver
+import com.contextsolutions.mobileagent.search.RelativeTemporalDetector
 import com.contextsolutions.mobileagent.search.SearchOutcome
 import com.contextsolutions.mobileagent.search.SearchService
 import com.contextsolutions.mobileagent.search.SearchSource
 import com.contextsolutions.mobileagent.search.SearchSubtype
+import com.contextsolutions.mobileagent.search.SearchSubtypeDetector
 import com.contextsolutions.mobileagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.mobileagent.telemetry.CounterNames
 import com.contextsolutions.mobileagent.telemetry.LatencyNames
@@ -144,6 +146,7 @@ class AgentLoop(
     private val inlineJobRunner: InlineJobRunner? = null,
     private val runJobDetector: RunJobDetector = RunJobDetector(),
     private val runJobResolver: RunJobResolver = RunJobResolver(),
+    private val temporalDetector: RelativeTemporalDetector = RelativeTemporalDetector(),
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -310,11 +313,26 @@ class AgentLoop(
         // Anything else (e.g. "...typically like in England") falls through to
         // the pre-flight classifier, which decides search-vs-LLM as usual.
         val bareWeatherRequest = BARE_WEATHER_PATTERN.matches(input.userMessage.trim())
+        // PR #89 — the catalog-city branch used to force-fire WEATHER whenever the
+        // message merely *mentioned* a resolvable city, so "what is the history of
+        // london" served the London, ON forecast. The branch now also requires:
+        //   (a) explicit weather vocabulary (SearchSubtypeDetector.mentionsWeather —
+        //       reuses the same lexicon the subtype router uses), AND
+        //   (b) that the question isn't about the PAST (RelativeTemporalDetector
+        //       .matchesPast — the relative-temporal classifier from #38), so
+        //       "what was the weather like in London last year" falls through to
+        //       the LLM instead of rendering the live forecast.
+        // Current/future weather still force-fires ("weather in London", "weather
+        // in London tomorrow"); historical weather and bare city mentions don't.
+        // The no-city "use my saved location" case stays on BARE_WEATHER_PATTERN.
+        val currentWeatherForCity = SearchSubtypeDetector.mentionsWeather(input.userMessage) &&
+            !temporalDetector.matchesPast(input.userMessage) &&
+            weatherLocationResolver?.resolve(input.userMessage) != null
         val deterministicWeather = !skipPreflight &&
             verticalDispatcher != null &&
             weatherLocationResolver != null &&
             searchService.isAvailable() &&
-            (bareWeatherRequest || weatherLocationResolver.resolve(input.userMessage) != null)
+            (bareWeatherRequest || currentWeatherForCity)
         // PR #48 — an image turn never fires search (the question is about the
         // photo). forceWeather is computed above but suppressed here so the
         // image branch wins. Falls through to the LLM with no [SEARCH CONTEXT],
@@ -381,7 +399,18 @@ class AgentLoop(
                 )
             }
             forceWeather -> {
-                logger("[turn] deterministic weather intent — forcing FireSearch(WEATHER)")
+                // Name WHY weather fired so a misfire (city mention with no weather
+                // intent, e.g. "history of london") is visible in the logs, and flag
+                // that this path skips the pre-flight classifier entirely.
+                val trigger = if (bareWeatherRequest) {
+                    "bare-weather-phrase"
+                } else {
+                    "catalog-city=${weatherLocationResolver?.resolve(input.userMessage)?.city}"
+                }
+                logger(
+                    "[turn] WEATHER force-fire (trigger=$trigger) — " +
+                        "bypassing pre-flight classifier; FireSearch(WEATHER)",
+                )
                 PreflightDecision.FireSearch(
                     originalQuery = input.userMessage,
                     rewrittenQuery = input.userMessage,
@@ -393,6 +422,23 @@ class AgentLoop(
         }
         when (decision) {
             is PreflightDecision.FireSearch -> {
+                // PR #89 — a PAST-tense weather question ("what was the weather
+                // like in London last year") can still reach here as subtype
+                // WEATHER via the pre-flight temporal force-fire (#38) even though
+                // the deterministic force-fire above already excluded it. The
+                // WEATHER vertical only fetches the LIVE forecast and the
+                // deterministic card would answer the wrong period, so downgrade
+                // it to GENERAL: run a normal web search and let the LLM
+                // synthesize. Current/future weather keeps the WEATHER vertical.
+                val effectiveSubtype =
+                    if (decision.subtype == SearchSubtype.WEATHER &&
+                        temporalDetector.matchesPast(input.userMessage)
+                    ) {
+                        logger("[turn] past-tense weather query — routing GENERAL instead of the live-forecast vertical")
+                        SearchSubtype.GENERAL
+                    } else {
+                        decision.subtype
+                    }
                 // PR #37 — WEATHER pre-resolution. Onboarding captures only the
                 // country, so the city + state/province comes from this turn's
                 // query (or, failing that, a saved location memory). When
@@ -404,25 +450,48 @@ class AgentLoop(
                 var weatherPrefsOverride: VerticalPreferences? = null
                 var weatherLocationOverride: UserLocation? = null
                 var weatherGpsOverride: GpsCoordinates? = null
-                if (decision.subtype == SearchSubtype.WEATHER && weatherLocationResolver != null) {
+                if (effectiveSubtype == SearchSubtype.WEATHER && weatherLocationResolver != null) {
                     val basePrefs = searchPreferences?.snapshot() ?: VerticalPreferences()
                     val storedCountry = searchPreferences?.location()?.country
-                    // Resolution order: the user's own words (remembered) →
-                    // the rewritten query (covers QueryRewriter's "where I
-                    // live" possessive substitution) → and ONLY for a tight
-                    // bare-weather request ("what's the weather") the saved
-                    // location memory. A query that named a place we couldn't
-                    // resolve must NOT silently fall back to the saved
-                    // location (that wrongly answered "weather typically like
-                    // in England" with the saved city).
-                    val explicit = weatherLocationResolver.resolve(input.userMessage, storedCountry)
-                    val resolved = explicit
+                    // Resolution order: the user's own words → the rewritten
+                    // query (QueryRewriter's "where I live" possessive) → and
+                    // ONLY for a tight bare-weather request ("what's the
+                    // weather") the saved location memory. A query that named a
+                    // place we couldn't resolve must NOT silently fall back to
+                    // the saved location ("weather typically like in England").
+                    //
+                    // PR #89 — when the query names an AMBIGUOUS city (London ON
+                    // vs London England), don't assume: disambiguate from a
+                    // saved location memory, else prompt the user to be specific.
+                    // The onboarded country is NOT used to break the tie.
+                    var resolvedFromQuery: WeatherLocationResolver.Resolved? = null
+                    var rememberFromQuery: WeatherLocationResolver.Resolved? = null
+                    when (val detailed = weatherLocationResolver.resolveDetailed(input.userMessage)) {
+                        is WeatherLocationResolver.Resolution.Unique -> {
+                            resolvedFromQuery = detailed.resolved
+                            rememberFromQuery = detailed.resolved
+                        }
+                        is WeatherLocationResolver.Resolution.Ambiguous -> {
+                            val fromMemory = resolveWeatherLocationFromMemory(retrievedMemories, storedCountry)
+                            val pick = fromMemory?.let { mem -> detailed.options.firstOrNull { it.samePlaceAs(mem) } }
+                            if (pick != null) {
+                                logger("[turn] weather: ambiguous city '${detailed.city}' resolved from saved location — ${pick.regionCode}/${pick.country}")
+                                resolvedFromQuery = pick
+                            } else {
+                                logger("[turn] weather: ambiguous city '${detailed.city}' (${detailed.options.size} places), no saved-location match — prompting")
+                                emitWeatherDisambiguationPrompt(input.userMessage, detailed)
+                                return@channelFlow
+                            }
+                        }
+                        WeatherLocationResolver.Resolution.None -> Unit
+                    }
+                    val resolved = resolvedFromQuery
                         ?: weatherLocationResolver.resolve(decision.rewrittenQuery, storedCountry)
                         ?: if (bareWeatherRequest) resolveWeatherLocationFromMemory(retrievedMemories, storedCountry) else null
                     when {
                         resolved != null -> {
                             weatherCity = resolved.city
-                            weatherLocationToRemember = explicit?.let { "I live in ${it.city}, ${it.regionName}" }
+                            weatherLocationToRemember = rememberFromQuery?.let { "I live in ${it.city}, ${it.regionName}" }
                             val weatherSources =
                                 if (defaultSiteResolver != null && !resolved.country.equals(storedCountry, ignoreCase = true)) {
                                     defaultSiteResolver.defaultsFor(resolved.country).weather
@@ -437,7 +506,7 @@ class AgentLoop(
                                 "[turn] weather location city=${resolved.city} " +
                                     "region=${resolved.regionCode} country=${resolved.country} " +
                                     "lat=${resolved.coords.latitude} lon=${resolved.coords.longitude} " +
-                                    "fromQuery=${explicit != null}",
+                                    "fromQuery=${resolvedFromQuery != null}",
                             )
                         }
                         bareWeatherRequest -> {
@@ -482,7 +551,7 @@ class AgentLoop(
                         }
                     }
                     verticalDispatcher.fetch(
-                        subtype = decision.subtype,
+                        subtype = effectiveSubtype,
                         query = decision.rewrittenQuery,
                         prefs = prefs,
                         location = location,
@@ -501,7 +570,7 @@ class AgentLoop(
                 // outcome isn't Success), falls through to the legacy
                 // [SEARCH CONTEXT] + LLM path so non-CA weather and any
                 // future weather sources still get answered.
-                if (decision.subtype == SearchSubtype.WEATHER &&
+                if (effectiveSubtype == SearchSubtype.WEATHER &&
                     outcome is SearchOutcome.Success &&
                     weatherResponseFormatter != null
                 ) {
@@ -540,7 +609,7 @@ class AgentLoop(
                 // card from a Brave `stocks` rich quote, bypassing Gemma. On a
                 // fallback web-snippet payload the formatter returns null and we
                 // fall through to the [SEARCH CONTEXT] → LLM path below.
-                if (decision.subtype == SearchSubtype.FINANCE &&
+                if (effectiveSubtype == SearchSubtype.FINANCE &&
                     outcome is SearchOutcome.Success &&
                     stockResponseFormatter != null
                 ) {
@@ -571,7 +640,7 @@ class AgentLoop(
                     }
                 }
 
-                val subtypeLabel = decision.subtype.name.lowercase()
+                val subtypeLabel = effectiveSubtype.name.lowercase()
                 val rawBody = when (outcome) {
                     is SearchOutcome.Success -> {
                         citationsForTurn.addAll(outcome.payload.sources)
@@ -1202,7 +1271,41 @@ class AgentLoop(
      * mangles structured weather and can't know the user's location anyway).
      */
     private suspend fun ProducerScope<AgentEvent>.emitWeatherLocationPrompt(userMessageText: String) {
-        val message = WEATHER_LOCATION_PROMPT_TEXT
+        emitWeatherText(userMessageText, WEATHER_LOCATION_PROMPT_TEXT)
+    }
+
+    /**
+     * PR #89 — the city the user named maps to >1 catalog place (London ON vs
+     * London England) and we have no saved location to disambiguate, so ask
+     * which one, listing the specific options.
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitWeatherDisambiguationPrompt(
+        userMessageText: String,
+        ambiguous: WeatherLocationResolver.Resolution.Ambiguous,
+    ) {
+        emitWeatherText(userMessageText, buildWeatherDisambiguationText(ambiguous))
+    }
+
+    /** Builds the "did you mean A or B?" text from the ambiguous options. Uses
+     *  the catalog to spell out the country; falls back to the code. */
+    private fun buildWeatherDisambiguationText(
+        ambiguous: WeatherLocationResolver.Resolution.Ambiguous,
+    ): String {
+        val opts = ambiguous.options.take(MAX_DISAMBIGUATION_OPTIONS)
+        val label = { r: WeatherLocationResolver.Resolved ->
+            val countryName = locationCatalog?.country(r.country)?.name ?: r.country
+            "${r.city}, ${r.regionName} ($countryName)"
+        }
+        val choices = when (opts.size) {
+            2 -> "${label(opts[0])} or ${label(opts[1])}"
+            else -> opts.dropLast(1).joinToString(", ") { label(it) } + ", or " + label(opts.last())
+        }
+        val example = opts.first().let { "${it.city}, ${it.regionName}" }
+        return "There's more than one place called ${ambiguous.city}. " +
+            "Did you mean $choices? Tell me which — for example, \"weather in $example\"."
+    }
+
+    private suspend fun ProducerScope<AgentEvent>.emitWeatherText(userMessageText: String, message: String) {
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
@@ -1692,6 +1795,10 @@ class AgentLoop(
             "Which city would you like the weather for? Tell me the city and " +
                 "state or province — for example, \"weather in Miami, Florida\" " +
                 "or \"weather in Toronto, Ontario\"."
+
+        // Cap the places listed in the disambiguation prompt (e.g. the many
+        // Springfields) so the message stays short. PR #89.
+        const val MAX_DISAMBIGUATION_OPTIONS: Int = 3
 
         const val CLOCK_GUIDANCE_TEXT: String =
             "Sorry, I didn't quite understand that clock command. Try " +

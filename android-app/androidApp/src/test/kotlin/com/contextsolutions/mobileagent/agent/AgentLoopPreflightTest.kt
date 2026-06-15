@@ -17,6 +17,14 @@ import com.contextsolutions.mobileagent.inference.HistoryRole
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.SamplingParams
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.memory.EmbedderAccelerator
+import com.contextsolutions.mobileagent.memory.EmbedderEngine
+import com.contextsolutions.mobileagent.memory.EmbedderOutput
+import com.contextsolutions.mobileagent.memory.Memory
+import com.contextsolutions.mobileagent.memory.MemoryCategory
+import com.contextsolutions.mobileagent.memory.MemoryHit
+import com.contextsolutions.mobileagent.memory.MemoryRetriever
+import com.contextsolutions.mobileagent.memory.MemoryStore
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.GpsCoordinates
 import com.contextsolutions.mobileagent.preferences.LocationCatalog
@@ -494,6 +502,72 @@ class AgentLoopPreflightTest {
     }
 
     @Test
+    fun city_mention_without_weather_word_does_not_fire_weather() = runTest {
+        // PR #89 — "what is the history of Miami" names a catalog city but is not a
+        // weather question. It must NOT render a forecast; it reaches the LLM.
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Miami was founded in 1896..."))
+        // Low p_search so nothing else fires either — isolates the weather gate.
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(0f, 5f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what is the history of Miami")).toList()
+
+        assertTrue("weather adapter must not be hit", adapter.callCount == 0)
+        assertTrue("engine must run — not a weather turn", session.requests.isNotEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
+        assertFalse("must not ask for a city", done.message.text == AgentLoop.WEATHER_LOCATION_PROMPT_TEXT)
+    }
+
+    @Test
+    fun historical_weather_question_for_city_falls_through_to_llm() = runTest {
+        // PR #89 — weather word + catalog city, BUT a PAST temporal marker
+        // ("last year"). Historical weather isn't the live forecast, so it must
+        // reach the LLM rather than render the deterministic bubble.
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Miami last year was warm..."))
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(0f, 5f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what was the weather like in Miami last year")).toList()
+
+        assertTrue("weather adapter must not be hit", adapter.callCount == 0)
+        assertTrue("engine must run — historical weather goes to the LLM", session.requests.isNotEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
+    }
+
+    @Test
+    fun current_weather_for_city_with_future_marker_still_fires() = runTest {
+        // PR #89 regression guard — a present/future weather question for a
+        // catalog city still force-fires the deterministic forecast path.
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(0f, 5f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what's the weather in Miami tomorrow")).toList()
+
+        assertEquals(25.7617, adapter.lastGps?.latitude)
+        assertTrue("engine untouched on weather direct path", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertTrue("rendered weather bubble", done.message.text.contains("Weather for Miami"))
+    }
+
+    @Test
     fun general_weather_question_is_not_hijacked_by_the_weather_path() = runTest {
         val adapter = CapturingWeatherAdapter()
         val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
@@ -515,6 +589,132 @@ class AgentLoopPreflightTest {
         val done = events.filterIsInstance<AgentEvent.Done>().single()
         assertFalse("must not ask for a city", done.message.text == AgentLoop.WEATHER_LOCATION_PROMPT_TEXT)
         assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
+    }
+
+    @Test
+    fun ambiguous_city_without_saved_location_prompts_to_disambiguate() = runTest {
+        // PR #89 — "weather in london" maps to London ON and London England.
+        // With no saved location we must NOT guess; we prompt, listing both.
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherLocationLoop(session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US")
+
+        val events = loop.run(AgentTurnInput("what is the weather like in london")).toList()
+
+        assertTrue("adapter must not be hit", adapter.callCount == 0)
+        assertTrue("engine must not run — we prompt", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertTrue("names the ambiguity\n${done.message.text}", done.message.text.contains("more than one place called London"))
+        assertTrue("offers London, Ontario", done.message.text.contains("London, Ontario"))
+        assertTrue("offers London, England", done.message.text.contains("London, England"))
+        assertNull("nothing to remember when ambiguous", done.locationToRemember)
+    }
+
+    @Test
+    fun ambiguous_city_resolved_from_saved_location_memory_renders_weather() = runTest {
+        // PR #89 — a saved "I live in London, Ontario" memory disambiguates the
+        // same ambiguous query without a prompt.
+        val adapter = CapturingWeatherAdapter()
+        val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
+        val dispatcher = VerticalSearchDispatcher(
+            adapters = mapOf(SearchSubtype.WEATHER to adapter),
+            generalAdapter = GeneralSearchAdapter(service),
+        )
+        val session = RecordingSession(FakeSession(emitText = "Gemma should NOT speak."))
+        val loop = buildWeatherLocationLoopWithMemory(
+            session, service, dispatcher, floatArrayOf(5f, 0f, 0f), storedCountry = "US",
+            memories = listOf(memory("I live in London, Ontario")),
+        )
+
+        val events = loop.run(AgentTurnInput("what is the weather like in london")).toList()
+
+        // Disambiguated to London, ON → Environment Canada source + ON coords.
+        assertEquals(42.9849, adapter.lastGps?.latitude)
+        assertEquals("weather.gc.ca", adapter.lastPrefs?.weather?.firstOrNull()?.domain)
+        assertTrue("engine untouched on weather direct path", session.requests.isEmpty())
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertTrue("rendered London weather\n${done.message.text}", done.message.text.contains("Weather for London"))
+        assertNull("already saved — don't re-propose remembering it", done.locationToRemember)
+    }
+
+    private fun memory(text: String): Memory = Memory(
+        id = text.hashCode().toString(),
+        text = text,
+        category = MemoryCategory.PERSONAL_IDENTITY,
+        conversationId = null,
+        createdAtEpochMs = 1_000L,
+        lastAccessedEpochMs = 1_000L,
+        accessCount = 0,
+        embedding = FloatArray(Memory.EMBEDDING_DIM) { 0f },
+        expiresAtEpochMs = null,
+    )
+
+    private fun buildWeatherLocationLoopWithMemory(
+        session: InferenceSession,
+        searchService: SearchService,
+        verticalDispatcher: VerticalSearchDispatcher,
+        preflightLogits: FloatArray,
+        storedCountry: String,
+        memories: List<Memory>,
+    ): AgentLoop {
+        val assembler = PromptAssembler(timeContextProvider = { timeContext })
+        val router = PreflightRouter(
+            engine = StubClassifierEngine(preflightLogits),
+            tokenizer = WordPieceTokenizer(stubVocab),
+            rewriter = QueryRewriter { timeContext },
+            configProvider = { PreflightConfig.DEFAULT },
+            searchAvailableProvider = { searchService.isAvailable() },
+            logger = {},
+        )
+        val catalog = LocationCatalog(weatherCatalogJson)
+        return AgentLoop(
+            session = session,
+            assembler = assembler,
+            searchService = searchService,
+            preflightRouter = router,
+            memoryRetriever = MemoryRetriever(
+                embedder = AlwaysReadyEmbedder(),
+                store = SeededMemoryStore(memories),
+                nowProvider = { 1_000L },
+            ),
+            verticalDispatcher = verticalDispatcher,
+            searchPreferences = FakeSearchPreferences(storedCountry),
+            locationCatalog = catalog,
+            weatherLocationResolver = WeatherLocationResolver(catalog),
+            defaultSiteResolver = DefaultSiteResolver(weatherDefaultsJson),
+            weatherResponseFormatter = WeatherResponseFormatter,
+        )
+    }
+
+    private class AlwaysReadyEmbedder : EmbedderEngine {
+        override val isLoaded: Boolean = true
+        override suspend fun warmUp(): EmbedderAccelerator = EmbedderAccelerator.CPU
+        override suspend fun embed(text: String): EmbedderOutput =
+            EmbedderOutput(FloatArray(Memory.EMBEDDING_DIM) { 0f })
+        override suspend fun unload() = Unit
+    }
+
+    private class SeededMemoryStore(private val memories: List<Memory>) : MemoryStore {
+        override suspend fun insert(memory: Memory) = Unit
+        override suspend fun deleteById(id: String) = Unit
+        override suspend fun deleteByCosine(embedding: FloatArray, threshold: Double, now: Long): Memory? = null
+        override suspend fun retrieveTopK(
+            queryEmbedding: FloatArray,
+            k: Int,
+            threshold: Double,
+            now: Long,
+        ): List<MemoryHit> = memories.take(k).map { MemoryHit(it, similarity = 0.9) }
+        override suspend fun findCosineMatch(embedding: FloatArray, threshold: Double, now: Long): Memory? = null
+        override suspend fun count(now: Long): Int = memories.size
+        override suspend fun listForConversation(conversationId: String): List<Memory> = emptyList()
+        override suspend fun countForConversation(conversationId: String): Int = 0
+        override suspend fun listAll(): List<Memory> = memories
+        override suspend fun deleteAll() = Unit
     }
 
     private fun buildWeatherLocationLoop(
@@ -780,7 +980,13 @@ class AgentLoopPreflightTest {
                 {"code":"FL","name":"Florida","cities":[{"name":"Miami","lat":25.7617,"lon":-80.1918}]}
               ]},
               {"code":"CA","name":"Canada","regions":[
-                {"code":"ON","name":"Ontario","cities":[{"name":"Toronto","lat":43.6532,"lon":-79.3832}]}
+                {"code":"ON","name":"Ontario","cities":[
+                  {"name":"Toronto","lat":43.6532,"lon":-79.3832},
+                  {"name":"London","lat":42.9849,"lon":-81.2453}
+                ]}
+              ]},
+              {"code":"GB","name":"United Kingdom","regions":[
+                {"code":"ENG","name":"England","cities":[{"name":"London","lat":51.5074,"lon":-0.1278}]}
               ]}
             ]}
         """.trimIndent()
