@@ -334,6 +334,33 @@ next loop mints a fresh QR that re-pairs into the same slot. This removes the "U
 the slot" desktop-restart workaround. Watch for `host: saved pairing found (pairId=…); reconnecting
 without re-pairing` then `[Relay] reconnected to existing pairing; serving framed link requests`.
 
+**Desktop — "Pair Now" on-demand QR (PR #92).** The relay pairing **token is only valid ~300s**, but
+the desktop used to **auto-mint** it (and start the await window) the moment a subscription went
+active / the app started clean / the user Disconnected — so the QR on screen was usually stale before
+anyone tried to scan it. PR #92 gates the mint behind an explicit **"Pair Now"** button: nothing is
+minted until the user clicks, the QR then shows for one 300s window with a **live countdown**, and on
+expiry it auto-hides so the button returns (mint a fresh code on demand). Pieces:
+
+- **`RelayPairingInitiator`** seam (commonMain, mirrors `RelayDisconnector`): desktop binds
+  `DesktopRelayHost`, mobile/iOS bind `NoOpRelayPairingInitiator` (the phone scans a QR, never mints).
+- **`DesktopRelayHost`** implements it via a `pairRequests: SharedFlow<Unit>` (`requestPairing()` →
+  `tryEmit`) and a `companion PAIRING_WINDOW` (5 min ≈ the token validity), reused for `awaitPairing`.
+- **`Main.kt`** relay lifecycle: the no-reconnect branch no longer auto-mints. It clears the QR
+  (button state), then loops `pairRequests.first()` → `generatePairingQr()` + publish
+  `relayQrExpiresAt = now + PAIRING_WINDOW` → `awaitPairing(PAIRING_WINDOW)`; on success
+  `connectAndServe()` + break, on timeout `close()` (drop the half-open client → next mint is fresh)
+  and loop back to the button. **The reconnect path is untouched** — a paired phone still reconnects
+  silently with no button (PR #91), so "Pair Now" only appears for fresh/`UNPAIRED` states.
+- **`DesktopLinkQrProvider`** gains `qrExpiresAtEpochMs` (published alongside the payload via
+  `set(payload, expiresAt)`); `SettingsViewModel.requestPairing()` + `SettingsUiState.
+  desktopLinkQrExpiresAtEpochMs`; the desktop `DesktopLinkPairingControls` renders the **Pair Now**
+  button (when `subscription.isActive && mobilePresence == UNPAIRED && payload == null`) and a
+  1s-ticker countdown read off the published deadline (so it can't outlive the host's real timeout).
+
+No DB migration, no gateway/SDK change. Watch for `host: pairing requested (Pair Now)` then
+`[Relay] pairing QR ready; awaiting phone (300s)…`, and on expiry `[Relay] pairing window expired;
+showing Pair Now again`.
+
 ## UX + robustness (relay UX commit)
 
 - **Transport-aware status.** The "Mobile/Desktop Agent Connection" sections name the transport —

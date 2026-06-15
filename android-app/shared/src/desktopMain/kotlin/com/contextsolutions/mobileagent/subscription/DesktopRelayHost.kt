@@ -15,8 +15,12 @@ import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,10 +47,25 @@ class DesktopRelayHost(
     private val relayWsUrl: String,
     private val keyStorePath: Path,
     private val logger: (String) -> Unit = {},
-) : RelayDisconnector {
+) : RelayDisconnector, RelayPairingInitiator {
     private var client: DesktopClient? = null
     private var pipe: DesktopRelayBytePipe? = null
     private var stateJob: Job? = null
+
+    // PR #92 — a user "Pair Now" click emits here; the relay lifecycle (Main.kt) collects
+    // it to mint a fresh QR + await pairing instead of auto-minting on subscribe/startup/
+    // disconnect (the pairing token is only valid ~PAIRING_WINDOW, so an auto-shown QR is
+    // usually stale). replay=0 + a 1-slot buffer drops a click while one is in flight.
+    private val _pairRequests = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val pairRequests: SharedFlow<Unit> = _pairRequests.asSharedFlow()
+
+    override fun requestPairing() {
+        logger("host: pairing requested (Pair Now)")
+        _pairRequests.tryEmit(Unit)
+    }
 
     private val _state = MutableStateFlow(LinkConnectionState.DISABLED)
     val state: StateFlow<LinkConnectionState> = _state.asStateFlow()
@@ -288,5 +307,14 @@ class DesktopRelayHost(
         client = null
         pipe = null
         _state.value = LinkConnectionState.DISABLED
+    }
+
+    companion object {
+        /**
+         * The pairing window: how long a minted QR is shown + how long [awaitPairing] waits.
+         * Matches the relay pairing token's ~300s validity so the on-screen countdown can't
+         * outlive the token (PR #92).
+         */
+        val PAIRING_WINDOW: Duration = Duration.ofMinutes(5)
     }
 }

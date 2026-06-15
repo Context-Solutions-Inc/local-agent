@@ -27,6 +27,7 @@ import com.contextsolutions.mobileagent.preferences.OllamaPreferences
 import com.contextsolutions.mobileagent.search.SearchCacheDao
 import com.contextsolutions.mobileagent.subscription.SubscriptionState
 import com.contextsolutions.mobileagent.subscription.RelayDisconnector
+import com.contextsolutions.mobileagent.subscription.RelayPairingInitiator
 import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
 import com.contextsolutions.mobileagent.telemetry.TelemetryConsentManager
 import com.contextsolutions.mobileagent.telemetry.TelemetryUploader
@@ -66,6 +67,7 @@ class SettingsViewModel(
     private val desktopLinkConnectionStatus: DesktopLinkConnectionStatus,
     private val subscription: SubscriptionUiController,
     private val relayDisconnector: RelayDisconnector,
+    private val relayPairingInitiator: RelayPairingInitiator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -102,6 +104,10 @@ class SettingsViewModel(
             .launchIn(viewModelScope)
         desktopLinkQrProvider.qrPayload
             .onEach { p -> _state.update { it.copy(desktopLinkQrPayload = p) } }
+            .launchIn(viewModelScope)
+        // PR #92 — mirror the shown QR's expiry so the desktop renders a live countdown.
+        desktopLinkQrProvider.qrExpiresAtEpochMs
+            .onEach { e -> _state.update { it.copy(desktopLinkQrExpiresAtEpochMs = e) } }
             .launchIn(viewModelScope)
         desktopLinkConnectionStatus.mobileConnected
             .onEach { c -> _state.update { it.copy(mobileConnected = c) } }
@@ -187,6 +193,13 @@ class SettingsViewModel(
     fun disconnectMobileDevice() {
         viewModelScope.launch { relayDisconnector.disconnect() }
     }
+
+    /**
+     * Desktop side (PR #92): the user clicked "Pair Now". Ask the relay host to mint a
+     * fresh pairing QR for the next ~300s window (no-op on mobile). The minted QR + its
+     * expiry flow back through [desktopLinkQrProvider].
+     */
+    fun requestPairing() = relayPairingInitiator.requestPairing()
 
     fun saveBraveKey(key: String) {
         val trimmed = key.trim()
@@ -480,6 +493,7 @@ class SettingsViewModel(
             desktopLinkConfig = desktopLinkPreferences.config(),
             desktopLinkStatus = desktopLinkStatusProvider.status.value,
             desktopLinkQrPayload = desktopLinkQrProvider.qrPayload.value,
+            desktopLinkQrExpiresAtEpochMs = desktopLinkQrProvider.qrExpiresAtEpochMs.value,
             mobileConnected = desktopLinkConnectionStatus.mobileConnected.value,
             mobileConnectionKind = desktopLinkConnectionStatus.connectionKind.value,
             mobilePresence = desktopLinkConnectionStatus.presence.value,
@@ -526,6 +540,8 @@ data class SettingsUiState(
     val desktopLinkStatus: DesktopLinkStatus = DesktopLinkStatus.DISABLED,
     /** Desktop-only: the pairing-QR payload to render (null on mobile). */
     val desktopLinkQrPayload: String? = null,
+    /** Desktop-only (PR #92): epoch-ms the shown QR expires, for the countdown (null = no QR). */
+    val desktopLinkQrExpiresAtEpochMs: Long? = null,
     /** Desktop-only: whether a paired phone is currently connected to this desktop. */
     val mobileConnected: Boolean = false,
     /** Desktop-only: which transport the connected phone is on (LAN vs gateway/relay). */

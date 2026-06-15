@@ -530,6 +530,7 @@ fun SettingsScreen(
                 onScanned = { viewModel.applyScannedLink(it) },
                 onUnpair = { viewModel.unpairDesktop() },
                 onDisconnectMobile = { viewModel.disconnectMobileDevice() },
+                onPairNow = { viewModel.requestPairing() },
                 showUpgrade = viewModel.subscriptionAvailable,
                 onUpgrade = { viewModel.upgradeToAnywhereAccess() },
                 onManageSubscription = { viewModel.openSubscriptionSettings() },
@@ -618,6 +619,7 @@ private fun DesktopLinkSection(
     onScanned: (String) -> Unit,
     onUnpair: () -> Unit,
     onDisconnectMobile: () -> Unit,
+    onPairNow: () -> Unit = {},
     showUpgrade: Boolean = false,
     onUpgrade: () -> Unit = {},
     onManageSubscription: () -> Unit = {},
@@ -653,7 +655,12 @@ private fun DesktopLinkSection(
         Spacer(Modifier.height(8.dp))
         ConnectedMobileRow(state = state, onDisconnect = onDisconnectMobile)
         Spacer(Modifier.height(8.dp))
-        DesktopLinkPairingControls(state = state, onScanned = onScanned, onUnpair = onUnpair)
+        DesktopLinkPairingControls(
+            state = state,
+            onScanned = onScanned,
+            onUnpair = onUnpair,
+            onPairNow = onPairNow,
+        )
     } else {
         SectionHeaderWithToggle(
             title = "Desktop Agent Connection",
@@ -670,7 +677,12 @@ private fun DesktopLinkSection(
         Spacer(Modifier.height(8.dp))
         DesktopLinkStatusRow(state)
         Spacer(Modifier.height(8.dp))
-        DesktopLinkPairingControls(state = state, onScanned = onScanned, onUnpair = onUnpair)
+        DesktopLinkPairingControls(
+            state = state,
+            onScanned = onScanned,
+            onUnpair = onUnpair,
+            onPairNow = onPairNow,
+        )
     }
 }
 

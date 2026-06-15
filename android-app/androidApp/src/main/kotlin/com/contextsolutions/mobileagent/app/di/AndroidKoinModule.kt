@@ -84,9 +84,11 @@ import com.contextsolutions.mobileagent.preferences.DataStoreSearchPreferencesRe
 import com.contextsolutions.mobileagent.preferences.DefaultSiteResolver
 import com.contextsolutions.mobileagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.OllamaPreferences
+import com.contextsolutions.mobileagent.subscription.NoOpRelayPairingInitiator
 import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionPreferences
 import com.contextsolutions.mobileagent.subscription.NoOpSubscriptionUiController
 import com.contextsolutions.mobileagent.subscription.RelayDisconnector
+import com.contextsolutions.mobileagent.subscription.RelayPairingInitiator
 import com.contextsolutions.mobileagent.subscription.RelayUnpairDisconnector
 import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
 import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
@@ -275,6 +277,8 @@ val androidModule: Module = module {
     single<SubscriptionUiController> { NoOpSubscriptionUiController() }
     // Mobile "Unpair" revokes the relay pairing at the gateway via the live MobileClient.
     single<RelayDisconnector> { RelayUnpairDisconnector(get<LinkTransportProvider>()) }
+    // Mobile never mints a desktop pairing QR (PR #92) — no-op initiator.
+    single<RelayPairingInitiator> { NoOpRelayPairingInitiator }
     single { OllamaClient(get<HttpEngineFactory>(), get<SecureStorage>(), logger = { Log.i("OllamaClient", it) }) }
     single {
         OllamaConnectionMonitor(

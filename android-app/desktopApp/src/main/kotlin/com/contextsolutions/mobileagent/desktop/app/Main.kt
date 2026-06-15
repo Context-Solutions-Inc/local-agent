@@ -95,7 +95,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -107,7 +109,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Duration
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import java.io.RandomAccessFile
@@ -268,13 +269,15 @@ fun main() {
     // `magent://` QR — the relay is the only pairing path, so an unsubscribed desktop
     // shows no QR at all.
     val relayQrPayload = MutableStateFlow<String?>(null)
+    // Epoch-ms the shown QR expires (now + PAIRING_WINDOW), published alongside the payload
+    // so the desktop UI can render a live countdown (PR #92); null whenever no QR is shown.
+    val relayQrExpiresAt = MutableStateFlow<Long?>(null)
     appScope.launch {
         runCatching {
             linkServer.start() // serves /ping + the Stripe /subscribe/callback (loopback)
-            // relayQrPayload is a StateFlow (already conflated/distinct) → collect directly.
-            relayQrPayload
-                .onEach { payload ->
-                    koin.get<MutableDesktopLinkQr>().set(payload)
+            combine(relayQrPayload, relayQrExpiresAt) { payload, expiresAt -> payload to expiresAt }
+                .onEach { (payload, expiresAt) ->
+                    koin.get<MutableDesktopLinkQr>().set(payload, expiresAt)
                     System.err.println("[DesktopLink] pairing QR ${if (payload != null) "ready" else "unavailable"}")
                 }
                 .launchIn(appScope)
@@ -300,6 +303,7 @@ fun main() {
                 relayHost.close()
                 if (!active) {
                     relayQrPayload.value = null
+                    relayQrExpiresAt.value = null
                     return@collectLatest
                 }
                 runCatching {
@@ -309,13 +313,39 @@ fun main() {
                         // re-pair when there's no saved pairing or the reconnect fails.
                         if (relayHost.reconnect(linkHandler, appScope)) {
                             relayQrPayload.value = null
+                            relayQrExpiresAt.value = null
                             System.err.println("[Relay] reconnected to existing pairing; serving framed link requests")
                         } else {
-                            relayQrPayload.value = relayHost.generatePairingQr()
-                            System.err.println("[Relay] pairing QR ready; awaiting phone…")
-                            relayHost.awaitPairing(Duration.ofMinutes(5))
-                            relayHost.connectAndServe(linkHandler, appScope)
-                            System.err.println("[Relay] connected; serving framed link requests")
+                            // PR #92 — don't auto-mint (the token is only valid ~300s). Show the
+                            // "Pair Now" button (no QR) and wait for the user's click before minting.
+                            relayQrPayload.value = null
+                            relayQrExpiresAt.value = null
+                            while (currentCoroutineContext().isActive) {
+                                relayHost.pairRequests.first() // suspend until "Pair Now"
+                                relayQrExpiresAt.value =
+                                    clock.nowEpochMs() + DesktopRelayHost.PAIRING_WINDOW.toMillis()
+                                relayQrPayload.value = relayHost.generatePairingQr()
+                                System.err.println("[Relay] pairing QR ready; awaiting phone (300s)…")
+                                val paired = runCatching {
+                                    relayHost.awaitPairing(DesktopRelayHost.PAIRING_WINDOW)
+                                    true
+                                }.getOrElse { e ->
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                    false
+                                }
+                                relayQrPayload.value = null
+                                relayQrExpiresAt.value = null
+                                if (paired) {
+                                    relayHost.connectAndServe(linkHandler, appScope)
+                                    System.err.println("[Relay] connected; serving framed link requests")
+                                    break // connected — stop waiting for further pair requests
+                                } else {
+                                    // Window elapsed without a scan — drop the half-open client so the
+                                    // next mint is fresh, then loop back to the "Pair Now" button.
+                                    relayHost.close()
+                                    System.err.println("[Relay] pairing window expired; showing Pair Now again")
+                                }
+                            }
                         }
                     }
                 }.onFailure {

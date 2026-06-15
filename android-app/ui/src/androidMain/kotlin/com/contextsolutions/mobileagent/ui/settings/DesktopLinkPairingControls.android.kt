@@ -27,6 +27,7 @@ actual fun DesktopLinkPairingControls(
     state: SettingsUiState,
     onScanned: (String) -> Unit,
     onUnpair: () -> Unit,
+    onPairNow: () -> Unit, // unused on mobile — the phone scans a QR, it doesn't mint one
 ) {
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val raw = result.contents

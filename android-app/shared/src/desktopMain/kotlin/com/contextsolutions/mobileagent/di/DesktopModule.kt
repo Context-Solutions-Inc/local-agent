@@ -63,6 +63,7 @@ import com.contextsolutions.mobileagent.subscription.DesktopRelayHost
 import com.contextsolutions.mobileagent.subscription.DesktopSubscriptionUiController
 import com.contextsolutions.mobileagent.subscription.RelayDisconnector
 import com.contextsolutions.mobileagent.subscription.RelayGatewayClient
+import com.contextsolutions.mobileagent.subscription.RelayPairingInitiator
 import com.contextsolutions.mobileagent.subscription.RelaySubscriptionService
 import com.contextsolutions.mobileagent.subscription.SubscriptionPreferences
 import com.contextsolutions.mobileagent.subscription.SubscriptionUiController
@@ -277,6 +278,8 @@ val desktopModule: Module = module {
     }
     // Desktop "Disconnect" for a relay connection revokes the pairing via the relay host.
     single<RelayDisconnector> { get<DesktopRelayHost>() }
+    // Desktop "Pair Now" (PR #92) — the relay host mints a QR on demand instead of auto-minting.
+    single<RelayPairingInitiator> { get<DesktopRelayHost>() }
     single {
         OllamaConnectionMonitor(
             healthProbe = { url -> get<OllamaClient>().health(url, get<OllamaPreferences>().config().serverType) },
