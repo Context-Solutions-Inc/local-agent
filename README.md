@@ -1,4 +1,4 @@
-# Mobile Agent — On-Device AI Assistant (Android + Desktop)
+# Local Agent — On-Device AI Assistant (Android + Desktop)
 
 Privacy-first on-device assistant running Gemma 4 locally, with Brave Search as the only outbound network dependency. The same agent (chat, web search, memory, clock/alarms, voice, vision) ships on **Android** (Gemma 4 E2B via LiteRT-LM) and on the **desktop** — Linux, macOS, and Windows (Gemma 4 via llama.cpp) — from one Kotlin Multiplatform codebase with a shared Compose Multiplatform UI. See [PRD.md](PRD.md) for the full product spec, [PHASE1_PLAN.md](PHASE1_PLAN.md) for the Android implementation plan, and [docs/DESKTOP_PORT_PLAN.md](docs/DESKTOP_PORT_PLAN.md) + [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) for the desktop port.
 
