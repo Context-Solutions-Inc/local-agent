@@ -113,6 +113,25 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   — most-recently-run at the top, never-run jobs (null) at the bottom. The query is
   creation-order and `sortedWith` is stable, so a brand-new unrun job lands at the very
   bottom. Sorting in the shared VM covers desktop and mobile in one place.
+- **`run job <name> <keyword(s)>` inline chat command (PR #88).** A user can fire a job
+  from the chat box — `run job property search Westport, Ontario` runs the job named
+  "Property Search" with its Keyword(s) replaced by "Westport, Ontario" and renders the
+  output **directly as the assistant turn (markdown, NO LLM)** in the current conversation
+  thread (NOT the job's own thread — no conversation/run/last-run rows are written). It
+  works like the deterministic WEATHER/FINANCE cards (CLAUDE.md #32/#33), not search
+  grounding: the raw markdown/tables/links ARE the answer, so the output renders with
+  `renderMarkdown=true` (links tappable, PR #82) and the LLM is never invoked — the user
+  can ask the LLM follow-ups since the output is persisted in the thread. `RunJobDetector`
+  (anchored `^run job\b`) + `RunJobResolver` (longest job-name token-prefix match against
+  the synced `JobRepository.snapshot()`; empty keyword(s) → the job's saved `prompt`) run
+  in `AgentLoop` above pre-flight; not-found / failure short-circuit deterministically
+  (plain text). **Execution is behind the `InlineJobRunner` seam:** desktop runs it
+  locally via `JobExecutor.runCapture` (side-effect-free, cancellation-aware —
+  `destroyForcibly` on cancel); mobile runs it on the paired desktop over the **streaming**
+  `RUN_JOB_INLINE` relay method so the chat **Cancel** button kills the run (CANCEL frame →
+  desktop cancels `runCapture`). An in-progress "Running job: <name>…" chip
+  (`AgentEvent.JobStarted` → `SearchStatus.RunningJob`) shows until the output renders or
+  errors. Full as-built rationale: CLAUDE.md invariant #59.
 
 The numbered design sections below remain accurate for the scheduler/executor
 mechanics, persistence conventions, sync envelope reuse, Koin wiring, and the

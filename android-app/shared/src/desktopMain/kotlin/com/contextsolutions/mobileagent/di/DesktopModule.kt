@@ -46,10 +46,12 @@ import com.contextsolutions.mobileagent.sync.MutableLastSyncStatus
 import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
 import com.contextsolutions.mobileagent.job.DesktopJobScheduler
+import com.contextsolutions.mobileagent.job.InlineJobRunner
 import com.contextsolutions.mobileagent.job.JobAdmin
 import com.contextsolutions.mobileagent.job.JobExecutor
 import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.JobService
+import com.contextsolutions.mobileagent.job.LocalInlineJobRunner
 import com.contextsolutions.mobileagent.job.SqlDelightJobRepository
 import com.contextsolutions.mobileagent.preferences.DesktopDesktopLinkPreferences
 import com.contextsolutions.mobileagent.preferences.DesktopGpuPreferences
@@ -779,6 +781,9 @@ val desktopModule: Module = module {
     // The desktop is the authority: bind the admin seam so the shared Jobs UI can
     // create/edit/delete/run. Mobile leaves this unbound → the UI is read-only.
     single<JobAdmin> { get<JobService>() }
+    // PR #88 — the desktop runs a "run job …" chat command locally (subprocess);
+    // mobile binds the relay variant. AgentCoreModule pulls this with getOrNull().
+    single<InlineJobRunner> { LocalInlineJobRunner(jobs = get(), executor = get<JobExecutor>()) }
 
     // -- Todo subsystem (agent tool). --
     single<TodoRepository> { SqlDelightTodoRepository(get()) }

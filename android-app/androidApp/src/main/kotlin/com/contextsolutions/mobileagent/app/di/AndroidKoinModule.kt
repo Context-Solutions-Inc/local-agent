@@ -126,10 +126,12 @@ import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncController
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
 import com.contextsolutions.mobileagent.app.notification.AndroidNotificationPresenter
+import com.contextsolutions.mobileagent.job.InlineJobRunner
 import com.contextsolutions.mobileagent.job.JobBadge
 import com.contextsolutions.mobileagent.job.JobCompletionNotifier
 import com.contextsolutions.mobileagent.job.JobNotificationPrefs
 import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.RelayInlineJobRunner
 import com.contextsolutions.mobileagent.job.RelayRemoteJobRunner
 import com.contextsolutions.mobileagent.job.RemoteJobRunner
 import com.contextsolutions.mobileagent.job.SharedPreferencesJobNotificationPrefs
@@ -370,6 +372,9 @@ val androidModule: Module = module {
     // Mobile-only: run-now over the link (PR #84). Desktop runs jobs locally via
     // JobService, so it leaves RemoteJobRunner unbound.
     single<RemoteJobRunner> { RelayRemoteJobRunner(get<LinkTransportProvider>()) }
+    // PR #88 — "run job …" inline chat command runs on the paired desktop over the
+    // relay and streams its output back. Desktop binds the local variant.
+    single<InlineJobRunner> { RelayInlineJobRunner(get<LinkTransportProvider>()) }
     single {
         SyncController(
             preferences = get(),

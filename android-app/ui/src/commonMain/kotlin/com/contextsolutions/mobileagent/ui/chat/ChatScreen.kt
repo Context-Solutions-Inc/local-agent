@@ -1101,6 +1101,9 @@ private fun StreamingAssistantBubble(
         if (searchStatus is SearchStatus.Searching) {
             SearchingChip(searchStatus.query)
             Spacer(Modifier.height(4.dp))
+        } else if (searchStatus is SearchStatus.RunningJob) {
+            RunningJobChip(searchStatus.jobName)
+            Spacer(Modifier.height(4.dp))
         } else if (searchStatus is SearchStatus.Failed) {
             Text(
                 "Search ${searchStatus.kind.lowercase()}: ${searchStatus.message}",
@@ -1123,7 +1126,10 @@ private fun StreamingAssistantBubble(
                     Text(partial, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-        } else if (isGenerating && searchStatus !is SearchStatus.Searching) {
+        } else if (isGenerating &&
+            searchStatus !is SearchStatus.Searching &&
+            searchStatus !is SearchStatus.RunningJob
+        ) {
             Text(
                 "Thinking…",
                 style = MaterialTheme.typography.labelSmall,
@@ -1139,6 +1145,20 @@ private fun SearchingChip(query: String) {
         onClick = {},
         enabled = false,
         label = { Text("Searching: $query") },
+        colors = AssistChipDefaults.assistChipColors(
+            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    )
+}
+
+@Composable
+private fun RunningJobChip(jobName: String) {
+    // In-progress indicator while a "run job …" command (PR #88) runs the desktop
+    // job; replaced by the streamed answer once it completes (or by an error).
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = { Text("Running job: $jobName…") },
         colors = AssistChipDefaults.assistChipColors(
             disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),

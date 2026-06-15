@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -116,12 +117,66 @@ class JobExecutor(
         logger("job ${job.id} (${job.name}) finished status=$status exit=${result.exitCode}")
     }
 
+    /**
+     * Run [job] inline for the chat agent (PR #88): spawn the subprocess with
+     * [keywords] overriding the saved argument, capture its output, and return it
+     * — writing NO conversation / run / last-run rows, so the inline run never
+     * touches the job's own thread. **Cancellation-aware** (invariant #29/#59):
+     * the wait polls in short chunks and calls [ensureActive] between polls, so
+     * cancelling the calling coroutine (the chat Cancel button) breaks out and the
+     * `finally` destroys the subprocess promptly — a plain blocking `waitFor`
+     * would leave the process running.
+     */
+    suspend fun runCapture(job: Job, keywords: String): InlineJobResult = withContext(ioDispatcher) {
+        val rp = startProcess(job.copy(prompt = keywords))
+        try {
+            val deadline = clock.nowEpochMs() + timeoutSeconds * 1_000
+            while (true) {
+                ensureActive() // throws CancellationException → finally kills the process
+                if (rp.proc.waitFor(POLL_MS, TimeUnit.MILLISECONDS)) break
+                if (clock.nowEpochMs() >= deadline) {
+                    rp.proc.destroyForcibly()
+                    rp.reader.join(1_000)
+                    return@withContext InlineJobResult.Failure(
+                        rp.output() + "\n(timed out after ${timeoutSeconds}s)",
+                    )
+                }
+            }
+            rp.reader.join(1_000)
+            val exit = rp.proc.exitValue()
+            val output = rp.output().ifBlank { "(no output)" }
+            if (exit == 0) InlineJobResult.Output(output) else InlineJobResult.Failure(output)
+        } finally {
+            // Cancellation or an unexpected throw must not orphan the subprocess.
+            if (rp.proc.isAlive) {
+                rp.proc.destroyForcibly()
+                rp.reader.join(1_000)
+            }
+        }
+    }
+
     private fun runProcess(job: Job): ProcessResult {
-        // Run the program in its OWN directory so it picks up cwd-relative state —
-        // e.g. a `.env` loaded by dotenv, or other persistent files (PR #86). A
-        // program launched by absolute path does NOT otherwise get its own folder
-        // as cwd. Order: an explicit workingDir, else the program's parent dir
-        // (when the command is an absolute path), else the user's home.
+        val rp = startProcess(job)
+        val finished = rp.proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        if (!finished) {
+            rp.proc.destroyForcibly()
+            rp.reader.join(1_000)
+            return ProcessResult(exitCode = null, output = rp.output() + "\n(timed out after ${timeoutSeconds}s)")
+        }
+        rp.reader.join(1_000)
+        return ProcessResult(exitCode = rp.proc.exitValue(), output = rp.output())
+    }
+
+    /**
+     * Start the subprocess + the daemon stdout reader shared by [runProcess]
+     * (scheduled runs) and [runCapture] (inline chat runs). Runs the program in
+     * its OWN directory so it picks up cwd-relative state — e.g. a `.env` loaded
+     * by dotenv, or other persistent files (PR #86). A program launched by
+     * absolute path does NOT otherwise get its own folder as cwd. Order: an
+     * explicit workingDir, else the program's parent dir (when the command is an
+     * absolute path), else the user's home.
+     */
+    private fun startProcess(job: Job): RunningProcess {
         val workingDir = job.workingDir?.takeIf { it.isNotBlank() }?.let(::File)
             ?: File(job.command).takeIf { it.isAbsolute }?.parentFile
             ?: File(System.getProperty("user.home"))
@@ -145,14 +200,15 @@ class JobExecutor(
                 }
             }
         }
-        val finished = proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        if (!finished) {
-            proc.destroyForcibly()
-            reader.join(1_000)
-            return ProcessResult(exitCode = null, output = synchronized(buffer) { buffer.toString().trim() } + "\n(timed out after ${timeoutSeconds}s)")
-        }
-        reader.join(1_000)
-        return ProcessResult(exitCode = proc.exitValue(), output = synchronized(buffer) { buffer.toString().trim() })
+        return RunningProcess(proc, buffer, reader)
+    }
+
+    private class RunningProcess(
+        val proc: Process,
+        private val buffer: StringBuilder,
+        val reader: Thread,
+    ) {
+        fun output(): String = synchronized(buffer) { buffer.toString().trim() }
     }
 
     private data class ProcessResult(val exitCode: Int?, val output: String, val failedToStart: Boolean = false)
@@ -161,6 +217,9 @@ class JobExecutor(
         const val DEFAULT_TIMEOUT_SECONDS = 300L
         const val MAX_OUTPUT_CHARS = 8 * 1024
         const val SUMMARY_CHARS = 280
+
+        /** Cancellation-poll granularity for [runCapture]'s wait (ms). */
+        const val POLL_MS = 200L
 
         private val isWindows: Boolean
             get() = System.getProperty("os.name").orEmpty().lowercase().contains("win")

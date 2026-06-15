@@ -7,9 +7,16 @@ import com.contextsolutions.mobileagent.db.MobileAgentDatabase
 import com.contextsolutions.mobileagent.sync.LocalChangeBus
 import com.contextsolutions.mobileagent.telemetry.NoOpTelemetryCounters
 import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -77,6 +84,80 @@ class JobExecutorTest {
         assertEquals(0, run.exitCode)
         assertEquals(convId, run.conversationId)
     }
+
+    @Test
+    fun runCaptureReturnsOutputAndWritesNoRows() = runBlocking {
+        if (isWindows) return@runBlocking // `echo`/`sh` argv form is POSIX-only.
+
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        MobileAgentDatabase.Schema.create(driver)
+        val db = MobileAgentDatabase(driver)
+        val jobs = SqlDelightJobRepository(db.jobsQueries, LocalChangeBus())
+        val conversations = SqlDelightConversationRepository(db.conversationsQueries, NoOpTelemetryCounters)
+        val job = oneShotEchoJob()
+        jobs.create(job)
+
+        // PR #88 — the keyword(s) override the saved argument and the output is
+        // captured WITHOUT recording any conversation / run / last-run rows.
+        val result = JobExecutor(jobs = jobs, conversations = conversations)
+            .runCapture(job, "hello inline")
+
+        assertIs<InlineJobResult.Output>(result)
+        assertEquals("hello inline", result.text)
+        assertNull(jobs.get("job-echo")!!.lastRunStatus, "inline run must not record last-run")
+        assertTrue(jobs.runsForJob("job-echo").isEmpty(), "inline run must not insert a run row")
+        assertNull(jobs.get("job-echo")!!.lastRunConversationId, "inline run must not create a conversation")
+    }
+
+    @Test
+    fun runCaptureCancellationUnwindsPromptlyAndDestroysProcess() = runBlocking {
+        if (isWindows) return@runBlocking // `sleep`/`sh` argv form is POSIX-only.
+
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        MobileAgentDatabase.Schema.create(driver)
+        val db = MobileAgentDatabase(driver)
+        val jobs = SqlDelightJobRepository(db.jobsQueries, LocalChangeBus())
+        val conversations = SqlDelightConversationRepository(db.conversationsQueries, NoOpTelemetryCounters)
+
+        // A long-sleeping command; cancellation must break the wait cooperatively
+        // (via ensureActive between poll chunks) instead of blocking for the full
+        // sleep, and the finally must destroy the spawned process.
+        val job = oneShotEchoJob(command = "sleep", prompt = "30")
+        val executor = JobExecutor(jobs = jobs, conversations = conversations)
+
+        var outcome: Result<InlineJobResult>? = null
+        val runJob = launch(Dispatchers.IO) { outcome = runCatching { executor.runCapture(job, "30") } }
+        delay(400) // let the subprocess start + the wait loop enter a poll
+        val elapsed = kotlin.system.measureTimeMillis { runJob.cancelAndJoin() }
+
+        // Cooperative cancel: cancelAndJoin returns well within the 30s sleep
+        // (one poll interval), proving runCapture didn't block to completion.
+        assertTrue(elapsed < 2_000, "cancellation did not unwind promptly (${elapsed}ms)")
+        // The cancel propagated into runCapture (its finally destroyed the process).
+        assertTrue(
+            outcome == null || outcome.exceptionOrNull() is CancellationException,
+            "expected CancellationException, got $outcome",
+        )
+    }
+
+    private fun oneShotEchoJob(command: String = "echo", prompt: String = "hello from job") = Job(
+        id = "job-echo",
+        name = "echo job",
+        command = command,
+        prompt = prompt,
+        workingDir = null,
+        scheduleType = JobScheduleType.ONE_SHOT,
+        cronExpression = null,
+        fireAtEpochMs = 1,
+        paused = false,
+        createdAtEpochMs = 1,
+        updatedAtEpochMs = 1,
+        deletedAtEpochMs = null,
+        lastRunStatus = null,
+        lastRunAtEpochMs = null,
+        lastRunSummary = null,
+        lastRunConversationId = null,
+    )
 
     @Test
     fun injectsManifestArgsAndRunsInProgramDirectory() = runBlocking {

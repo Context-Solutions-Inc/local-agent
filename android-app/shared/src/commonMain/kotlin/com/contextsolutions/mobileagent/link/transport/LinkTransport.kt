@@ -50,6 +50,15 @@ enum class LinkMethod(val streaming: Boolean) {
 
     /** Mobile asks the desktop to run a job now (PR #84); job id in `query["id"]`. */
     RUN_JOB(false),
+
+    /**
+     * Mobile asks the desktop to run a job inline and STREAM its output back for
+     * the chat LLM (PR #88); `query["id"]` + `query["keywords"]`. Streaming (not
+     * unary) so a long job tolerates the un-timed stream and a CANCEL frame
+     * (Cancel button) kills the desktop subprocess. The desktop emits one
+     * `Data{"ok":bool,"output":…}` then `End(200)`; `End(404)` = unknown job.
+     */
+    RUN_JOB_INLINE(true),
 }
 
 data class LinkRequest(

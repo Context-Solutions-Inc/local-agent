@@ -66,6 +66,7 @@ import com.contextsolutions.mobileagent.task.TaskQueue
 import com.contextsolutions.mobileagent.task.TaskRepository
 import com.contextsolutions.mobileagent.telemetry.DesktopTelemetryScheduler
 import com.contextsolutions.mobileagent.inference.DesktopAppDirs
+import com.contextsolutions.mobileagent.job.JobExecutor
 import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.JobService
 import com.contextsolutions.mobileagent.link.DesktopLinkRequestHandler
@@ -234,6 +235,7 @@ fun main() {
     // spawn subprocesses). Guard on the id existing; the desktop is the authority.
     val jobRepository = koin.get<JobRepository>()
     val jobService = koin.get<JobService>()
+    val jobExecutor = koin.get<JobExecutor>()
     val linkHandler = DesktopLinkRequestHandler(
         preferences = desktopLinkPrefs,
         sessionProvider = { warmModel.session() },
@@ -245,6 +247,12 @@ fun main() {
             } else {
                 false
             }
+        },
+        // PR #88 — a mobile "run job …" chat command runs the job inline on the
+        // desktop and streams its output back. Unknown id → null (→ stream 404);
+        // cancellation of the relay stream cancels runCapture → kills the process.
+        runJobInline = { id, keywords ->
+            jobRepository.get(id)?.let { job -> jobExecutor.runCapture(job, keywords) }
         },
     )
     val linkServer = DesktopLinkServer(

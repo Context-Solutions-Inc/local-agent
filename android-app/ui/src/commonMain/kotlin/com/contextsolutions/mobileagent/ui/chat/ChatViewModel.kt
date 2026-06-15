@@ -567,10 +567,20 @@ class ChatViewModel(
     private fun onAgentEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.TokenChunk -> _ui.update {
-                it.copy(partialText = it.partialText + event.text)
+                // The LLM is now answering — clear the "Running job…" chip (the
+                // job's done; search has its own SearchCompleted clear).
+                val clearedStatus =
+                    if (it.searchStatus is SearchStatus.RunningJob) SearchStatus.None else it.searchStatus
+                it.copy(partialText = it.partialText + event.text, searchStatus = clearedStatus)
             }
             is AgentEvent.SearchStarted -> _ui.update {
                 it.copy(searchStatus = SearchStatus.Searching(event.query))
+            }
+            is AgentEvent.JobStarted -> _ui.update {
+                // In-progress chip while the desktop job runs; cleared on the
+                // first streamed token (TokenChunk), Done, or Error. The existing
+                // Cancel button (isGenerating) covers cancelling the run.
+                it.copy(searchStatus = SearchStatus.RunningJob(event.jobName))
             }
             is AgentEvent.SearchCompleted -> _ui.update {
                 it.copy(searchStatus = event.outcome.toSearchStatus())
@@ -898,6 +908,13 @@ sealed interface UiMessage {
 sealed interface SearchStatus {
     data object None : SearchStatus
     data class Searching(val query: String) : SearchStatus
+
+    /**
+     * A "run job …" command (PR #88) is running the named desktop job. Shown as a
+     * "Running job: <name>…" chip until the LLM answer (grounded in the job
+     * output) starts streaming or the turn errors out — the in-progress indicator.
+     */
+    data class RunningJob(val jobName: String) : SearchStatus
 
     /**
      * Held briefly until the next assistant turn lands so the UI can attach a

@@ -50,6 +50,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      # The :androidApp build resolves the relay SDK
+      # (com.securegateway:{android,core}:0.1.0) from mavenLocal — it isn't on any
+      # public remote (CLAUDE.md #54/#55), so it must be published from a sibling
+      # checkout before the eval compiles :androidApp. secure-gateway is PRIVATE,
+      # so this needs a repo secret SECURE_GATEWAY_PAT (a PAT / fine-grained token
+      # with read access to lley154/secure-gateway). Without it the checkout fails
+      # with a clear auth error rather than the opaque "Could not find
+      # com.securegateway:android" dependency error.
+      - name: Check out secure-gateway SDK
+        uses: actions/checkout@v4
+        with:
+          repository: lley154/secure-gateway
+          token: ${{ secrets.SECURE_GATEWAY_PAT }}
+          path: secure-gateway
+
+      - name: Publish secure-gateway SDK to mavenLocal
+        # publishToMavenLocal installs com.securegateway:{core,java,android}:0.1.0
+        # into ~/.m2 (the sdk's subprojects {} maven-publish + :android-aar
+        # publication). Runs in the SDK checkout, not android-app, so use an
+        # absolute path (the job default working-directory is android-app).
+        run: |
+          cd "${{ github.workspace }}/secure-gateway/sdk"
+          ./gradlew publishToMavenLocal --no-daemon --stacktrace
+
       - name: Run canonical eval
         # Single test file — exercises the routing path + PromptAssembler.
         # Failures bundle every regression in one assertion message.

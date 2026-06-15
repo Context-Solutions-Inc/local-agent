@@ -8,6 +8,12 @@ import com.contextsolutions.mobileagent.inference.GenerationRequest
 import com.contextsolutions.mobileagent.inference.PendingToolCall
 import com.contextsolutions.mobileagent.inference.SamplingParams
 import com.contextsolutions.mobileagent.inference.ToolDispatcher
+import com.contextsolutions.mobileagent.job.InlineJobResult
+import com.contextsolutions.mobileagent.job.InlineJobRunner
+import com.contextsolutions.mobileagent.job.JobRepository
+import com.contextsolutions.mobileagent.job.RunJobDetector
+import com.contextsolutions.mobileagent.job.RunJobResolution
+import com.contextsolutions.mobileagent.job.RunJobResolver
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.Memory
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
@@ -126,6 +132,18 @@ class AgentLoop(
      * that exercise the legacy path.
      */
     private val stockResponseFormatter: StockResponseFormatter? = null,
+    /**
+     * PR #88 (#59) — the "run job <name> <keywords>" inline command. When both
+     * [jobRepository] and [inlineJobRunner] are bound, a leading "run job …"
+     * message resolves a job by name, runs it (desktop subprocess / relay), and
+     * feeds its output to the LLM as grounding context — like the explicit
+     * web-search force-fire (#43). Null on graphs without jobs → the feature is
+     * inert and the message falls through to the normal path.
+     */
+    private val jobRepository: JobRepository? = null,
+    private val inlineJobRunner: InlineJobRunner? = null,
+    private val runJobDetector: RunJobDetector = RunJobDetector(),
+    private val runJobResolver: RunJobResolver = RunJobResolver(),
     private val logger: (String) -> Unit = {},
     private val maxToolCalls: Int = DEFAULT_MAX_TOOL_CALLS,
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
@@ -302,6 +320,51 @@ class AgentLoop(
         // image branch wins. Falls through to the LLM with no [SEARCH CONTEXT],
         // so sampling stays at the warm defaults (searchContextBlock == null).
         val forceWeather = deterministicWeather && !hasImage
+
+        // PR #88 (#59) — "run job <name> <keywords>" inline force-fire. Anchored
+        // leading command, like the explicit web-search escape hatch (#43), but
+        // it needs the job list (resolve a name → id) and runs a subprocess, so
+        // it lives here in the AgentLoop (above pre-flight) rather than the
+        // router. On a match we run the job and render its output DIRECTLY as the
+        // assistant turn (markdown, no LLM) — like the deterministic WEATHER/
+        // FINANCE cards (#32/#33), not search grounding: the raw output (tables,
+        // links) IS the answer, and re-processing it through a 2B model would lose
+        // the formatting. The output is persisted in this thread, so the user can
+        // ask the LLM follow-ups about it. Not-found / failure short-circuit with
+        // a deterministic message. An image turn (#48) is never a job command.
+        if (!hasImage &&
+            jobRepository != null &&
+            inlineJobRunner != null &&
+            runJobDetector.matches(input.userMessage)
+        ) {
+            val remainder = runJobDetector.stripPrefix(input.userMessage)
+            when (val resolution = runJobResolver.resolve(remainder, jobRepository.snapshot())) {
+                is RunJobResolution.NotFound -> {
+                    logger("[turn] run job: no job matched \"${redact(resolution.requestedText)}\"")
+                    emitJobNotFound(input.userMessage, resolution.requestedText)
+                    return@channelFlow
+                }
+                is RunJobResolution.Match -> {
+                    val job = resolution.job
+                    // Empty keyword(s) → fall back to the job's saved argument.
+                    val keywords = resolution.keywords.ifBlank { job.prompt }
+                    logger("[turn] run job inline name=\"${job.name}\" keywordsLen=${keywords.length}")
+                    send(AgentEvent.JobStarted(job.name))
+                    when (val result = inlineJobRunner.run(job.id, keywords)) {
+                        is InlineJobResult.Failure -> {
+                            logger("[turn] run job failed: ${redact(result.message)}")
+                            emitJobFailure(input.userMessage, job.name, result.message)
+                        }
+                        is InlineJobResult.Output -> {
+                            logger("[turn] run job output → direct render len=${result.text.length}")
+                            emitJobOutput(input.userMessage, result.text)
+                        }
+                    }
+                    return@channelFlow
+                }
+            }
+        }
+
         val decision = when {
             hasImage -> {
                 logger("[turn] image attached — skipping preflight/search")
@@ -1153,6 +1216,88 @@ class AgentLoop(
     }
 
     /**
+     * PR #88 — render a successful job's output DIRECTLY as the assistant turn,
+     * with NO LLM round-trip (like the WEATHER/FINANCE deterministic cards
+     * #32/#33). `renderMarkdown = true` so links/tables/headers format (PR #82),
+     * unlike search-grounded turns which render plain (#41). The output is
+     * persisted in this thread, so the user can ask the LLM follow-ups later.
+     * No `TokenChunk` is emitted: the streaming bubble is plain text, so raw
+     * markdown would flash unrendered before `Done` re-renders it — instead the
+     * "Running job…" chip ([AgentEvent.JobStarted]) shows until `Done` lands.
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitJobOutput(
+        userMessageText: String,
+        output: String,
+    ) {
+        val text = output.ifBlank { "(no output)" }
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = text, renderMarkdown = true)
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = true,
+            ),
+        )
+    }
+
+    /**
+     * Deterministic "no such job" reply for a "run job …" command that didn't
+     * resolve (PR #88). No LLM. [requestedText] blank → the user gave no name.
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitJobNotFound(
+        userMessageText: String,
+        requestedText: String,
+    ) {
+        val message = if (requestedText.isBlank()) {
+            "Tell me which job to run, e.g. \"run job <job name> <keywords>\"."
+        } else {
+            "I couldn't find a job named \"$requestedText\". " +
+                "Check the Jobs list for the exact name."
+        }
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
+        send(AgentEvent.TokenChunk(message))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = true,
+            ),
+        )
+    }
+
+    /**
+     * Deterministic failure reply when an inline job run errors, times out, or
+     * exits non-zero (PR #88). Surfaces a trimmed tail of the captured detail so
+     * the user sees why, without routing the error through the LLM.
+     */
+    private suspend fun ProducerScope<AgentEvent>.emitJobFailure(
+        userMessageText: String,
+        jobName: String,
+        detail: String,
+    ) {
+        val trimmed = detail.trim()
+        val message = buildString {
+            append("The job \"").append(jobName).append("\" didn't complete successfully.")
+            if (trimmed.isNotEmpty()) {
+                append("\n\n")
+                append(trimmed.take(JOB_FAILURE_DETAIL_CHARS))
+            }
+        }
+        val userMessage = ChatMessage.User(userMessageText)
+        val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
+        send(AgentEvent.TokenChunk(message))
+        send(
+            AgentEvent.Done(
+                message = finalMessage,
+                turnMessages = listOf(userMessage, finalMessage),
+                skipMemoryExtraction = true,
+            ),
+        )
+    }
+
+    /**
      * Look for the user's location in memory when the current query names no
      * city: first the already-retrieved set, then a targeted probe so a bare
      * "what's the weather?" still finds a saved "I live in …" even when the
@@ -1426,6 +1571,9 @@ class AgentLoop(
 
         /** Appended to the body when [SEARCH_CONTEXT_MAX_CHARS] forces a cut. */
         const val SEARCH_CONTEXT_TRUNCATION_MARKER: String = "\n…[truncated]"
+
+        /** Max chars of failure detail surfaced in a "run job …" error reply (PR #88). */
+        const val JOB_FAILURE_DETAIL_CHARS: Int = 1_000
 
         /**
          * Per-line chunk size used when dumping the system instruction to

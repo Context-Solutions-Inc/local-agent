@@ -15,6 +15,8 @@ import com.contextsolutions.mobileagent.agent.currentTimeContext
 import com.contextsolutions.mobileagent.classifier.PreflightRouter
 import com.contextsolutions.mobileagent.classifier.QueryRewriter
 import com.contextsolutions.mobileagent.classifier.WordPieceTokenizer
+import com.contextsolutions.mobileagent.job.InlineJobRunner
+import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.language.PreferredLanguage
 import com.contextsolutions.mobileagent.memory.MemoryRetriever
 import com.contextsolutions.mobileagent.platform.AgentClock
@@ -78,6 +80,11 @@ val agentCoreModule: Module = module {
         val defaultSiteResolver = getOrNull<DefaultSiteResolver>()
         val weatherResponseFormatter = getOrNull<WeatherResponseFormatter>()
         val stockResponseFormatter = getOrNull<StockResponseFormatter>()
+        // PR #88 — "run job …" inline command. Both bound on desktop + mobile
+        // (jobs sync to mobile); the runner differs per platform (local executor
+        // vs relay). Null on graphs without jobs → the feature is inert.
+        val jobRepository = getOrNull<JobRepository>()
+        val inlineJobRunner = getOrNull<InlineJobRunner>()
         val counters = getOrNull<TelemetryCounters>() ?: NoOpTelemetryCounters
         val agentLogger = getOrNull<AgentLogger>()
         object : AgentLoopFactory {
@@ -102,6 +109,8 @@ val agentCoreModule: Module = module {
                 defaultSiteResolver = defaultSiteResolver,
                 weatherResponseFormatter = weatherResponseFormatter,
                 stockResponseFormatter = stockResponseFormatter,
+                jobRepository = jobRepository,
+                inlineJobRunner = inlineJobRunner,
                 logger = { agentLogger?.log(it) },
                 counters = counters,
                 responseLanguage = responseLanguage,

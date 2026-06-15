@@ -20,6 +20,15 @@ sealed interface AgentEvent {
     data class SearchStarted(val query: String) : AgentEvent
 
     /**
+     * A "run job …" command (PR #88, invariant #59) resolved to a job and the
+     * desktop subprocess is now running. The UI shows a "Running job: <name>…"
+     * chip until the LLM's answer (grounded in the job output) starts streaming —
+     * jobs can take a while, so this is the in-progress indicator. The existing
+     * chat Cancel button (shown the whole turn) kills the run.
+     */
+    data class JobStarted(val jobName: String) : AgentEvent
+
+    /**
      * Tool execution finished. [outcome] carries either the formatted payload
      * (used to render citation chips) or the typed error (PRD §6.2 — the loop
      * still continues so Gemma can produce a degraded reply).
