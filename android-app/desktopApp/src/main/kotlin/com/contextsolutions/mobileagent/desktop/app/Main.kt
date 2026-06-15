@@ -59,6 +59,7 @@ import com.contextsolutions.mobileagent.inference.OllamaConnectionMonitor
 import com.contextsolutions.mobileagent.inference.LlamaServerBinaryStore
 import com.contextsolutions.mobileagent.inference.LlamaServerRelease
 import com.contextsolutions.mobileagent.language.LanguagePreferences
+import com.contextsolutions.mobileagent.notification.DesktopOs
 import com.contextsolutions.mobileagent.notification.MutableNotificationPresenter
 import com.contextsolutions.mobileagent.platform.AgentClock
 import com.contextsolutions.mobileagent.search.SearchService
@@ -433,6 +434,11 @@ fun main() {
     // PR #70 — re-arm persisted jobs (cron + future one-shots). After taskQueue
     // so any immediately-firing job has a live runtime. rearmAll is suspend.
     appScope.launch { koin.get<com.contextsolutions.mobileagent.job.JobService>().rearmAll() }
+    // PR #93 — notify on the desktop when a job finishes (was Android-only, #58): the
+    // desktop is where jobs run, so surface SUCCEEDED/FAILED via notify-send (Linux) /
+    // tray toast (macOS/Windows). Rides JobRepository.flow() with a baseline-suppress so
+    // the startup backfill doesn't storm. Runs in every mode (GUI + headless).
+    koin.get<com.contextsolutions.mobileagent.job.JobCompletionNotifier>().start(appScope)
     modelDownload.ensurePresent()
     mmprojDownload.ensurePresent()
     // Server binary in the background, driving serverStatus (loadModel also ensures it lazily).
@@ -599,7 +605,11 @@ fun main() {
                     onQuit = { shutdown() },
                     menuStyle = { trayStyle.value },
                 )
-                if (tray != null) presenter.setDelegate(tray.notificationPresenter)
+                // On Linux notifications go through notify-send (PR #93) — the DI
+                // fallback already installed a LinuxNotificationPresenter, so DON'T
+                // overwrite it with the tray toast presenter even if a tray exists
+                // (e.g. a GNOME extension). The tray's Show/Shut down menu still works.
+                if (tray != null && !DesktopOs.isLinux) presenter.setDelegate(tray.notificationPresenter)
                 onDispose { tray?.remove() }
             }
         }

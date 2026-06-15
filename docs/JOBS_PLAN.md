@@ -102,12 +102,19 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
     The **first emission per process is a baseline** (advance the watermark, don't
     notify) so the initial sync backfill of already-finished jobs doesn't storm.
   - Both watermarks live in `JobNotificationPrefs` (Android `SharedPreferences` =
-    `job_notify_prefs`), mirroring `SyncWatermarkStore`. `JobBadge`/`JobCompletionNotifier`/
-    `JobNotificationPrefs` bind **only in `androidModule`** → null on desktop
-    (`JobsViewModel.badge` + `ChatScreen` resolve via `getOrNull`). The notifier is
-    started/stopped by the `WatchdogForegroundGate` (foreground-only, matching mobile
-    sync). No new permission (POST_NOTIFICATIONS already handled) and no foreground
-    service. Desktop already shows live job state, so it gets neither cue.
+    `job_notify_prefs`), mirroring `SyncWatermarkStore`. `JobBadge` binds **only in
+    `androidModule`** → null on desktop (`JobsViewModel.badge` + `ChatScreen` resolve via
+    `getOrNull`). The Android notifier is started/stopped by the `WatchdogForegroundGate`
+    (foreground-only, matching mobile sync). No new permission (POST_NOTIFICATIONS already
+    handled) and no foreground service.
+  - **PR #93 — the OS-notification cue is no longer mobile-only.** `JobCompletionNotifier`
+    + `JobNotificationPrefs` now ALSO bind on the desktop (new `DesktopJobNotificationPrefs`,
+    a `DesktopJsonStore` `job_notify_prefs.json`; seen-watermark inert — no desktop header
+    badge — notified-watermark live), and `Main.kt` starts the notifier on `appScope` after
+    job `rearmAll` (GUI + headless). The machine that *runs* the job surfaces its own
+    result via the desktop `NotificationPresenter` — `notify-send` on Linux (the AWT tray
+    is usually unsupported on GNOME/Wayland), tray toast on macOS/Windows. Only the
+    **header badge** stays mobile-only. See CLAUDE.md #60.
 - **Jobs list is sorted by last-run time (PR #85), both platforms.** `JobsViewModel.jobs`
   maps the repo flow through `sortedWith(compareByDescending { lastRunAtEpochMs ?: Long.MIN_VALUE })`
   — most-recently-run at the top, never-run jobs (null) at the bottom. The query is

@@ -45,10 +45,13 @@ import com.contextsolutions.mobileagent.sync.LocalChangeBus
 import com.contextsolutions.mobileagent.sync.MutableLastSyncStatus
 import com.contextsolutions.mobileagent.sync.SqlDelightLinkSyncService
 import com.contextsolutions.mobileagent.sync.SyncWatermarkStore
+import com.contextsolutions.mobileagent.job.DesktopJobNotificationPrefs
 import com.contextsolutions.mobileagent.job.DesktopJobScheduler
 import com.contextsolutions.mobileagent.job.InlineJobRunner
 import com.contextsolutions.mobileagent.job.JobAdmin
+import com.contextsolutions.mobileagent.job.JobCompletionNotifier
 import com.contextsolutions.mobileagent.job.JobExecutor
+import com.contextsolutions.mobileagent.job.JobNotificationPrefs
 import com.contextsolutions.mobileagent.job.JobRepository
 import com.contextsolutions.mobileagent.job.JobService
 import com.contextsolutions.mobileagent.job.LocalInlineJobRunner
@@ -143,6 +146,9 @@ import com.contextsolutions.mobileagent.clock.ClockRepository
 import com.contextsolutions.mobileagent.clock.ClockService
 import com.contextsolutions.mobileagent.clock.DesktopAlarmScheduler
 import com.contextsolutions.mobileagent.clock.DesktopClockRepository
+import com.contextsolutions.mobileagent.notification.DesktopNotificationPresenter
+import com.contextsolutions.mobileagent.notification.DesktopOs
+import com.contextsolutions.mobileagent.notification.LinuxNotificationPresenter
 import com.contextsolutions.mobileagent.notification.MutableNotificationPresenter
 import com.contextsolutions.mobileagent.notification.NotificationPresenter
 import com.contextsolutions.mobileagent.observability.SafeCrashReporter
@@ -746,11 +752,20 @@ val desktopModule: Module = module {
     //    AgentLoopFactory (getOrNull), so binding it here enables the clock
     //    tools on the desktop AgentLoop. The app/tray increment calls
     //    ClockService.rearmAll() at startup to re-create armed fires. --
-    // Swappable presenter: starts logging (fallback), the desktopApp installs a
-    // TrayState-backed delegate once the tray composes (Phase 7 inc 5), so the
-    // clock subsystem AND the task queue both route to the system tray. Bound as
-    // the concrete type too so the app can resolve it to call setDelegate.
-    single { MutableNotificationPresenter() }
+    // Swappable presenter: starts with a platform fallback, the desktopApp installs a
+    // tray-backed delegate once the tray composes (Phase 7 inc 5), so the clock
+    // subsystem AND the task queue both route to the system tray. Bound as the
+    // concrete type too so the app can resolve it to call setDelegate.
+    // On Linux the fallback is notify-send (PR #93) — the AWT tray is usually
+    // unsupported there and the app deliberately does NOT setDelegate to the tray on
+    // Linux, so this fallback is the real delivery path on every Linux entry point
+    // (GUI, tray-minimized, windowless headless). macOS/Windows keep the logging
+    // fallback until the tray delegate lands.
+    single {
+        MutableNotificationPresenter(
+            fallback = if (DesktopOs.isLinux) LinuxNotificationPresenter() else DesktopNotificationPresenter(),
+        )
+    }
     single<NotificationPresenter> { get<MutableNotificationPresenter>() }
     single<ClockRepository> {
         DesktopClockRepository(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "clock_prefs.json")))
@@ -801,6 +816,23 @@ val desktopModule: Module = module {
     // PR #88 — the desktop runs a "run job …" chat command locally (subprocess);
     // mobile binds the relay variant. AgentCoreModule pulls this with getOrNull().
     single<InlineJobRunner> { LocalInlineJobRunner(jobs = get(), executor = get<JobExecutor>()) }
+    // PR #93 — notify on job completion on the DESKTOP too (was Android-only, #58):
+    // jobs run on the desktop, so the machine that ran them should surface the result
+    // (via notify-send on Linux / tray toast on macOS/Windows). Reuses the commonMain
+    // JobCompletionNotifier (rides JobRepository.flow(), noteworthy=SUCCEEDED/FAILED,
+    // baseline-suppress + watermark dedup). Main.kt starts it on appScope. The desktop
+    // prefs has no header badge (seen watermark inert); notified watermark is the live one.
+    single<JobNotificationPrefs> {
+        DesktopJobNotificationPrefs(DesktopJsonStore(File(DesktopAppDirs.dataDir(), "job_notify_prefs.json")))
+    }
+    single {
+        JobCompletionNotifier(
+            repository = get(),
+            presenter = get(),
+            prefs = get(),
+            logger = { System.err.println("[JobNotifier] $it") },
+        )
+    }
 
     // -- Todo subsystem (agent tool). --
     single<TodoRepository> { SqlDelightTodoRepository(get()) }
