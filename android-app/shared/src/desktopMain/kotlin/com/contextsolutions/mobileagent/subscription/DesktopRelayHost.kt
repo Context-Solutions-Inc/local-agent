@@ -6,6 +6,7 @@ import com.contextsolutions.mobileagent.link.transport.LinkConnectionState
 import com.contextsolutions.mobileagent.link.transport.LinkRequestHandler
 import com.contextsolutions.mobileagent.platform.SecureStorage
 import com.contextsolutions.mobileagent.platform.SecureStorageKeys
+import com.securegateway.core.auth.AuthException
 import com.securegateway.desktop.DesktopClient
 import com.securegateway.desktop.DesktopConfig
 import com.securegateway.desktop.SecureGateway
@@ -90,6 +91,11 @@ class DesktopRelayHost(
             // Reuse the desktop device id across restarts so a re-mint is a re-pair (reuses the
             // max_pairs slot) rather than a new device the gateway rejects as capacity_exceeded.
             deviceId = secureStorage.get(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID)
+            // PR #91 — restore the prior pairing so a desktop restart reconnects the existing
+            // relay session WITHOUT re-pairing (isPaired() → connect() only, no fresh QR / re-scan),
+            // symmetric to the phone's MobileConfig.pairId/desktopPublicKeyB64.
+            pairId = secureStorage.get(SecureStorageKeys.RELAY_DESKTOP_PAIR_ID)
+            mobilePublicKeyB64 = secureStorage.get(SecureStorageKeys.RELAY_MOBILE_PUBLIC_KEY)
             // PR #80 — keep the X25519 identity in the encrypted SecureStorage (secrets.p12)
             // rather than the SDK's plaintext `relay_identity.key` file. The legacy file path is
             // passed so an existing identity migrates in once, then the plaintext file is removed.
@@ -151,7 +157,64 @@ class DesktopRelayHost(
     /** Block until the phone completes pairing (blocking poll — call on an IO dispatcher). */
     fun awaitPairing(timeout: Duration) {
         logger("host: awaiting pairing (timeout=${timeout.seconds}s)")
-        ensureClient().awaitPairing(timeout)
+        val c = ensureClient()
+        c.awaitPairing(timeout)
+        persistPairing(c)
+    }
+
+    /**
+     * Persist the pair id + mobile public key learned at [awaitPairing] so the NEXT desktop
+     * launch reconnects this session without re-pairing (PR #91). The device id already
+     * persists in [mintQr]; this is the symmetric counterpart of the phone's RELAY_PAIRING_STATE.
+     */
+    private fun persistPairing(c: DesktopClient) {
+        val pairId = c.pairId()
+        val mobileKey = c.mobilePublicKeyB64()
+        if (pairId != null && mobileKey != null) {
+            secureStorage.put(SecureStorageKeys.RELAY_DESKTOP_PAIR_ID, pairId)
+            secureStorage.put(SecureStorageKeys.RELAY_MOBILE_PUBLIC_KEY, mobileKey)
+            logger("host: persisted pairing pairId=$pairId for reconnect-without-repair")
+        }
+    }
+
+    /** Drop the persisted pairing (pair id + mobile public key) + the peer marker — the pair is dead. */
+    private fun clearSavedPairing() {
+        secureStorage.remove(SecureStorageKeys.RELAY_DESKTOP_PAIR_ID)
+        secureStorage.remove(SecureStorageKeys.RELAY_MOBILE_PUBLIC_KEY)
+        clearPeerPaired()
+    }
+
+    /**
+     * Try to reconnect a previously persisted pairing WITHOUT minting a fresh QR (PR #91). Returns
+     * true when a saved pairing exists and the relay session was (re)opened; false when there is no
+     * saved pairing or the reconnect failed — the caller then mints a fresh QR + awaits a re-pair.
+     * `connect()` issues a token over blocking HTTP, so call on an IO dispatcher.
+     */
+    fun reconnect(handler: LinkRequestHandler, scope: CoroutineScope): Boolean {
+        val c = ensureClient()
+        if (!c.isPaired()) return false
+        logger("host: saved pairing found (pairId=${c.pairId()}); reconnecting without re-pairing")
+        return runCatching {
+            connectAndServe(handler, scope) // c.connect() → issueToken (sync) → relay dial (async)
+            true
+        }.getOrElse { err ->
+            // connect()'s issueToken is synchronous; a revoked/unknown pair throws here.
+            logger("host: relay reconnect failed (${err.message}); falling back to a fresh QR")
+            if (isDeadPairingError(err)) clearSavedPairing() // dead → don't keep retrying it
+            close()                                          // tear down stateJob + client
+            false
+        }
+    }
+
+    /**
+     * True when the relay reconnect failed because the gateway rejected the pair (revoked / unknown
+     * — a real HTTP error), so the saved pairing should be dropped. A `transport_error`
+     * ([AuthException.httpStatus] 0, i.e. the gateway was unreachable) is transient — keep the
+     * saved pairing so a later attempt can still reconnect.
+     */
+    private fun isDeadPairingError(t: Throwable): Boolean {
+        val auth = generateSequence(t) { it.cause }.filterIsInstance<AuthException>().firstOrNull()
+        return auth != null && auth.httpStatus() != 0
     }
 
     /**
@@ -179,9 +242,10 @@ class DesktopRelayHost(
                     markPeerPaired()
                 } else if (st == LinkConnectionState.DISABLED && wasUp) {
                     wasUp = false
-                    // REVOKED — the phone unpaired. Forget the peer so the status drops to
-                    // "No Mobile Agent paired yet" (PR #90), then re-arm a fresh QR.
-                    clearPeerPaired()
+                    // REVOKED — the phone unpaired. Forget the peer + the saved pairing (it's dead)
+                    // so the status drops to "No Mobile Agent paired yet" (PR #90) and the next loop
+                    // mints a fresh QR instead of trying to reconnect a revoked pair (PR #91).
+                    clearSavedPairing()
                     logger("host: relay session revoked by peer; re-arming a fresh QR")
                     _rearm.value += 1
                 }
@@ -203,9 +267,10 @@ class DesktopRelayHost(
         // watcher fire a SECOND re-arm — churning the QR mint and racing the next pairing.
         stateJob?.cancel()
         stateJob = null
-        // Desktop-initiated unpair — forget the peer so the status drops to "No Mobile
-        // Agent paired yet" + hides Disconnect (PR #90).
-        clearPeerPaired()
+        // Desktop-initiated unpair — forget the peer + the saved pairing (the gateway revoke
+        // below kills it) so the status drops to "No Mobile Agent paired yet" + hides Disconnect
+        // (PR #90), and the next loop mints a fresh QR rather than reconnecting a dead pair (PR #91).
+        clearSavedPairing()
         withContext(Dispatchers.IO) {
             runCatching { client?.unpair() }
                 .onFailure { logger("host: unpair failed: ${it.message}") }

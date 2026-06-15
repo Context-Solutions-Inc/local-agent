@@ -42,6 +42,28 @@ class DesktopRelayHostTest {
         assertFalse(store.contains(SecureStorageKeys.RELAY_PEER_PAIRED))
     }
 
+    @Test
+    fun disconnectClearsTheSavedPairing() = runBlocking {
+        // PR #91 — a desktop Disconnect revokes the pair at the gateway, so the persisted
+        // pairing (reconnect-without-repair) must be dropped too, leaving the next launch to
+        // mint a fresh QR. The device id survives so that fresh pairing reuses the slot.
+        val store = FakeSecureStorage().apply {
+            put(SecureStorageKeys.RELAY_PEER_PAIRED, "1")
+            put(SecureStorageKeys.RELAY_DESKTOP_PAIR_ID, "pair_abc")
+            put(SecureStorageKeys.RELAY_MOBILE_PUBLIC_KEY, "bW9iaWxlS2V5")
+            put(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID, "dev_xyz")
+        }
+        val host = newHost(store)
+
+        host.disconnect()
+
+        assertFalse(store.contains(SecureStorageKeys.RELAY_DESKTOP_PAIR_ID))
+        assertFalse(store.contains(SecureStorageKeys.RELAY_MOBILE_PUBLIC_KEY))
+        assertFalse(store.contains(SecureStorageKeys.RELAY_PEER_PAIRED))
+        // The device id is intentionally kept — a fresh pairing reuses the max_pairs slot.
+        assertTrue(store.contains(SecureStorageKeys.RELAY_DESKTOP_DEVICE_ID))
+    }
+
     private fun newHost(store: SecureStorage) = DesktopRelayHost(
         prefs = NoOpSubscriptionPreferences(),
         secureStorage = store,

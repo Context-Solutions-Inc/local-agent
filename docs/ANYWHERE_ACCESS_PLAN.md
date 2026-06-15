@@ -314,11 +314,25 @@ re-ran the *pairing* flow on every reconnect, replaying the spent token:
   (`RELAY_DESKTOP_DEVICE_ID`) and restore it into `DesktopConfig.deviceId`, reading it back via the
   SDK's new `DesktopClient.deviceId()`. The re-mint is then a re-pair — capacity check skipped, slot
   + `pair_id` reused — so the relay QR keeps publishing across restarts.
-  - **One-time transition:** the persist only happens on a *successful* mint, which needs a free
-    slot. To establish the device id when a stale pairing already holds the slot, free it once —
-    **Unpair from the phone** (desktop re-arms → persists its device id), or the
-    delete-prefs+re-subscribe reset. Subsequent restarts then reuse it. Watch for
-    `host: persisted desktop device id=dev_…`.
+
+**Desktop — full reconnect-without-re-pairing (PR #91).** Persisting the device id (above) kept the
+QR *publishing*, but the desktop still **re-minted a fresh pairing token on every restart** — the QR
+changed, so the phone's saved token no longer matched and it had to re-scan (and, until the stale
+slot was freed, you had to Unpair first). The fix makes the desktop symmetric with the mobile half:
+persist `{pairId, mobilePublicKey}` (`RELAY_DESKTOP_PAIR_ID` / `RELAY_MOBILE_PUBLIC_KEY` in
+`secrets.p12`) after a successful pairing, and on each launch try `DesktopRelayHost.reconnect()`
+*before* minting a QR. It restores those into the SDK's new `DesktopConfig.pairId`/
+`mobilePublicKeyB64`; `DesktopClient.isPaired()` is then true, so it calls `connect()` directly
+(issue a fresh connection token for the existing `pair_id`, no new pairing token, **no QR, no
+re-scan**). `Main.kt` only falls back to `generatePairingQr()` + `awaitPairing()` when there's no
+saved pairing or the reconnect fails because the pair is **dead** — `connect()`'s synchronous
+`issueToken` throws `AuthException` with a real HTTP status (revoked/unknown pair), which
+`isDeadPairingError` distinguishes from a transient `transport_error` (httpStatus 0, gateway
+unreachable → keep the saved pairing and retry). A desktop **Disconnect** and a peer **REVOKED**
+both clear the saved pairing (the `pair_id` is gone) but keep `RELAY_DESKTOP_DEVICE_ID`, so the
+next loop mints a fresh QR that re-pairs into the same slot. This removes the "Unpair once to free
+the slot" desktop-restart workaround. Watch for `host: saved pairing found (pairId=…); reconnecting
+without re-pairing` then `[Relay] reconnected to existing pairing; serving framed link requests`.
 
 ## UX + robustness (relay UX commit)
 

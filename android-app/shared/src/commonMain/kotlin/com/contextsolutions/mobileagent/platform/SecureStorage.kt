@@ -96,4 +96,23 @@ object SecureStorageKeys {
      * (co-located with the other relay credential material for one store on that path).
      */
     const val RELAY_PEER_PAIRED = "relay_peer_paired"
+
+    /**
+     * The desktop's relay **pair id** (`pair_…`), persisted after a successful pairing so a
+     * desktop restart can reconnect the existing relay session WITHOUT re-pairing (PR #91) —
+     * the symmetric counterpart to the phone's [RELAY_PAIRING_STATE]. Fed back through
+     * `DesktopConfig.pairId` so `DesktopClient.isPaired()` is true and `connect()` runs on its
+     * own (no fresh QR mint, no re-scan). Cleared on an unpair (peer REVOKED or our own
+     * Disconnect); [RELAY_DESKTOP_DEVICE_ID] survives so the next fresh pairing reuses the slot.
+     * Desktop-only; not a secret (co-located with the other relay credential material).
+     */
+    const val RELAY_DESKTOP_PAIR_ID = "relay_desktop_pair_id"
+
+    /**
+     * Base64-std of the **mobile peer's X25519 public key**, learned at pairing and persisted
+     * alongside [RELAY_DESKTOP_PAIR_ID] for desktop reconnect-without-repair (PR #91). Fed back
+     * through `DesktopConfig.mobilePublicKeyB64`; `DesktopClient.isPaired()` gates on it +
+     * the pair id. Public key material, not a secret. Cleared with the pair id on an unpair.
+     */
+    const val RELAY_MOBILE_PUBLIC_KEY = "relay_mobile_public_key"
 }

@@ -304,11 +304,19 @@ fun main() {
                 }
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        relayQrPayload.value = relayHost.generatePairingQr()
-                        System.err.println("[Relay] pairing QR ready; awaiting phone…")
-                        relayHost.awaitPairing(Duration.ofMinutes(5))
-                        relayHost.connectAndServe(linkHandler, appScope)
-                        System.err.println("[Relay] connected; serving framed link requests")
+                        // Reconnect a persisted pairing first (desktop restart with the phone still
+                        // paired) — no fresh QR, no re-scan (PR #91). Only mint a QR + await a
+                        // re-pair when there's no saved pairing or the reconnect fails.
+                        if (relayHost.reconnect(linkHandler, appScope)) {
+                            relayQrPayload.value = null
+                            System.err.println("[Relay] reconnected to existing pairing; serving framed link requests")
+                        } else {
+                            relayQrPayload.value = relayHost.generatePairingQr()
+                            System.err.println("[Relay] pairing QR ready; awaiting phone…")
+                            relayHost.awaitPairing(Duration.ofMinutes(5))
+                            relayHost.connectAndServe(linkHandler, appScope)
+                            System.err.println("[Relay] connected; serving framed link requests")
+                        }
                     }
                 }.onFailure {
                     // A re-arm (or subscription change) cancels the in-flight mint via
