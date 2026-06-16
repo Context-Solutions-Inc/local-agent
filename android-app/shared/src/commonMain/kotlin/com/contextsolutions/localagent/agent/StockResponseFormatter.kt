@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.agent
 
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.search.FormattedSearchPayload
 import kotlin.math.abs
 import kotlin.math.round
@@ -34,14 +36,14 @@ object StockResponseFormatter {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun format(payload: FormattedSearchPayload): String? = try {
+    fun format(payload: FormattedSearchPayload, strings: Strings = Strings.ENGLISH): String? = try {
         val root = json.parseToJsonElement(payload.json).jsonObject
         if (root["subtype"]?.jsonPrimitive?.contentOrNull != "stock_quote") return null
         val q = root["quote"]?.jsonObject ?: return null
         val price = q.d("latest_price") ?: return null
 
         val symbol = q.s("symbol")
-        val name = q.s("name") ?: symbol ?: "Stock"
+        val name = q.s("name") ?: symbol ?: strings.get(StringKeys.STOCK_FALLBACK_NAME)
         val change = q.d("change")
         val pct = q.d("change_percent")
 
@@ -61,8 +63,12 @@ object StockResponseFormatter {
             val dayLow = q.d("day_low"); val dayHigh = q.d("day_high")
             val w52low = q.d("week_52_low"); val w52high = q.d("week_52_high")
             val ranges = buildList {
-                if (dayLow != null && dayHigh != null) add("Day ${money(dayLow)}–${money(dayHigh)}")
-                if (w52low != null && w52high != null) add("52-wk ${money(w52low)}–${money(w52high)}")
+                if (dayLow != null && dayHigh != null) {
+                    add(strings.get(StringKeys.STOCK_DAY_RANGE, money(dayLow), money(dayHigh)))
+                }
+                if (w52low != null && w52high != null) {
+                    add(strings.get(StringKeys.STOCK_WEEK52_RANGE, money(w52low), money(w52high)))
+                }
             }
             if (ranges.isNotEmpty()) append(ranges.joinToString(" · ")).append('\n')
 
@@ -70,16 +76,16 @@ object StockResponseFormatter {
             // stockanalysis.com (e.g. "5.31T", "33.59"); volume is numeric.
             val mktCap = q.s("market_cap"); val pe = q.s("pe_ratio"); val vol = q.d("volume")
             val stats = buildList {
-                if (mktCap != null) add("Mkt cap $mktCap")
-                if (pe != null) add("P/E $pe")
-                if (vol != null) add("Vol ${compact(vol)}")
+                if (mktCap != null) add(strings.get(StringKeys.STOCK_MARKET_CAP, mktCap))
+                if (pe != null) add(strings.get(StringKeys.STOCK_PE, pe))
+                if (vol != null) add(strings.get(StringKeys.STOCK_VOLUME, compact(vol)))
             }
             if (stats.isNotEmpty()) append(stats.joinToString(" · ")).append('\n')
 
             // Source · As of (as_of is already a human label from the page)
             val domain = payload.sources.firstOrNull()?.url?.let { domainOf(it) } ?: "stockanalysis.com"
-            append("Source: ").append(domain)
-            q.s("as_of")?.let { append(" · As of ").append(it) }
+            append(strings.get(StringKeys.COMMON_SOURCE)).append(domain)
+            q.s("as_of")?.let { append(" · ").append(strings.get(StringKeys.STOCK_AS_OF, it)) }
         }
     } catch (_: Throwable) {
         null

@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.agent
 
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.search.FormattedSearchPayload
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -55,7 +57,11 @@ object WeatherResponseFormatter {
      * `null` when the payload doesn't match the expected EC RSS shape so
      * the caller falls through to the LLM path.
      */
-    fun format(city: String?, payload: FormattedSearchPayload): String? {
+    fun format(
+        city: String?,
+        payload: FormattedSearchPayload,
+        strings: Strings = Strings.ENGLISH,
+    ): String? {
         val entries = parseEntries(payload.json) ?: return null
         if (entries.isEmpty()) return null
 
@@ -75,7 +81,7 @@ object WeatherResponseFormatter {
         // LLM — fall through so the model can synthesize an answer.
         if (current.isEmpty() && forecasts.isEmpty()) return null
 
-        val locationLabel = city?.takeIf { it.isNotBlank() } ?: "your area"
+        val locationLabel = city?.takeIf { it.isNotBlank() } ?: strings.get(StringKeys.WEATHER_YOUR_AREA)
         val source = payload.sources.firstOrNull()?.url
             ?.let { domainOf(it) }
             ?: "weather.gc.ca"
@@ -83,16 +89,16 @@ object WeatherResponseFormatter {
             ?: forecasts.firstOrNull()?.published
 
         return buildString {
-            append("Weather for ").append(locationLabel).append('\n')
+            append(strings.get(StringKeys.WEATHER_HEADER, locationLabel)).append('\n')
 
             if (alerts.isNotEmpty()) {
                 append('\n')
-                append("⚠ ").append(shortAlertLine(alerts.first().title)).append('\n')
+                append("⚠ ").append(shortAlertLine(alerts.first().title, strings)).append('\n')
             }
 
             current.firstOrNull()?.let { cur ->
                 append('\n')
-                renderCurrent(cur).let { append(it) }
+                renderCurrent(cur, strings).let { append(it) }
             }
 
             if (forecasts.isNotEmpty()) {
@@ -103,14 +109,15 @@ object WeatherResponseFormatter {
             }
 
             append('\n')
-            append("Source: ").append(source)
+            append(strings.get(StringKeys.COMMON_SOURCE)).append(source)
             if (!published.isNullOrBlank()) {
-                append(" · Updated ").append(formatTimestamp(published))
+                append(" · ").append(strings.get(StringKeys.WEATHER_UPDATED)).append(' ')
+                    .append(formatTimestamp(published))
             }
         }
     }
 
-    private fun renderCurrent(entry: Entry): String {
+    private fun renderCurrent(entry: Entry, strings: Strings): String {
         val desc = entry.description
         val condition = CONDITION.find(desc)?.groupValues?.get(1)?.trim()
         val temp = TEMPERATURE.find(desc)?.groupValues?.get(1)
@@ -126,24 +133,25 @@ object WeatherResponseFormatter {
                 if (desc.isNotBlank()) ". " + desc.take(180) else "")
                 .trim()
             if (fallback.isBlank()) return ""
-            return "Now: $fallback\n"
+            return strings.get(StringKeys.WEATHER_NOW_PREFIX) + fallback + "\n"
         }
 
+        val humidexLabel = strings.get(StringKeys.WEATHER_HUMIDEX_LABEL)
         return buildString {
-            append("Now: ")
+            append(strings.get(StringKeys.WEATHER_NOW_PREFIX))
             if (condition != null) {
                 append(condition)
                 if (temp != null) append(", ").append(temp).append("°C")
-                if (humidex != null) append(" (humidex ").append(humidex).append(")")
+                if (humidex != null) append(" (").append(humidexLabel).append(' ').append(humidex).append(")")
             } else if (temp != null) {
                 append(temp).append("°C")
-                if (humidex != null) append(" (humidex ").append(humidex).append(")")
+                if (humidex != null) append(" (").append(humidexLabel).append(' ').append(humidex).append(")")
             }
             append('\n')
             if (wind != null || humidity != null) {
                 val parts = mutableListOf<String>()
-                if (wind != null) parts.add("Wind $wind")
-                if (humidity != null) parts.add("Humidity $humidity%")
+                if (wind != null) parts.add(strings.get(StringKeys.WEATHER_WIND, wind))
+                if (humidity != null) parts.add(strings.get(StringKeys.WEATHER_HUMIDITY, humidity))
                 append(parts.joinToString(" · ")).append('\n')
             }
         }
@@ -180,16 +188,16 @@ object WeatherResponseFormatter {
      * Convert "YELLOW WARNING - HEAT, Toronto" → "Heat warning in effect".
      * Falls back to the original title when the shape doesn't match.
      */
-    private fun shortAlertLine(title: String): String {
+    private fun shortAlertLine(title: String, strings: Strings): String {
         val m = ALERT_PATTERN.find(title) ?: return title.trim()
         val kind = m.groupValues[2].trim().lowercase().replaceFirstChar { it.uppercase() }
         val level = m.groupValues[1].trim().lowercase()
         return when (level) {
-            "warning" -> "$kind warning in effect"
-            "watch" -> "$kind watch in effect"
-            "advisory" -> "$kind advisory in effect"
-            "statement" -> "$kind statement issued"
-            else -> "$kind alert in effect"
+            "warning" -> strings.get(StringKeys.WEATHER_ALERT_WARNING, kind)
+            "watch" -> strings.get(StringKeys.WEATHER_ALERT_WATCH, kind)
+            "advisory" -> strings.get(StringKeys.WEATHER_ALERT_ADVISORY, kind)
+            "statement" -> strings.get(StringKeys.WEATHER_ALERT_STATEMENT, kind)
+            else -> strings.get(StringKeys.WEATHER_ALERT_GENERIC, kind)
         }
     }
 

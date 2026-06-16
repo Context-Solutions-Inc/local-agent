@@ -1,236 +1,179 @@
 # Multi-language support via a runtime string catalog
 
-> **Status:** Planning only — no feature code written yet. This document is the
-> resumable spec. See the Delivery workflow section for how implementation should
-> be branched, PR'd, and gated on device validation.
+> **Status:** PR #96 (draft) — **foundation + `:shared` consumers landed**, English-only,
+> no visible behaviour change. The runtime `StringCatalog`, both-platform pack loaders, Koin
+> wiring, the in-code English floor, and the Compose seam are in; the deterministic formatters
+> and `AgentLoop` user-facing replies now resolve through the catalog. The ~525 Compose UI
+> literals and the voice-command recognition phrases are a documented follow-up (see Deferred).
+> Do **not** merge until validated on a device (Pixel 7) — see Verification.
 
 ## Context
 
-The app is being prepared for multi-language support. Today **every user-visible
-string is hardcoded** — ~800 literals across ~12 Compose screens, plus English
-literals in the `:shared` deterministic formatters, voice-command/ack phrases, and
-the LLM system-prompt blocks. The one piece that already exists is the
-**response-language** layer: `LanguagePreferences` + `PreferredLanguage` (10
-languages, ISO codes, `preferredLanguageFlow()`, default EN) drives the
-system-prompt "Respond in X" directive and a per-language Unicode `ResponseFilter`.
+Every user-visible string used to be a hardcoded literal. This effort makes the *displayed and
+spoken* strings configurable by locale so a new language is **a pure data file with no
+recompile** (bundled JSON now, optionally remote-downloaded later). One setting — the existing
+`PreferredLanguage` (`language/PreferredLanguage.kt`, 10 languages, ISO codes,
+`LanguagePreferences.preferredLanguageFlow()`, default EN) — drives UI chrome, the deterministic
+chat cards, and the agent's deterministic replies.
 
-**Goal:** make the *displayed and spoken* strings configurable by locale so a new
-language can be added as a **pure data file with no recompile** (bundled JSON now,
-optionally remote-downloaded later). One setting — the existing `PreferredLanguage`
-— drives UI chrome, deterministic chat cards, voice/ack/TTS phrases, AND the LLM
-system-prompt instruction blocks. English is the bundled default and the fallback
-for any missing key. We ship/validate English first; adding e.g. Spanish becomes a
-matter of dropping in `strings_es.json`.
+The original plan was written in the **Hilt + Android-only + `:androidApp` screens** era. The
+codebase has since moved to **Koin** DI, a Compose-Multiplatform **`:ui`** module that holds
+every screen (shared by Android + desktop), and a **desktop** port (`:desktopApp`). This doc is
+the as-built record for that reality.
 
-**Decided scope:** UI chrome + deterministic cards + voice/ack/TTS + LLM prompt
-blocks. **Deferred (tracked separately):** localizing `locations.json` /
-`search_defaults.json` display names, and the `search_cache` locale-keying bug
-(same query across countries can serve stale results — see Deferred section).
+### Decisions locked for PR #96
 
-## Approach
+- **Scope:** the catalog foundation + the `:shared` consumers. The ~525 Compose UI literals are
+  deferred to a follow-up — the seam is in place so that PR is a near-mechanical `tr(...)` swap.
+- **System prompt stays English.** The `PromptAssembler` blocks (BASE_TEMPLATE, guidelines,
+  search/memory notices) and model-facing payloads (tool results, the `[SEARCH CONTEXT]`
+  truncation marker, the tool-limit message) are **not** localized — a 2B model follows English
+  instructions more reliably and the blocks embed literal tokens (`[SEARCH CONTEXT]`,
+  `<|tool_call>`). Only the existing `languageDirective` ("Respond in X") carries language.
+- **English-only this PR.** No `strings_es.json` ships; overlay/fallback/plurals are proven by
+  unit tests (and an in-test synthetic `es`/`ru` pack), not a bundled translation.
 
-A unified **runtime `StringCatalog`** in `:shared/commonMain`, keyed by stable
-string IDs, NOT Android `res/values-xx/strings.xml`. The catalog loads JSON
-"packs" (one per language), overlays the selected-language pack on top of the
-always-present EN fallback pack, and exposes the active pack reactively, derived
-from `LanguagePreferences.preferredLanguageFlow()`. Both Compose UI and the
-`:shared` consumers read through it.
+## Architecture
 
-This rides existing patterns: assets are already loaded in Hilt `@Provides` methods
-(`ClassifierModule.providePreflightConfig` reads `context.assets.open(...)`, parses
-with kotlinx-serialization, provides a `@Singleton` with a try/catch fallback), and
-the composition root already does `collectAsState()` of a Hilt VM flow (theme mode).
+A unified runtime **`StringCatalog`** in `:shared/commonMain` (`i18n/`), keyed by stable string
+IDs, **not** Android `res/values-xx/strings.xml`. Two deviations from the original sketch, both
+deliberate:
+
+1. **English is an in-code floor, not a bundled `strings_en.json`.** `EnglishStrings.pack` holds
+   the English values in Kotlin. This guarantees English always resolves (a broken EN pack is
+   impossible), keeps tests Android-/asset-free, and is *complete by construction* (a guardrail
+   test asserts its keys equal `StringKeys.ALL`). Non-English packs are pure JSON parsed by
+   `StringPack.parse` and **overlaid** on the floor — fully satisfying "new language = data
+   file"; only the floor is in code.
+2. **Deterministic formatters stay `object`s with a per-turn `strings` parameter** (rather than
+   `object → class`). They were already DI-bound as objects (`single { WeatherResponseFormatter }`),
+   so this is **zero binding changes** on either platform; the per-turn `Strings` flows in as a
+   `format(..., strings)` argument instead of being held as instance state.
 
 ### Core types — `shared/src/commonMain/.../i18n/`
 
-- **`StringPack`** — immutable parsed JSON for one language + its resolved plural
-  rule. Pure data; `StringPack.parse(json, code)` in commonMain (reuses the
-  existing `Json { ignoreUnknownKeys = true }`).
-- **`Strings`** — the accessor consumers call. Wraps an active pack + the EN
-  fallback pack; missing keys resolve against EN.
-  - `get(key, vararg args): String`
-  - `plural(key, count, vararg args): String`
-  - `list(key): List<String>`
-- **`StringCatalog`** (interface; `DefaultStringCatalog` impl):
-  - `val active: StateFlow<Strings>` — drives Compose + non-Compose reads.
-  - `fun stringsFor(language): Strings` — synchronous, for per-turn agent use.
-  - `active` is built from `preferredLanguageFlow().map { Strings(loadOrEn(it), enPack) }
-    .stateIn(scope, Eagerly, Strings(enPack, enPack))` — seeds at EN, flips when a
-    non-EN pack resolves (loader is `suspend`, never blocks the first frame).
-- **`PluralRules`** — hand-written commonMain `when` over language code; the 10
-  shipped languages collapse to 4 rule functions: `other`-only (zh/ja/ko),
-  one/other (en/de/es/it/pt), French (0..1 → one), Russian one/few/many/other.
-  No ICU dependency. `other` is mandatory and the universal fallback.
-- **Positional formatter** — hand-rolled `%<n>$[sd]` substitutor (do NOT use
-  `String.format` positional specifiers — JVM-only; `:shared` has an `iosMain`
-  set). Handle `%%` → `%`.
-- **`StringKeys`** — central `object` of `const val` key IDs. All accessors use
-  `StringKeys.X`, never raw strings — gives find-usages, rename safety, and the
-  guardrail test (below).
+- **`StringValue`** — `Simple` / `Plural(forms)` / `Listed(items)`; the JSON value shape
+  (string / object / array) selects the variant.
+- **`StringPack`** — immutable parsed strings for one language + its resolved `PluralRule`.
+  `StringPack.parse(json, code)` reuses the lenient `Json { ignoreUnknownKeys = true }`; reads
+  `_meta.code` / `_meta.plurals`.
+- **`EnglishStrings`** — the in-code English `StringPack` floor.
+- **`Strings`** — the accessor consumers call: `get(key, vararg)`, `plural(key, count, vararg)`,
+  `list(key)`. Wraps an active pack over the English fallback; missing keys resolve against the
+  floor; a genuinely-unknown key returns the key itself (never crashes). `Strings.ENGLISH` is the
+  default for tests/callers without a catalog.
+- **`PluralRules`** — hand-written `when` over code; 10 languages collapse to 4 rules
+  (`OTHER_ONLY` zh/ja/ko, `ENGLISH` en/de/es/it/pt, `FRENCH` 0..1→one, `RUSSIAN`
+  one/few/many). No ICU; `other` is mandatory.
+- **`formatPositional`** (internal) — hand-rolled `%<n>$[sd]` substitutor + `%%` → `%` (no
+  `String.format` positional specifiers — JVM-only; `:shared` has an `iosMain` set).
+- **`StringKeys`** — central `object` of `const val` IDs + `ALL` (the guardrail set). Consumers
+  use `StringKeys.X`, never raw strings.
+- **`StringPackLoader`** — `fun interface { suspend fun load(code): String? }`, **injected**
+  (Koin), not expect/actual.
+- **`StringCatalog` / `DefaultStringCatalog`** — `active: StateFlow<Strings>` (drives Compose,
+  built from `preferredLanguageFlow`) + `stringsFor(language): Strings` (synchronous, per-turn
+  agent use; reads `active.value` so no concurrency primitive is needed — `synchronized` /
+  `@Volatile` aren't available in commonMain with `iosMain`).
 
-### KMP asset seam — injected loader, NOT expect/actual
+### Koin wiring
 
-commonMain `fun interface StringPackLoader { suspend fun load(code: String): String? }`.
-Android impl (in the Hilt module) does `context.assets.open("i18n/strings_$code.json")`
-on `Dispatchers.IO`, returns null on `FileNotFoundException`. Chosen over
-expect/actual because `:shared` has an `iosMain` set that would otherwise need a
-stub actual, and this matches the existing asset-in-Hilt convention. Parsing stays
-in commonMain (loader returns a `String`). Future remote packs: loader checks
-`filesDir` before `assets` — one-line change, seam already supports it.
+- `agentCoreModule` (commonMain): `single<StringCatalog> { DefaultStringCatalog(loader = get(),
+  languagePreferences = get()) }`. The `AgentLoopFactory` binding resolves
+  `catalog.stringsFor(responseLanguage)` once per `create(...)` and passes `strings` into
+  `AgentLoop`.
+- `AndroidKoinModule`: `single<StringPackLoader> { ... }` reading
+  `assets/i18n/strings_<code>.json` on `Dispatchers.IO` (null on `FileNotFoundException`).
+- `DesktopModule`: `single<StringPackLoader> { ... }` reading the same path via
+  `DesktopResources.readTextOrNull` (classpath). Future remote packs check app-data first — a
+  one-line change, the seam already supports it.
 
-**Packs live at** `androidApp/src/main/assets/i18n/strings_en.json`, `strings_es.json`, …
-Only EN ships required; if EN fails to parse, **throw at startup** (it's the fallback floor).
+No pack ships today, so both loaders return null and the catalog stays English.
 
-### JSON pack schema
+### `:shared` consumers (migrated)
 
-One object per pack; value shape distinguishes simple / plural / list:
+- `WeatherResponseFormatter`, `StockResponseFormatter`, `ClockResponseFormatter` (objects) +
+  `TodoResponseFormatter` (class) — each `format(...)` gained a `strings: Strings =
+  Strings.ENGLISH` param; user-visible words/sentences/labels + plural count-nouns route through
+  `StringKeys`. Symbols/units (`°C`, `▲`, `·`, `$`, `•`), tool-supplied data, and digit
+  formatting stay structural.
+- `AgentLoop` — engine error, weather location prompt, weather disambiguation, clock/todo
+  guidance, run-job messages (`run job …` prompt, not-found, no-output, failure), and the
+  remember/forget acks resolve via the per-turn `strings`. The duplicated companion constants
+  (`FRIENDLY_ENGINE_ERROR`, `WEATHER_LOCATION_PROMPT_TEXT`, `CLOCK_GUIDANCE_TEXT`,
+  `TODO_GUIDANCE_TEXT`) were removed. `PromptAssembler` is unchanged (system prompt stays
+  English).
 
-```json
-{
-  "_meta": { "code": "en", "plurals": "english" },
-  "settings.title": "Settings",
-  "weather.header": "Weather for %1$s",
-  "clock.alarms.count": { "one": "You have one alarm set: %1$s.", "other": "You have %1$d alarms set:" },
-  "memory.count": { "one": "%1$d memory", "other": "%1$d memories" },
-  "voice.cmd.send": ["send", "send it", "send message", "submit"],
-  "ack.working": ["Got it. Working on your response.", "On it. Give me a moment."],
-  "prompt.base_template": "You are a helpful, accurate, and privacy-respecting AI assistant…"
-}
-```
+### Compose seam — `ui/src/commonMain/.../i18n/LocalStrings.kt`
 
-### Accessor APIs
+`val LocalStrings = staticCompositionLocalOf { Strings.ENGLISH }` + `@Composable
+@ReadOnlyComposable` `tr` / `trPlural` / `trList`. Seeded at both composition roots from
+`StringCatalog.active`: Android `MainActivity` (`koinInject<StringCatalog>().active`) and desktop
+`Main.kt` (`koin.get<StringCatalog>().active`), each wrapping the theme in
+`CompositionLocalProvider(LocalStrings provides strings)`. **No screen reads `tr(...)` yet** —
+that is the follow-up.
 
-- **commonMain consumers** (formatters, `PromptAssembler`, `AgentLoop`):
-  constructor-inject a resolved `Strings`. `AgentLoopFactory` already threads
-  `responseLanguage` per turn → it calls `catalog.stringsFor(language)` once per
-  turn and passes the `Strings` down (so a Settings flip takes effect next turn,
-  exactly like the current language threading). Resolve once per turn, never
-  per-token.
-- **Compose**: `val LocalStrings = staticCompositionLocalOf<Strings> { error(...) }`,
-  seeded in `MainActivity.setContent` from `catalog.active.collectAsState()`
-  (mirrors the existing theme-mode pattern). `staticCompositionLocalOf` is correct
-  here — the reference only changes on a deliberate language flip, so a full-tree
-  re-provide is fine and rare. Accessors: `@Composable @ReadOnlyComposable fun
-  tr(key, vararg args)`, `trPlural`, `trList`.
-- **Non-Composable Android** (notification builders, ViewModels): read
-  `catalog.active.value` snapshot, or inject `StringCatalog`.
+## Files (as-built)
 
-### Voice command + ack rewiring
+**New (`shared/src/commonMain/.../i18n/`):** `StringPack.kt`, `Strings.kt`, `StringCatalog.kt`,
+`PluralRules.kt`, `PositionalFormatter.kt`, `StringPackLoader.kt`, `StringKeys.kt`,
+`EnglishStrings.kt`. **New (`:ui`):** `ui/.../i18n/LocalStrings.kt`. **New (tests):**
+`shared/src/commonTest/.../i18n/I18nTest.kt`, `shared/src/commonTest/.../agent/FormatterI18nParityTest.kt`.
 
-- `AckPhrasePicker` already takes `phrases: List<String>`; its provider passes
-  `catalog.active.value.list("ack.working")` / `"ack.still_working"`. Logic
-  untouched.
-- `VoiceCommand.match(spoken, strings)` — refactor the static phrase→command map
-  to build from `strings.list("voice.cmd.*")`. `normalize()` unchanged. Caller
-  (dictation callback) passes the active `Strings`. **Note:** voice triggers are a
-  *recognition* surface — per-language phrase lists must be authored against what
-  the recognizer actually emits (QA concern, not free).
-
-## Files to create / modify
-
-**New (`shared/src/commonMain/.../i18n/`):** `StringPack.kt`, `Strings.kt`,
-`StringCatalog.kt` (+ `DefaultStringCatalog`), `PluralRules.kt`, positional
-formatter, `StringPackLoader.kt`, `StringKeys.kt`.
-
-**New (`androidApp`):** `app/di/I18nModule.kt` (provides EN pack + catalog
-`@Singleton` + Android `StringPackLoader`, mirroring `ClassifierModule`);
-`app/ui/i18n/LocalStrings.kt` (+ `tr`/`trPlural`/`trList`);
-`src/main/assets/i18n/strings_en.json` (grows per migration phase).
-
-**Modify (`:shared`):** `agent/WeatherResponseFormatter.kt`,
-`StockResponseFormatter.kt`, `ClockResponseFormatter.kt` — **convert `object` →
-`class`** taking `Strings` (the big mechanical friction point; `TodoResponseFormatter`
-is already a class — use as template); `TodoResponseFormatter.kt`;
-`PromptAssembler.kt` (const blocks → keys; `languageDirective` already
-parameterized — ensure not double-emitted once base template is localizable);
-`AgentLoop.kt` (`FRIENDLY_ENGINE_ERROR`, `WEATHER_LOCATION_PROMPT_TEXT`,
-`CLOCK_GUIDANCE_TEXT`, `TODO_GUIDANCE_TEXT`, inline memory ack → keys).
-
-**Modify (`:androidApp`):** `app/di/AgentModule.kt` (formatter/PromptAssembler/
-AgentLoopFactory wiring for injected `Strings`); `MainActivity.kt` (seed
-`LocalStrings`); `app/ui/chat/VoiceCommand.kt`, `AckPhrasePicker.kt`; the ~12 UI
-screens under `app/ui/` (`chat/ChatScreen.kt` is the largest, then
-`settings/SettingsScreen.kt`, the 5 `onboarding/` screens, `memory/`, `history/`,
-`clock/`, `todo/`, `download/`, `settings/SearchSourcesScreen.kt`,
-`chat/ThermalBanner.kt`).
-
-**Keep in `res/values/strings.xml` (NOT runtime-catalog):** `app_name` (manifest
-references it at build/install) and notification **channel** names/descriptions
-(read by the Android framework outside Compose). Notification *content* built in
-Kotlin may move to the catalog. Document this boundary — coverage is not 100%.
-
-## Delivery workflow
-
-- **This is a planning-only pass — no feature code is written yet.** This document
-  (committed straight to `main`, per the repo's doc-only norm) is the resumable
-  spec.
-- **When implementation begins** (separate, later session): do it on a **new feature
-  branch** (e.g. `feature/i18n-string-catalog`), open a **PR**, and **do NOT merge
-  until manually validated on the device** (Pixel 7). The on-device smoke in
-  Verification is the merge gate. Never auto-merge / never merge with CI pending.
-- Because the migration is phased and each phase is independently shippable, the PR
-  may either land Phase 0+1 (infra + full EN extraction, English-only, no visible
-  change) and follow with Phase 2, or stack the whole thing — decide at start of
-  implementation.
-
-## Migration sequencing (app compiles at every step)
-
-- **Phase 0 — Infra, no behavior change.** Add all `i18n/` types, `I18nModule`,
-  Android loader, `LocalStrings` seeded in `MainActivity` (nothing reads it yet),
-  and an initially-tiny `strings_en.json`.
-- **Phase 1 — EN extraction, lowest blast radius first:** (1) `AckPhrasePicker` +
-  `VoiceCommand`; (2) `AgentLoop` constants + memory ack (thread `Strings` via
-  `AgentLoopFactory`); (3) `PromptAssembler` blocks; (4) formatters one at a time
-  (`TodoResponseFormatter` first, then the three `object→class` conversions); (5)
-  Compose screens, one per change. Each step reproduces current English verbatim,
-  so each is independently shippable.
-- **Phase 2 — Add a real `strings_es.json`** to validate overlay/fallback/plurals
-  end-to-end. No code change (this is the payoff: proves "new language = data file").
+**Modified:** the four formatters + `AgentLoop` + `di/AgentCoreModule` (`:shared/commonMain`);
+`DesktopModule` (`:shared/desktopMain`); `AndroidKoinModule` + `MainActivity` (`:androidApp`);
+`Main.kt` (`:desktopApp`).
 
 ## Verification
 
-- **Guardrail unit test** (commonMain): assert every `StringKeys` constant exists in
-  `strings_en.json`; (optionally) flag EN keys never referenced (dead keys). For
-  non-EN packs: assert keys are a **subset** of EN (no orphans) and every plural
-  entry includes `other`.
-- **PluralRules unit tests** against CLDR sample counts — esp. Russian (1→one,
-  2→few, 5→many, 21→one, 11→many) and French (0,1→one).
-- **Positional-formatter tests** incl. `%%` escaping and multi-arg ordering.
-- **Dev-time missing-key behavior:** debug returns a loud `⟦missing:key⟧` + log;
-  release returns the key (never crashes). Guardrail test makes EN misses
-  impossible in CI.
-- **On-device smoke (Pixel 7) — the merge gate:** build/install, confirm English UI
-  unchanged after full migration (`./gradlew :androidApp:installDebug`); then drop a
-  partial `strings_es.json`, flip Settings → language to Spanish, confirm translated
-  keys switch live and untranslated keys fall back to English, and that
-  deterministic cards (weather/clock/todo/finance), ack/voice phrases, and the
-  system prompt all follow the setting.
-- Existing formatter/PromptAssembler/AgentLoop tests updated to inject a test
-  `Strings` (fake catalog) — keeps `:shared` Android-free.
+- **Unit tests (run on the desktop JVM, `:shared:desktopTest` — Android-free):**
+  - `I18nTest` — guardrail (floor keys == `StringKeys.ALL`, no orphans, every plural has
+    `other`), positional formatter (`%%`, reorder, out-of-range), `PluralRules` vs CLDR samples
+    (Russian 1/2/5/21/11, French 0/1, CJK), and overlay/fallback/plurals via a synthetic
+    `es`/`ru` pack (proves "new language = data file" without bundling one).
+  - `FormatterI18nParityTest` — each formatter, with default `Strings.ENGLISH`, reproduces its
+    pre-migration output **byte-for-byte** (golden stock bubble, clock plurals/durations, todo).
+  - All pass; the full `:shared:desktopTest` suite is green.
+- **Compiles:** `:shared:compileKotlinDesktop`, `:ui:compileKotlinDesktop`,
+  `:desktopApp:compileKotlin` all build clean.
+- **Not run in this environment (no Android SDK):** `:androidApp:assembleDebug` and the
+  `:androidApp` formatter/AgentLoop tests. The migrated logic lives in `:shared` and is covered
+  by the commonTest parity suite, but the Android build + the on-device smoke below must be run
+  before merge.
+- **On-device smoke (Pixel 7) — the merge gate:** `./gradlew :androidApp:installDebug`; confirm
+  weather/clock/todo/finance cards, the run-job output, and the remember/forget acks read
+  **identically** to before (English unchanged). Repeat on the desktop app. Then, to prove the
+  mechanism live, drop a partial `assets/i18n/strings_es.json` (+ the desktop
+  `resources/i18n/strings_es.json`), flip Settings → language to Spanish, and confirm keyed
+  strings switch while untranslated keys fall back to English.
 
-## Pitfalls (carry into implementation)
+## Deferred (tracked, not in this PR)
 
-1. The three `object` formatters can't be injected → must become classes (touches
-   every call site + tests). Biggest mechanical cost.
-2. Plural-rule correctness is the highest bug density — Russian few/many, French 0,
-   CJK other-only. Unit-test hard.
-3. No `String.format` positional specifiers from commonMain (iosMain) — hand-roll.
-4. `strings.xml` can't be fully eliminated (`app_name`, notification channels).
-5. Keep `:shared` Android-free: loader impl + Hilt only in `androidApp`/`androidMain`.
-6. Resolve `Strings` once per turn; formatters/PromptAssembler run per turn — keep
-   lookups off the per-token streaming path.
-7. `ResponseFilter` / `TranslationIntentDetector` are unaffected (operate on model
-   output bytes / user intent). A localized system prompt's script is already
-   permitted by the same-language allow-list — consistent by construction.
+- **The ~525 Compose UI literals** in `:ui` commonMain + desktopMain (Chat, Settings, the 5
+  onboarding screens, memory, history, clock, todo, download, search sources, **Jobs**, + the
+  desktop **GPU / Voice / Link-pairing** sections, relay/subscription + remote-LLM settings) →
+  `tr(...)` swap, one screen per change. The seam is ready.
+- **Voice-command recognition phrases** (`VoiceCommand` match lists) — a *recognition* surface
+  that must be authored against what each STT engine emits (QA-heavy), and driving the TTS voice
+  from `PreferredLanguage` rather than `Locale.getDefault()`.
+- **A real bundled `strings_es.json`** to validate overlay/fallback/plurals on-device.
+- **System-prompt block localization** (intentionally English now).
+- **`JobExecutor` "(no output)"** (desktopMain subprocess placeholder) — left English; it has no
+  `Strings` in scope and is a low-value edge.
+- Localizing `locations.json` / `search_defaults.json` display names; the `search_cache`
+  locale-keying bug (needs a `.sqm` migration, invariant #20).
+- Android `app_name` + notification **channel** names stay in `res/values/strings.xml` (the
+  framework reads them outside Compose). Coverage is intentionally not 100%.
 
-## Deferred (tracked, not in this effort)
+## Pitfalls (carried into the follow-up)
 
-- Localize `locations.json` (country/region/city names) and `search_defaults.json`
-  source `displayName`s — currently English-only; add native names or per-language
-  asset variants later.
-- `search_cache` is not locale-aware: `normalized_query` PK has no country/language
-  tag, so changing location can serve stale cross-country results. Fix needs a
-  `country_code` column / composite key → a new `.sqm` migration (invariant #20
-  dance). Separate change.
-- TTS voice currently uses `Locale.getDefault()`; consider driving it from
-  `PreferredLanguage` so read-aloud matches the chosen language.
+1. Plural-rule correctness is the highest bug density — Russian few/many, French 0, CJK
+   other-only. Unit-tested in `I18nTest`; keep extending when a language is added.
+2. No `String.format` positional specifiers from commonMain — use `formatPositional` / the
+   `tr` accessors.
+3. Keep `:shared` Android-free: the loader impls live in `AndroidKoinModule` / `DesktopModule`,
+   never in `:shared/commonMain`.
+4. Resolve `Strings` once per turn (agent) / per language flip (Compose) — never per token.
+5. Plural forms whose `one`/`other` take *different* placeholders (e.g. a row vs a count) are
+   modeled as **separate simple keys** with a code-level size branch, not one plural key — see
+   `clock.alarms.one` / `clock.alarms.header`.

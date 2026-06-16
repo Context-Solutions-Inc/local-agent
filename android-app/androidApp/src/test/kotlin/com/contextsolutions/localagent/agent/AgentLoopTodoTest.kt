@@ -6,6 +6,8 @@ import com.contextsolutions.localagent.classifier.ClassifierEngine
 import com.contextsolutions.localagent.classifier.ClassifierOutput
 import com.contextsolutions.localagent.classifier.PreflightConfig
 import com.contextsolutions.localagent.classifier.PreflightRouter
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.classifier.QueryRewriter
 import com.contextsolutions.localagent.classifier.Vocab
 import com.contextsolutions.localagent.classifier.WordPieceTokenizer
@@ -95,7 +97,7 @@ class AgentLoopTodoTest {
 
         assertFalse(session.invoked)
         val text = events.filterIsInstance<AgentEvent.TokenChunk>().joinToString("") { it.text }
-        assertEquals(AgentLoop.TODO_GUIDANCE_TEXT, text)
+        assertEquals(Strings.ENGLISH.get(StringKeys.TODO_GUIDANCE), text)
     }
 
     @Test
@@ -154,7 +156,7 @@ class AgentLoopTodoTest {
 
         assertFalse(session.invoked)
         val text = events.filterIsInstance<AgentEvent.TokenChunk>().joinToString("") { it.text }
-        assertEquals(AgentLoop.CLOCK_GUIDANCE_TEXT, text)
+        assertEquals(Strings.ENGLISH.get(StringKeys.CLOCK_GUIDANCE), text)
     }
 
     // -- helpers --------------------------------------------------------------

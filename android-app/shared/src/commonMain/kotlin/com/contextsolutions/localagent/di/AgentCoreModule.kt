@@ -15,6 +15,9 @@ import com.contextsolutions.localagent.agent.currentTimeContext
 import com.contextsolutions.localagent.classifier.PreflightRouter
 import com.contextsolutions.localagent.classifier.QueryRewriter
 import com.contextsolutions.localagent.classifier.WordPieceTokenizer
+import com.contextsolutions.localagent.i18n.DefaultStringCatalog
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.job.InlineJobRunner
 import com.contextsolutions.localagent.job.JobRepository
 import com.contextsolutions.localagent.language.PreferredLanguage
@@ -58,6 +61,11 @@ val agentCoreModule: Module = module {
     // Pure query-subtype detector consumed by PreflightRouter.
     single { SearchSubtypeDetector() }
 
+    // Runtime localization catalog (PR #96). English is the in-code floor; the
+    // per-platform `StringPackLoader` supplies any translated JSON pack. Drives
+    // both the Compose `active` flow and the agent's per-turn `stringsFor`.
+    single<StringCatalog> { DefaultStringCatalog(loader = get(), languagePreferences = get()) }
+
     // Per-turn AgentLoop builder (lifted from androidApp's AgentModule in Phase 3). Required
     // collaborators (assembler/search/router) resolve from this graph; the many optional
     // collaborators (memory, vertical search, weather/finance, tool handlers, formatters) are
@@ -87,6 +95,9 @@ val agentCoreModule: Module = module {
         val inlineJobRunner = getOrNull<InlineJobRunner>()
         val counters = getOrNull<TelemetryCounters>() ?: NoOpTelemetryCounters
         val agentLogger = getOrNull<AgentLogger>()
+        // PR #96 — resolve the per-turn localized strings from the catalog (falls
+        // back to English if a graph doesn't bind one).
+        val stringCatalog = getOrNull<StringCatalog>()
         object : AgentLoopFactory {
             override fun create(
                 session: InferenceSession,
@@ -115,6 +126,7 @@ val agentCoreModule: Module = module {
                 counters = counters,
                 responseLanguage = responseLanguage,
                 responseFilter = responseFilter,
+                strings = stringCatalog?.stringsFor(responseLanguage) ?: Strings.ENGLISH,
             )
         }
     }

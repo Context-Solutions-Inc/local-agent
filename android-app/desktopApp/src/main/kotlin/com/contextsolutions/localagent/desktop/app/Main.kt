@@ -1,6 +1,7 @@
 package com.contextsolutions.localagent.desktop.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -83,6 +84,8 @@ import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
 import com.contextsolutions.localagent.desktop.app.ui.theme.LocalAgentDesktopTheme
 import com.contextsolutions.localagent.sync.LinkSyncService
 import com.contextsolutions.localagent.ui.di.uiModule
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
 import com.contextsolutions.localagent.ui.navigation.AppNavHost
 import com.contextsolutions.localagent.ui.theme.DesktopThemePreferences
 import com.contextsolutions.localagent.ui.theme.DesktopWindowPreferences
@@ -600,6 +603,8 @@ fun main() {
         val themeMode by themePrefs.themeModeFlow().collectAsState(initial = themePrefs.themeMode())
         val fontScale by themePrefs.fontScaleFlow().collectAsState(initial = themePrefs.fontScale())
         val fontFamily by themePrefs.fontFamilyFlow().collectAsState(initial = themePrefs.fontFamily())
+        // i18n active strings (PR #96) — seeded into the composition like the theme prefs.
+        val strings by koin.get<StringCatalog>().active.collectAsState()
         // Colours for the Swing tray menu, tracking the resolved theme + zoom. Held in a
         // rememberUpdatedState so the long-lived install lambda reads the live value at
         // show time. (System mode on Linux is unreliable — invariant #46 — but harmless
@@ -708,12 +713,14 @@ fun main() {
             // remains visible via tray notifications.
             // Theme prefs (themeMode/fontScale/fontFamily/uiZoom) are collected above in
             // the application scope so the tray popup shares them (PR #71).
-            LocalAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily, densityScale = uiZoom) {
-                AppNavHost(
-                    onboardingComplete = true,
-                    modelPresent = true,
-                    downloadContent = {},
-                )
+            CompositionLocalProvider(LocalStrings provides strings) {
+                LocalAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily, densityScale = uiZoom) {
+                    AppNavHost(
+                        onboardingComplete = true,
+                        modelPresent = true,
+                        downloadContent = {},
+                    )
+                }
             }
         }
     }

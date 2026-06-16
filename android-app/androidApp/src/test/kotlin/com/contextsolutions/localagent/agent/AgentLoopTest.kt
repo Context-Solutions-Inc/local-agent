@@ -6,6 +6,8 @@ import com.contextsolutions.localagent.classifier.ClassifierEngine
 import com.contextsolutions.localagent.classifier.ClassifierOutput
 import com.contextsolutions.localagent.classifier.PreflightConfig
 import com.contextsolutions.localagent.classifier.PreflightRouter
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.classifier.QueryRewriter
 import com.contextsolutions.localagent.classifier.Vocab
 import com.contextsolutions.localagent.classifier.WordPieceTokenizer
@@ -153,7 +155,7 @@ class AgentLoopTest {
         val events = loop.run(AgentTurnInput("hi")).toList()
 
         val err = events.filterIsInstance<AgentEvent.Error>().single()
-        assertEquals(AgentLoop.FRIENDLY_ENGINE_ERROR, err.message)
+        assertEquals(Strings.ENGLISH.get(StringKeys.AGENT_ENGINE_ERROR), err.message)
         assertFalse(events.any { it is AgentEvent.Done })
     }
 

@@ -139,6 +139,7 @@ import com.contextsolutions.localagent.job.RemoteJobRunner
 import com.contextsolutions.localagent.job.SharedPreferencesJobNotificationPrefs
 import com.contextsolutions.localagent.job.SqlDelightJobRepository
 import com.contextsolutions.localagent.notification.NotificationPresenter
+import com.contextsolutions.localagent.i18n.StringPackLoader
 import com.contextsolutions.localagent.language.LanguagePreferences
 import com.contextsolutions.localagent.language.SharedPreferencesLanguagePreferences
 import com.contextsolutions.localagent.telemetry.SharedPreferencesTelemetryConsentManager
@@ -164,6 +165,7 @@ import com.contextsolutions.localagent.telemetry.FirebaseAnalyticsSink
 import com.contextsolutions.localagent.telemetry.TelemetryPayloadBuilder
 import com.contextsolutions.localagent.telemetry.TelemetryUploader
 import okhttp3.OkHttpClient
+import java.io.FileNotFoundException
 import java.util.concurrent.TimeUnit
 import com.contextsolutions.localagent.vision.AndroidImagePreprocessor
 import com.contextsolutions.localagent.vision.ImagePreprocessor
@@ -181,6 +183,8 @@ import com.contextsolutions.localagent.observability.FirebaseSafeCrashReporter
 import com.contextsolutions.localagent.observability.NoOpSafeCrashReporter
 import com.contextsolutions.localagent.observability.SafeCrashReporter
 import com.google.firebase.FirebaseApp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import com.contextsolutions.localagent.app.ui.MainViewModel
 import com.contextsolutions.localagent.app.ui.download.DownloadViewModel
@@ -627,6 +631,25 @@ val androidModule: Module = module {
     single<ConversationRepository> { SqlDelightConversationRepository(get(), get(), localChangeBus = get()) }
     single<LanguagePreferences> { SharedPreferencesLanguagePreferences(androidContext()) }
     single { TranslationIntentDetector() }
+    // i18n language packs (PR #96): read `assets/i18n/strings_<code>.json` off the
+    // IO dispatcher. None ship today (English is the in-code floor) → returns null
+    // and the catalog stays English; drop a pack in to activate a language.
+    single<StringPackLoader> {
+        val context = androidContext()
+        StringPackLoader { code ->
+            withContext(Dispatchers.IO) {
+                try {
+                    context.assets.open("i18n/strings_$code.json")
+                        .bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } catch (_: FileNotFoundException) {
+                    null
+                } catch (t: Throwable) {
+                    Log.w(KOIN_TAG, "Failed to load i18n pack '$code' (${t.message})")
+                    null
+                }
+            }
+        }
+    }
     single<TelemetryConsentManager> { SharedPreferencesTelemetryConsentManager(androidContext()) }
 
     // -- Phase 3: app-shell services (formerly Hilt @Inject-constructor / module @Provides).

@@ -8,6 +8,8 @@ import com.contextsolutions.localagent.inference.GenerationRequest
 import com.contextsolutions.localagent.inference.PendingToolCall
 import com.contextsolutions.localagent.inference.SamplingParams
 import com.contextsolutions.localagent.inference.ToolDispatcher
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.job.InlineJobResult
 import com.contextsolutions.localagent.job.InlineJobRunner
 import com.contextsolutions.localagent.job.JobRepository
@@ -152,6 +154,15 @@ class AgentLoop(
     private val counters: TelemetryCounters = NoOpTelemetryCounters,
     private val responseLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
     private val responseFilter: ResponseFilter = ResponseFilter.NoOp,
+    /**
+     * Localized user-facing strings for this turn (PR #96 i18n). Resolved once
+     * per turn by [AgentLoopFactory] from the [StringCatalog] for
+     * [responseLanguage]; defaults to [Strings.ENGLISH] so tests and callers
+     * without a catalog keep producing English. Deterministic replies + the
+     * formatter calls read through this; model-facing text (the system prompt,
+     * tool-result payloads) stays English by design.
+     */
+    private val strings: Strings = Strings.ENGLISH,
     private val nowEpochMs: () -> Long = { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
 ) {
 
@@ -577,6 +588,7 @@ class AgentLoop(
                     val rendered = weatherResponseFormatter.format(
                         city = weatherCity ?: searchPreferences?.location()?.city,
                         payload = outcome.payload,
+                        strings = strings,
                     )
                     if (rendered != null) {
                         val finalMsg = ChatMessage.Assistant(
@@ -613,7 +625,7 @@ class AgentLoop(
                     outcome is SearchOutcome.Success &&
                     stockResponseFormatter != null
                 ) {
-                    val rendered = stockResponseFormatter.format(outcome.payload)
+                    val rendered = stockResponseFormatter.format(outcome.payload, strings)
                     if (rendered != null) {
                         val finalMsg = ChatMessage.Assistant(
                             text = rendered,
@@ -812,7 +824,7 @@ class AgentLoop(
                             errored = true
                             logger("[turn] engine error, no recovery: ${redact(event.message)}")
                             send(AgentEvent.Error(
-                                FRIENDLY_ENGINE_ERROR,
+                                strings.get(StringKeys.AGENT_ENGINE_ERROR),
                                 event.cause,
                             ))
                         }
@@ -1079,7 +1091,7 @@ class AgentLoop(
                 isError = isError,
             ),
         )
-        val rendered = ClockResponseFormatter.format(parsed.name, result)
+        val rendered = ClockResponseFormatter.format(parsed.name, result, strings)
         logger("[turn] marker fallback: rendered \"${redact(rendered)}\"")
         return rendered
     }
@@ -1198,7 +1210,7 @@ class AgentLoop(
         val (toolName, argsJson) = clockCommandToCall(command)
         val handler = toolHandlers.firstOrNull { it.handles(toolName) }
         if (handler == null) {
-            send(AgentEvent.Error(FRIENDLY_ENGINE_ERROR, null))
+            send(AgentEvent.Error(strings.get(StringKeys.AGENT_ENGINE_ERROR), null))
             return
         }
 
@@ -1218,7 +1230,7 @@ class AgentLoop(
             isError = isError,
         )
 
-        val rendered = ClockResponseFormatter.format(toolName, result)
+        val rendered = ClockResponseFormatter.format(toolName, result, strings)
         // Deterministic handler output — render plain, not markdown (PR #50).
         val finalMessage = ChatMessage.Assistant(text = rendered, renderMarkdown = false)
 
@@ -1251,7 +1263,7 @@ class AgentLoop(
      * string is strictly better UX than letting it try.
      */
     private suspend fun ProducerScope<AgentEvent>.emitClockGuidance(userMessageText: String) {
-        val message = CLOCK_GUIDANCE_TEXT
+        val message = strings.get(StringKeys.CLOCK_GUIDANCE)
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
@@ -1271,7 +1283,7 @@ class AgentLoop(
      * mangles structured weather and can't know the user's location anyway).
      */
     private suspend fun ProducerScope<AgentEvent>.emitWeatherLocationPrompt(userMessageText: String) {
-        emitWeatherText(userMessageText, WEATHER_LOCATION_PROMPT_TEXT)
+        emitWeatherText(userMessageText, strings.get(StringKeys.WEATHER_LOCATION_PROMPT))
     }
 
     /**
@@ -1301,8 +1313,7 @@ class AgentLoop(
             else -> opts.dropLast(1).joinToString(", ") { label(it) } + ", or " + label(opts.last())
         }
         val example = opts.first().let { "${it.city}, ${it.regionName}" }
-        return "There's more than one place called ${ambiguous.city}. " +
-            "Did you mean $choices? Tell me which — for example, \"weather in $example\"."
+        return strings.get(StringKeys.WEATHER_DISAMBIGUATION, ambiguous.city, choices, example)
     }
 
     private suspend fun ProducerScope<AgentEvent>.emitWeatherText(userMessageText: String, message: String) {
@@ -1332,7 +1343,7 @@ class AgentLoop(
         userMessageText: String,
         output: String,
     ) {
-        val text = output.ifBlank { "(no output)" }
+        val text = output.ifBlank { strings.get(StringKeys.JOB_NO_OUTPUT) }
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = text, renderMarkdown = true)
         send(
@@ -1353,10 +1364,9 @@ class AgentLoop(
         requestedText: String,
     ) {
         val message = if (requestedText.isBlank()) {
-            "Tell me which job to run, e.g. \"run job <job name> <keywords>\"."
+            strings.get(StringKeys.JOB_RUN_PROMPT)
         } else {
-            "I couldn't find a job named \"$requestedText\". " +
-                "Check the Jobs list for the exact name."
+            strings.get(StringKeys.JOB_NOT_FOUND, requestedText)
         }
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
@@ -1382,7 +1392,7 @@ class AgentLoop(
     ) {
         val trimmed = detail.trim()
         val message = buildString {
-            append("The job \"").append(jobName).append("\" didn't complete successfully.")
+            append(strings.get(StringKeys.JOB_FAILED, jobName))
             if (trimmed.isNotEmpty()) {
                 append("\n\n")
                 append(trimmed.take(JOB_FAILURE_DETAIL_CHARS))
@@ -1439,7 +1449,7 @@ class AgentLoop(
         val (toolName, argsJson) = todoCommandToCall(command)
         val handler = toolHandlers.firstOrNull { it.handles(toolName) }
         if (handler == null) {
-            send(AgentEvent.Error(FRIENDLY_ENGINE_ERROR, null))
+            send(AgentEvent.Error(strings.get(StringKeys.AGENT_ENGINE_ERROR), null))
             return
         }
 
@@ -1459,7 +1469,7 @@ class AgentLoop(
             isError = isError,
         )
 
-        val rendered = todoResponseFormatter.format(toolName, result)
+        val rendered = todoResponseFormatter.format(toolName, result, strings)
         // Deterministic handler output — render plain, not markdown (PR #50).
         val finalMessage = ChatMessage.Assistant(text = rendered, renderMarkdown = false)
 
@@ -1496,8 +1506,8 @@ class AgentLoop(
         command: RememberForgetDetector.Command,
     ) {
         val message = when (command) {
-            is RememberForgetDetector.Command.Remember -> "OK, I'll remember that."
-            is RememberForgetDetector.Command.Forget -> "OK, I'll forget that."
+            is RememberForgetDetector.Command.Remember -> strings.get(StringKeys.MEMORY_ACK_REMEMBER)
+            is RememberForgetDetector.Command.Forget -> strings.get(StringKeys.MEMORY_ACK_FORGET)
             RememberForgetDetector.Command.None -> return
         }
         val userMessage = ChatMessage.User(userMessageText)
@@ -1518,7 +1528,7 @@ class AgentLoop(
      * structural comment at the call site in [run] (lines 100–149).
      */
     private suspend fun ProducerScope<AgentEvent>.emitTodoGuidance(userMessageText: String) {
-        val message = TODO_GUIDANCE_TEXT
+        val message = strings.get(StringKeys.TODO_GUIDANCE)
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
@@ -1772,8 +1782,10 @@ class AgentLoop(
             """(?:^|(?<=[\{,]))\s*([A-Za-z_][A-Za-z0-9_]*)\s*:""",
         )
 
-        const val FRIENDLY_ENGINE_ERROR: String =
-            "Sorry, I had trouble processing that request. Please try again."
+        // User-facing reply text (engine error, weather prompt, clock/todo
+        // guidance) moved to the i18n catalog (PR #96): resolved via the
+        // per-turn `strings` from `StringKeys.AGENT_ENGINE_ERROR`,
+        // `WEATHER_LOCATION_PROMPT`, `CLOCK_GUIDANCE`, `TODO_GUIDANCE`.
 
         /**
          * Tight match for a bare "use my location" weather request — the only
@@ -1791,28 +1803,9 @@ class AgentLoop(
             RegexOption.IGNORE_CASE,
         )
 
-        const val WEATHER_LOCATION_PROMPT_TEXT: String =
-            "Which city would you like the weather for? Tell me the city and " +
-                "state or province — for example, \"weather in Miami, Florida\" " +
-                "or \"weather in Toronto, Ontario\"."
-
         // Cap the places listed in the disambiguation prompt (e.g. the many
         // Springfields) so the message stays short. PR #89.
         const val MAX_DISAMBIGUATION_OPTIONS: Int = 3
-
-        const val CLOCK_GUIDANCE_TEXT: String =
-            "Sorry, I didn't quite understand that clock command. Try " +
-                "phrasings like \"set a 5 minute timer\", \"set an alarm for " +
-                "7am every weekday\", \"cancel my tea timer\", or \"what " +
-                "alarms do I have\"."
-
-        const val TODO_GUIDANCE_TEXT: String =
-            "Sorry, I didn't quite understand that todo command. Try " +
-                "phrasings like \"add buy milk to my todos\", \"add finish " +
-                "report with high priority by tomorrow\", \"list my todos\", " +
-                "\"complete #2\", \"delete the gym task\", or \"set #1 to " +
-                "high priority\". Due dates accept today, tomorrow, or an " +
-                "ISO date like 2026-05-20."
 
         // Per-field heuristic extractors. Each matches a single
         // `key: value` pair independently so stray tokens between fields

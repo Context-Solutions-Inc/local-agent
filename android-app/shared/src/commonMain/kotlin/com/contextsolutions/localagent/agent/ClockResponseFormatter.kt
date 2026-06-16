@@ -1,5 +1,7 @@
 package com.contextsolutions.localagent.agent
 
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -14,62 +16,68 @@ import kotlinx.serialization.json.jsonPrimitive
  * in its output instead of invoking the registered tool). In that path the
  * agent loop runs the tool itself and replaces the marker text with the
  * formatter's output so the user gets a useful response either way.
+ *
+ * User-visible text resolves through the per-turn [Strings] (PR #96 i18n);
+ * symbols/units (`•`, `:`) and tool-supplied data stay structural. Defaults to
+ * [Strings.ENGLISH] so direct callers and tests keep producing English.
  */
 object ClockResponseFormatter {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun format(toolName: String, resultJson: String): String {
+    fun format(toolName: String, resultJson: String, strings: Strings = Strings.ENGLISH): String {
         val obj = try {
             json.parseToJsonElement(resultJson).jsonObject
         } catch (_: Throwable) {
-            return "Done."
+            return strings.get(StringKeys.COMMON_DONE)
         }
         if (obj["status"]?.jsonPrimitive?.content == "error") {
-            val msg = obj["message"]?.jsonPrimitive?.content ?: "unknown error"
-            return "Sorry, that didn't work: $msg"
+            val msg = obj["message"]?.jsonPrimitive?.content ?: strings.get(StringKeys.COMMON_UNKNOWN_ERROR)
+            return strings.get(StringKeys.COMMON_ERROR_GENERIC, msg)
         }
         return when (toolName) {
-            ClockToolHandler.LIST_ALARMS_NAME -> formatListAlarms(obj)
-            ClockToolHandler.LIST_TIMERS_NAME -> formatListTimers(obj)
-            ClockToolHandler.SET_ALARM_NAME -> formatSetAlarm(obj)
-            ClockToolHandler.SET_TIMER_NAME -> formatSetTimer(obj)
+            ClockToolHandler.LIST_ALARMS_NAME -> formatListAlarms(obj, strings)
+            ClockToolHandler.LIST_TIMERS_NAME -> formatListTimers(obj, strings)
+            ClockToolHandler.SET_ALARM_NAME -> formatSetAlarm(obj, strings)
+            ClockToolHandler.SET_TIMER_NAME -> formatSetTimer(obj, strings)
             ClockToolHandler.CANCEL_ALARM_NAME ->
-                "Cancelled ${obj.cancelledCount()} alarm${plural(obj.cancelledCount())}."
+                strings.plural(StringKeys.CLOCK_CANCELLED_ALARMS, obj.cancelledCount(), obj.cancelledCount())
             ClockToolHandler.CANCEL_TIMER_NAME ->
-                "Cancelled ${obj.cancelledCount()} timer${plural(obj.cancelledCount())}."
-            else -> "Done."
+                strings.plural(StringKeys.CLOCK_CANCELLED_TIMERS, obj.cancelledCount(), obj.cancelledCount())
+            else -> strings.get(StringKeys.COMMON_DONE)
         }
     }
 
-    private fun formatListAlarms(obj: JsonObject): String {
+    private fun formatListAlarms(obj: JsonObject, strings: Strings): String {
         val alarms = obj["alarms"]?.jsonArray.orEmpty().map { it.jsonObject }
-        if (alarms.isEmpty()) return "You don't have any alarms set."
-        val rows = alarms.map(::renderAlarmRow)
+        if (alarms.isEmpty()) return strings.get(StringKeys.CLOCK_ALARMS_NONE)
+        val rows = alarms.map { renderAlarmRow(it) }
         return if (rows.size == 1) {
-            "You have one alarm set: ${rows.first()}."
+            strings.get(StringKeys.CLOCK_ALARMS_ONE, rows.first())
         } else {
-            "You have ${rows.size} alarms set:\n" + rows.joinToString("\n") { "• $it" }
+            strings.get(StringKeys.CLOCK_ALARMS_HEADER, rows.size) + "\n" +
+                rows.joinToString("\n") { "• $it" }
         }
     }
 
-    private fun formatListTimers(obj: JsonObject): String {
+    private fun formatListTimers(obj: JsonObject, strings: Strings): String {
         val timers = obj["timers"]?.jsonArray.orEmpty().map { it.jsonObject }
-        if (timers.isEmpty()) return "You don't have any timers running."
-        val rows = timers.map(::renderTimerRow)
+        if (timers.isEmpty()) return strings.get(StringKeys.CLOCK_TIMERS_NONE)
+        val rows = timers.map { renderTimerRow(it, strings) }
         return if (rows.size == 1) {
-            "You have one timer running: ${rows.first()}."
+            strings.get(StringKeys.CLOCK_TIMERS_ONE, rows.first())
         } else {
-            "You have ${rows.size} timers running:\n" + rows.joinToString("\n") { "• $it" }
+            strings.get(StringKeys.CLOCK_TIMERS_HEADER, rows.size) + "\n" +
+                rows.joinToString("\n") { "• $it" }
         }
     }
 
-    private fun formatSetAlarm(obj: JsonObject): String {
+    private fun formatSetAlarm(obj: JsonObject, strings: Strings): String {
         val time = obj.timeString() ?: "alarm"
         val recurrence = obj["recurrence"]?.jsonPrimitive?.content?.lowercase()
         val label = obj["label"]?.jsonPrimitive?.content
         return buildString {
-            append("Alarm set for ")
+            append(strings.get(StringKeys.CLOCK_ALARM_SET))
             append(time)
             if (recurrence != null && recurrence != "once") {
                 append(", ")
@@ -84,12 +92,12 @@ object ClockResponseFormatter {
         }
     }
 
-    private fun formatSetTimer(obj: JsonObject): String {
+    private fun formatSetTimer(obj: JsonObject, strings: Strings): String {
         val secs = obj["duration_seconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
         val label = obj["label"]?.jsonPrimitive?.content
         return buildString {
-            append("Timer set for ")
-            append(formatDuration(secs))
+            append(strings.get(StringKeys.CLOCK_TIMER_SET))
+            append(formatDuration(secs, strings))
             if (!label.isNullOrBlank()) {
                 append(" (")
                 append(label)
@@ -116,12 +124,11 @@ object ClockResponseFormatter {
         }
     }
 
-    private fun renderTimerRow(row: JsonObject): String {
+    private fun renderTimerRow(row: JsonObject, strings: Strings): String {
         val secs = row["remaining_seconds"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
         val label = row["label"]?.jsonPrimitive?.content
         return buildString {
-            append(formatDuration(secs))
-            append(" remaining")
+            append(strings.get(StringKeys.CLOCK_TIMER_REMAINING, formatDuration(secs, strings)))
             if (!label.isNullOrBlank()) {
                 append(" — ")
                 append(label)
@@ -144,17 +151,15 @@ object ClockResponseFormatter {
     private fun JsonObject.cancelledCount(): Int =
         this["cancelled_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
 
-    private fun plural(n: Int): String = if (n == 1) "" else "s"
-
-    private fun formatDuration(totalSeconds: Long): String {
-        if (totalSeconds <= 0) return "0 seconds"
+    private fun formatDuration(totalSeconds: Long, strings: Strings): String {
+        if (totalSeconds <= 0) return strings.get(StringKeys.CLOCK_DURATION_ZERO)
         val h = totalSeconds / 3600
         val m = (totalSeconds % 3600) / 60
         val s = totalSeconds % 60
         val parts = mutableListOf<String>()
-        if (h > 0) parts += "$h hour${plural(h.toInt())}"
-        if (m > 0) parts += "$m minute${plural(m.toInt())}"
-        if (s > 0 && h == 0L) parts += "$s second${plural(s.toInt())}"
+        if (h > 0) parts += strings.plural(StringKeys.CLOCK_DURATION_HOURS, h.toInt(), h)
+        if (m > 0) parts += strings.plural(StringKeys.CLOCK_DURATION_MINUTES, m.toInt(), m)
+        if (s > 0 && h == 0L) parts += strings.plural(StringKeys.CLOCK_DURATION_SECONDS, s.toInt(), s)
         return parts.joinToString(" ")
     }
 }

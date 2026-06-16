@@ -5,6 +5,7 @@ import com.contextsolutions.localagent.classifier.ClassifierEngine
 import com.contextsolutions.localagent.classifier.DesktopVocabLoader
 import com.contextsolutions.localagent.classifier.OnnxClassifierEngine
 import com.contextsolutions.localagent.classifier.PreflightConfig
+import com.contextsolutions.localagent.i18n.StringPackLoader
 import com.contextsolutions.localagent.classifier.PreflightRouter
 import com.contextsolutions.localagent.classifier.Vocab
 import com.contextsolutions.localagent.db.LocalAgentDatabase
@@ -565,6 +566,12 @@ val desktopModule: Module = module {
         DesktopResources.readTextOrNull("preflight_config.json")?.let {
             runCatching { configJson.decodeFromString(PreflightConfig.serializer(), it) }.getOrNull()
         } ?: PreflightConfig.DEFAULT
+    }
+    // i18n language packs (PR #96): read `i18n/strings_<code>.json` from the
+    // classpath. None ship today (English is the in-code floor), so this returns
+    // null and the catalog stays English; drop a pack in to activate a language.
+    single<StringPackLoader> {
+        StringPackLoader { code -> DesktopResources.readTextOrNull("i18n/strings_$code.json") }
     }
     // -- Preferences (Phase 6): file-backed JSON in the app-data dir, the desktop
     //    counterparts of Android's DataStore/SharedPreferences impls. Search +

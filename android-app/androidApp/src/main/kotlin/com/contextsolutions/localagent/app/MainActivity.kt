@@ -8,12 +8,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import com.contextsolutions.localagent.app.ui.MainScreen
 import com.contextsolutions.localagent.app.ui.theme.LocalAgentTheme
+import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.ui.i18n.LocalStrings
 import com.contextsolutions.localagent.ui.theme.ThemeModeViewModel
 
 /**
@@ -52,8 +56,11 @@ class MainActivity : ComponentActivity() {
             val mode by themeVm.mode.collectAsState()
             val fontScale by themeVm.fontScale.collectAsState()
             val fontFamily by themeVm.fontFamily.collectAsState()
-            LocalAgentTheme(themeMode = mode, fontScale = fontScale, fontFamily = fontFamily) {
-                MainScreen()
+            val strings by koinInject<StringCatalog>().active.collectAsState()
+            CompositionLocalProvider(LocalStrings provides strings) {
+                LocalAgentTheme(themeMode = mode, fontScale = fontScale, fontFamily = fontFamily) {
+                    MainScreen()
+                }
             }
         }
     }

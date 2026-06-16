@@ -6,6 +6,8 @@ import com.contextsolutions.localagent.classifier.ClassifierEngine
 import com.contextsolutions.localagent.classifier.ClassifierOutput
 import com.contextsolutions.localagent.classifier.PreflightConfig
 import com.contextsolutions.localagent.classifier.PreflightRouter
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.i18n.Strings
 import com.contextsolutions.localagent.classifier.QueryRewriter
 import com.contextsolutions.localagent.classifier.Vocab
 import com.contextsolutions.localagent.classifier.WordPieceTokenizer
@@ -408,7 +410,7 @@ class AgentLoopPreflightTest {
         assertTrue("no SearchStarted", events.filterIsInstance<AgentEvent.SearchStarted>().isEmpty())
         assertTrue("engine untouched", session.requests.isEmpty())
         val done = events.filterIsInstance<AgentEvent.Done>().single()
-        assertEquals(AgentLoop.WEATHER_LOCATION_PROMPT_TEXT, done.message.text)
+        assertEquals(Strings.ENGLISH.get(StringKeys.WEATHER_LOCATION_PROMPT), done.message.text)
         assertNull("nothing to remember when no city given", done.locationToRemember)
     }
 
@@ -475,7 +477,7 @@ class AgentLoopPreflightTest {
         // no city + no saved location it asks the user, and the LLM is untouched.
         assertTrue("engine must not run on a weather turn", session.requests.isEmpty())
         val done = events.filterIsInstance<AgentEvent.Done>().single()
-        assertEquals(AgentLoop.WEATHER_LOCATION_PROMPT_TEXT, done.message.text)
+        assertEquals(Strings.ENGLISH.get(StringKeys.WEATHER_LOCATION_PROMPT), done.message.text)
     }
 
     @Test
@@ -521,7 +523,7 @@ class AgentLoopPreflightTest {
         assertTrue("engine must run — not a weather turn", session.requests.isNotEmpty())
         val done = events.filterIsInstance<AgentEvent.Done>().single()
         assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
-        assertFalse("must not ask for a city", done.message.text == AgentLoop.WEATHER_LOCATION_PROMPT_TEXT)
+        assertFalse("must not ask for a city", done.message.text == Strings.ENGLISH.get(StringKeys.WEATHER_LOCATION_PROMPT))
     }
 
     @Test
@@ -587,7 +589,7 @@ class AgentLoopPreflightTest {
 
         assertTrue("engine should run for a general weather question", session.requests.isNotEmpty())
         val done = events.filterIsInstance<AgentEvent.Done>().single()
-        assertFalse("must not ask for a city", done.message.text == AgentLoop.WEATHER_LOCATION_PROMPT_TEXT)
+        assertFalse("must not ask for a city", done.message.text == Strings.ENGLISH.get(StringKeys.WEATHER_LOCATION_PROMPT))
         assertFalse("must not render a weather bubble", done.message.text.contains("Weather for"))
     }
 
