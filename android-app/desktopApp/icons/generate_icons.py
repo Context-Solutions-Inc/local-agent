@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Mobile Agent app icons from the Android brand mark.
+"""Generate the Local Agent app icons from the Android brand mark.
 
 The brand mark is the original Android launcher icon: a white speech-bubble glyph
 on a dark-navy plate (`#1F2937`). The glyph is committed next to this script as

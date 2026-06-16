@@ -44,7 +44,7 @@ explicitly before proposing any plan):
    50–100; I'll pick by Phase B start, but Phase A's tester-list
    structure is influenced.
 2. **Q2 — Privacy policy hosting**: GitHub Pages on this repo
-   (`https://lley154.github.io/mobile-agent/PRIVACY_POLICY.html`)
+   (`https://lley154.github.io/local-agent/PRIVACY_POLICY.html`)
    OR Context Solutions company-site URL? Phase A §5 needs this
    locked before publication.
 3. **Q3 — Feature graphic source**: self-design (Figma typographic
@@ -71,7 +71,7 @@ explicitly before proposing any plan):
    backup per Decision 13). Document procedure at
    `docs/RELEASE_KEYS.md` (procedure only, NO key material in git).
 2. Play App Signing enrollment in Play Console.
-3. Play Console app entry; reserve `com.contextsolutions.mobileagent`
+3. Play Console app entry; reserve `com.contextsolutions.localagent`
    package name.
 4. Privacy policy public URL live (depends on Q2 answer).
 5. Data Safety form submission per `docs/DATA_SAFETY_NOTES.md`.

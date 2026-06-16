@@ -82,7 +82,7 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-agent-${{ matrix.label }}
+          name: local-agent-${{ matrix.label }}
           # Paths are relative to the repo root, NOT the job working-directory.
           # Each OS produces only its own formats; the rest glob to nothing
           # (if-no-files-found: ignore keeps that from failing the job).

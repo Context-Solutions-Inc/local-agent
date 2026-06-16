@@ -415,7 +415,7 @@ sometimes crashes. Eager warm-up is left intact for the common case;
 three new defenses backstop it:
 
 - **`MemoryPressureWatchdog`** (singleton, started from
-  `MobileAgentApplication.onCreate`) polls `ActivityManager.getMemoryInfo().availMem`
+  `LocalAgentApplication.onCreate`) polls `ActivityManager.getMemoryInfo().availMem`
   every 5 seconds while `SessionState.Loaded`. Below **800 MB free** it
   calls `forceUnload(UnloadReason.LowMemory)` on both
   `InferenceSessionManager` and `AuxModelLifecycleCoordinator`. Mirrors
@@ -501,7 +501,7 @@ remain at the conservative 800 MB / 1 GiB / 2 GiB so a parse-failure
 fallback doesn't silently regress.
 
 A new `SystemMemoryMonitor` (singleton, started from
-`MobileAgentApplication.onCreate`) polls `availMem` every 5 seconds
+`LocalAgentApplication.onCreate`) polls `availMem` every 5 seconds
 unconditionally — sibling of `MemoryPressureWatchdog` but no gating
 on `SessionState`, since the indicator should reflect device state
 regardless of whether the model is resident. Logs once on arm
@@ -581,7 +581,7 @@ header chrome.
 
 The first two passes (hardcoded green; then hardcoded black/grey via
 `isSystemInDarkTheme()`) were rejected on-device: `isSystemInDarkTheme()`
-reads the **system** uiMode, but `MobileAgentTheme` accepts an
+reads the **system** uiMode, but `LocalAgentTheme` accepts an
 explicit `themeMode` override (`Light` / `Dark` / `System`, see
 `ui/theme/Theme.kt`) so when the user's theme choice diverges from the
 system setting the badge logic and the rendered color scheme drift
@@ -1351,7 +1351,7 @@ in `docs/M5_PLAN.md`. Top-line summary:
   - Telemetry-exclusion comment markers in `Memories.sq` and
     `MemoryExtractor` so the M6 WS-13 telemetry builder cannot
     accidentally read memory content.
-  - DB file lives at `Context.dataDir/databases/mobile_agent.db` —
+  - DB file lives at `Context.dataDir/databases/local_agent.db` —
     Android FBE Credential Encrypted Storage by default on Android 16
     (PRD §4.4 satisfied without extra config).
 
@@ -1450,7 +1450,7 @@ fast. Refs: <https://ai.google.dev/gemma/docs/mtp/overview>,
 | Play Store privacy/data-safety review of an on-device LLM | Medium | Data Safety form clearly states only Brave queries leave device. Privacy policy explicit about on-device processing. Telemetry is opt-in and explicitly excludes content. Engage Play Console review early in M7. |
 | Brave API costs scale beyond free tier in dev/test | Low | Aggressive caching is already specified. Internal builds rate-limit to development quotas. Production is BYOK so per-user costs are user-borne. |
 | Gemma 4 model artifact availability/licensing changes | Medium | Confirm distribution rights and CDN hosting plan in M0. Have a checksum-pinned download URL under our control, not Google's. |
-| 8 GB RAM headroom too tight when other apps are running | Medium | ✅ MITIGATED in M1 WS-1 Phase A: `onTrimMemory()` proactively unloads Gemma under system pressure (`MobileAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`). 5-min idle unload as baseline. |
+| 8 GB RAM headroom too tight when other apps are running | Medium | ✅ MITIGATED in M1 WS-1 Phase A: `onTrimMemory()` proactively unloads Gemma under system pressure (`LocalAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`). 5-min idle unload as baseline. |
 | Play Services TFLite is a runtime dep for GPU | Medium | New risk surfaced in M0. Devices without recent Play Services (CN AOSP forks, GrapheneOS) will fall back to CPU; engine already degrades via `LiteRtInferenceEngine.tryInitialize` and surfaces it via `ModelHandle.activeAccelerator`. Add to M5/M6 compatibility matrix. |
 
 ---

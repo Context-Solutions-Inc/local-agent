@@ -55,7 +55,7 @@ we want to wipe the install base. **M6 should:**
 
 1. Add a `:shared/commonMain/sqldelight/migrations/` directory and the
    first `.sqm` file capturing the M0-shipped pre-`access_count`
-   schema as version 1; bump `MobileAgentDatabase.Schema.version` in
+   schema as version 1; bump `LocalAgentDatabase.Schema.version` in
    the .sq to 2.
 2. Wire `AndroidSqliteDriver(Schema, context, name, MIGRATIONS)` so
    SQLDelight runs the delta on launch.
@@ -199,7 +199,7 @@ without going through Gemma).
 | `:shared/commonMain/memory/MemoryPreferences.kt` | Toggle interface |
 | `:shared/androidMain/memory/LiteRtEmbedderEngine.kt` | Android engine on `litert:2.1.4` |
 | `:shared/androidMain/memory/SharedPreferencesMemoryPreferences.kt` | Toggle persistence |
-| `:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/Memories.sq` | Schema |
+| `:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/Memories.sq` | Schema |
 | `:androidApp/src/main/assets/all-MiniLM-L6-v2_int8.tflite` | 23.5 MB embedder |
 | `:androidApp/src/main/kotlin/.../app/ui/memory/MemoryViewModel.kt` | Backs both management + per-conv screens |
 | `:androidApp/src/main/kotlin/.../app/ui/memory/MemoryScreen.kt` | Full inventory UI |

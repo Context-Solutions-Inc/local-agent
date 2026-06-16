@@ -70,7 +70,7 @@ Privacy-first on-device assistant running Gemma 4 locally, with Brave Search as 
 - **Inference runtime:** llama.cpp via JNI (`net.ladenthin:llama` 5.0.1, bundling llama.cpp b9151 — the `gemma4` GGUF architecture) + ONNX Runtime 1.20.0 (classifier + embedder). CPU by default; LLM GPU offload (CUDA/Metal/Vulkan) is **opt-in** with a BYO GPU native via `-PllamaLibPath` — see [docs/DESKTOP_PACKAGING.md](docs/DESKTOP_PACKAGING.md) → "Enabling LLM GPU offload".
 - **Models** (downloaded / operator-supplied into the app-data dir at first run, not bundled):
   - Gemma 4 GGUF (Q4_K_M) — fetched via the tray (operator fills the verified URL + checksum, same BYO policy as Android)
-  - ONNX classifier + embedder — exported by `ct-export-onnx` / `export_minilm_onnx.py`
+  - ONNX classifier + embedder — exported by `ct-export-onnx` / `export_minilm_onnx.py`; auto-downloaded on first run once a hosting endpoint is set at build time (`-PauxModelBaseUrl`), else placed manually
   - Vosk acoustic model (optional, for dictation)
 - **Packaging:** jpackage installers (`.deb`/`.rpm`, `.dmg`/`.pkg`, `.msi`/`.exe`), one set per host OS via a CI matrix.
 
@@ -107,7 +107,8 @@ Post-M6 increments tracked as M2.1–M2.24 in [PHASE1_PLAN.md](PHASE1_PLAN.md) �
   sdk.dir=/home/<user>/Android/Sdk
   ```
   If you also use the Docker dev container below, prefer the `ANDROID_HOME` env-var route — a host-path `sdk.dir=` will be wrong inside the container. Either omit `sdk.dir` and let env take over on both sides, or simply don't add it.
-- **`secrets.properties`** in `android-app/` (NOT the repo root — see `android-app/secrets.properties.example`). Holds the optional dev-channel Brave key; production builds use BYOK and don't need it.
+- **`secrets.properties`** in `android-app/` (NOT the repo root — see `android-app/secrets.properties.example`). Holds the dev-channel Brave key + HF token + Gemma checksums. **Required for a debug device build:** `assembleDebug` / `installDebug` fail fast at configuration time if it's missing (without it the installed app can't search or download the model). Release builds use BYOK and don't need it; unit tests and the desktop build don't read it.
+- **`google-services.json`** in `android-app/androidApp/` — *optional*. Enables Firebase Analytics + Crashlytics. Gitignored, so it's absent in fresh checkouts; the app runs fine without it (telemetry just stays off — no launch crash). Add it (registered to the `com.contextsolutions.localagent` / `…localagent.debug` package) only if you want crash/analytics reporting.
 - **Pixel 7** with USB or wireless debugging enabled if you want to install on device. Wireless adb pairing instructions are in [CLAUDE.md](CLAUDE.md) under "Build & run".
 
 ### Build commands
@@ -212,7 +213,7 @@ To skip the 5–10 minute download during dev iteration, push the model to the a
 
 ```bash
 adb push gemma-4-E2B-it.litertlm /data/local/tmp/
-adb shell "run-as com.contextsolutions.mobileagent.debug \
+adb shell "run-as com.contextsolutions.localagent.debug \
   sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'"
 ```
 
@@ -233,7 +234,7 @@ the flag).
 
 ```bash
 cd android-app
-PKG=com.contextsolutions.mobileagent.debug
+PKG=com.contextsolutions.localagent.debug
 for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
   adb push "../models/$f" /data/local/tmp/
   adb shell run-as $PKG cp /data/local/tmp/$f /data/data/$PKG/files/models/$f
@@ -277,7 +278,7 @@ commands run from `android-app/`.
 
 ```bash
 cd android-app
-MOBILEAGENT_GATEWAY_URL=https://auth.contextsolutions.com MOBILEAGENT_RELAY_WS_URL=wss://relay.contextsolutions.com/v1/connect ./gradlew :desktopApp:run
+LOCALAGENT_GATEWAY_URL=https://auth.contextsolutions.com LOCALAGENT_RELAY_WS_URL=wss://relay.contextsolutions.com/v1/connect ./gradlew :desktopApp:run
 ```
 
 This opens the chat window and starts the system tray + the warm-model /
@@ -310,16 +311,16 @@ the operator supplies them. Bundled config (vocab, search defaults, locations,
 etc.) rides in the app already; the large artifacts live in the per-OS app-data
 dir:
 
-- Linux: `~/.local/share/MobileAgent/`
-- macOS: `~/Library/Application Support/MobileAgent/`
-- Windows: `%LOCALAPPDATA%\MobileAgent\`
+- Linux: `~/.local/share/LocalAgent/`
+- macOS: `~/Library/Application Support/LocalAgent/`
+- Windows: `%LOCALAPPDATA%\LocalAgent\`
 
 | Artifact | How to provide | Notes |
 |---|---|---|
 | **Gemma 4 GGUF** (Q4_K_M) | Fetched via the tray's download (fill the verified URL + SHA-256 + size in `DesktopModelSpec` — blank by default, like Android `secrets.properties`), or set `GEMMA_GGUF_PATH=/abs/path.gguf` | Loaded lazily on the first chat turn |
-| **ONNX classifier + embedder** | Drop in app-data `models/`, or set `MOBILEAGENT_CLASSIFIER_ONNX` / `MOBILEAGENT_EMBEDDER_ONNX` | Export with `ct-export-onnx` + `export_minilm_onnx.py`. Without them the classifier no-ops (search still works via the explicit `web search …` command) |
+| **ONNX classifier + embedder** | **Auto-downloaded on first run** when a hosting endpoint is configured at build time (`-PauxModelBaseUrl=https://host/path`); otherwise drop them in app-data `models/`, or set `LOCALAGENT_CLASSIFIER_ONNX` / `LOCALAGENT_EMBEDDER_ONNX` | Export with `ct-export-onnx` + `export_minilm_onnx.py`. sha256 + size are pinned; the build skips the download (placeholder URL) until you set the endpoint. Without the models the classifier no-ops — pre-flight under-fires, so search verticals don't trigger (the explicit `web search …` command still works) |
 | **Brave Search key** | `BRAVE_API_KEY` env var, or store it via the app's SecureStorage | Without it, search is disabled (the model answers offline) |
-| **Vosk acoustic model** (optional) | app-data `models/vosk`, or `MOBILEAGENT_VOSK_MODEL` | Enables dictation; STT silently no-ops without it |
+| **Vosk acoustic model** (optional) | app-data `models/vosk`, or `LOCALAGENT_VOSK_MODEL` | Enables dictation; STT silently no-ops without it |
 
 The model never leaves the machine; only Brave queries (and opt-in telemetry to
 Sentry, default OFF) generate outbound traffic.

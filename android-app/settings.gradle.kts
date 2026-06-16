@@ -23,7 +23,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "mobile-agent"
+rootProject.name = "local-agent"
 
 include(":shared")
 include(":androidApp")

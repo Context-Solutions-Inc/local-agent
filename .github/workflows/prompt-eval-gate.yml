@@ -15,12 +15,12 @@ on:
   pull_request:
     paths:
       - 'SYSTEM_PROMPT.md'
-      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/mobileagent/agent/PromptAssembler.kt'
-      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/mobileagent/classifier/PromptAssembler.kt'
-      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/mobileagent/classifier/PreflightRouter.kt'
-      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/mobileagent/classifier/QueryRewriter.kt'
-      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/mobileagent/agent/**'
-      - 'android-app/androidApp/src/test/kotlin/com/contextsolutions/mobileagent/canonical/**'
+      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/localagent/agent/PromptAssembler.kt'
+      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/localagent/classifier/PromptAssembler.kt'
+      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/localagent/classifier/PreflightRouter.kt'
+      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/localagent/classifier/QueryRewriter.kt'
+      - 'android-app/shared/src/commonMain/kotlin/com/contextsolutions/localagent/agent/**'
+      - 'android-app/androidApp/src/test/kotlin/com/contextsolutions/localagent/canonical/**'
       - 'eval/canonical/**'
   workflow_dispatch:
 
@@ -77,7 +77,7 @@ jobs:
       - name: Run canonical eval
         # Single test file — exercises the routing path + PromptAssembler.
         # Failures bundle every regression in one assertion message.
-        run: ./gradlew :androidApp:testDebugUnitTest --tests "com.contextsolutions.mobileagent.canonical.*"
+        run: ./gradlew :androidApp:testDebugUnitTest --tests "com.contextsolutions.localagent.canonical.*"
 
       - name: Upload test reports on failure
         if: failure()

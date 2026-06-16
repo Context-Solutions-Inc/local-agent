@@ -23,7 +23,7 @@ kotlin {
     }
 
     android {
-        namespace = "com.contextsolutions.mobileagent.ui"
+        namespace = "com.contextsolutions.localagent.ui"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {

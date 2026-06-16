@@ -2,13 +2,13 @@
 
 **Effective:** TBD (Phase G launch date)
 **Last updated:** 2026-05-11 (Phase C draft)
-**App:** Mobile Agent (`com.contextsolutions.mobileagent`)
+**App:** Local Agent (`com.contextsolutions.localagent`)
 
 ---
 
 ## Plain-language summary
 
-The Mobile Agent assistant runs entirely on your device. Your conversations,
+The Local Agent assistant runs entirely on your device. Your conversations,
 the things it remembers about you, and the web searches you make never leave
 your device — with two narrowly scoped exceptions:
 

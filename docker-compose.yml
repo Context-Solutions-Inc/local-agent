@@ -20,7 +20,7 @@
 # before launching — it overrides the bound config.
 #
 # What's mounted:
-#   - Project dir mounts at the SAME path as on host (/home/lawrenceley/src/mobile-agent)
+#   - Project dir mounts at the SAME path as on host (/home/lawrenceley/src/local-agent)
 #     so Claude Code per-project memory keys keep matching.
 #   - ~/.claude + ~/.claude.json are mounted RW so the container reuses your host
 #     login session AND its account/onboarding state survives across containers.
@@ -43,9 +43,9 @@ services:
       args:
         USER_UID: "1000"
         USER_GID: "1000"
-    image: mobile-agent-dev:latest
-    hostname: mobile-agent-dev
-    working_dir: /home/lawrenceley/src/mobile-agent
+    image: local-agent-dev:latest
+    hostname: local-agent-dev
+    working_dir: /home/lawrenceley/src/local-agent
     environment:
       # Optional API key fallback for Claude Code if you'd rather use it instead
       # of the mounted OAuth session. Leave unset to use the host login.
@@ -59,7 +59,7 @@ services:
       # Project source — same path inside the container as on the host.
       - type: bind
         source: .
-        target: /home/lawrenceley/src/mobile-agent
+        target: /home/lawrenceley/src/local-agent
       # Claude Code state (OAuth tokens, settings, per-project memory).
       - type: bind
         source: ${HOME}/.claude

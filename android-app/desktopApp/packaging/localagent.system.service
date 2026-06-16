@@ -1,0 +1,31 @@
+# Local Agent — headless desktop agent (systemd SYSTEM service).
+#
+# Runs at boot independent of any login session. Replace <you> with the user whose
+# app-data dir (~/.local/share/LocalAgent) holds the models / DB / paired phone.
+#
+# Install:
+#   sudo cp localagent.system.service /etc/systemd/system/localagent.service
+#   # edit User=/HOME=/ExecStart below
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now localagent.service
+#   journalctl -u localagent -f
+
+[Unit]
+Description=Local Agent (headless desktop agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<you>
+# HOME drives the XDG app-data dir resolution (DesktopAppDirs); must point at the
+# account that owns the downloaded models + paired-device state.
+Environment=HOME=/home/<you>
+Environment=LOCALAGENT_HEADLESS=1
+# Optional: Environment=LOCALAGENT_LLAMA_SERVER_VARIANT=cpu
+ExecStart=/opt/local-agent/bin/LocalAgent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

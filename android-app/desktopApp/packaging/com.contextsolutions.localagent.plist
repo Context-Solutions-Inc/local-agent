@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local Agent — headless desktop agent (macOS launchd LaunchAgent).
+
+  Install:
+    cp com.contextsolutions.localagent.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.contextsolutions.localagent.plist
+    # logs: tail -f /tmp/localagent.out /tmp/localagent.err
+  Stop / remove:
+    launchctl unload -w ~/Library/LaunchAgents/com.contextsolutions.localagent.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.contextsolutions.localagent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/LocalAgent.app/Contents/MacOS/LocalAgent</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LOCALAGENT_HEADLESS</key>
+        <string>1</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/localagent.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/localagent.err</string>
+</dict>
+</plist>

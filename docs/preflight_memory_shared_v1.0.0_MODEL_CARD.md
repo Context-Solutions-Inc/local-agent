@@ -10,7 +10,7 @@
 ## Intended use
 
 Two on-device classifier heads sharing a single DistilBERT encoder, used by
-the mobile-agent ReAct loop to short-circuit Gemma 4 invocations:
+the local-agent ReAct loop to short-circuit Gemma 4 invocations:
 
 1. **Pre-flight search classifier** (M4 / WS-8) — given a user query, decide
    whether the agent should fire a web search before invoking Gemma 4, fall

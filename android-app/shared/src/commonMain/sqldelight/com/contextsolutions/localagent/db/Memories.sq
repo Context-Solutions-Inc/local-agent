@@ -1,0 +1,146 @@
+-- Memory store per PRD section 3.2.4. Embeddings stored as BLOB; brute-force cosine
+-- similarity over up to ~1,000 entries is sub-10ms on Pixel 7 — no native vector index needed.
+--
+-- Schema lives at version 2 (M6 Phase A). v1 → v2 delta in 1.sqm adds the
+-- `access_count` column M5 introduced for PRD §3.2.4's "LRU + access-frequency
+-- heuristic" eviction tier, plus the two indexes M5 added for retrieval +
+-- eviction queries (`memories_by_conversation`, `memories_by_last_accessed`).
+-- AndroidSqliteDriver applies the migration automatically on upgrade from
+-- M0/M1/M2/M4 builds. Fresh installs land directly on v2 via Schema.create().
+--
+-- TELEMETRY EXCLUSION (PRD §4.4 + WS-12): The contents of this table — memory `text`,
+-- `embedding` BLOBs, `conversation_id` — must NEVER flow into the M6 WS-13 opt-in
+-- telemetry payload. Aggregate counters only (e.g., total memory count, evictions per
+-- day, retrievals per day). When the telemetry builder lands in M6, gate it on a
+-- contract-level review that this table is not read.
+
+-- Column order note: `access_count` sits at the END of the declaration so the
+-- v2 schema produced by Schema.create() matches the schema produced by
+-- Schema.migrate() running 1.sqm's `ALTER TABLE memories ADD COLUMN access_count …`
+-- (SQLite's ALTER TABLE always appends). Without this alignment,
+-- verifyCommonMainLocalAgentDatabaseMigration flags a column-order drift between
+-- fresh and upgraded installs. SQLite is order-insensitive at the query layer,
+-- so the placement doesn't affect behavior. The embedding-column comment is held
+-- to the M0/v1 wording for the same reason.
+-- updated_at_epoch_ms + deleted_at_epoch_ms added in 8.sqm (PR #57), appended at
+-- the END (after access_count, in the same order as the ALTER statements) so
+-- Schema.create() matches Schema.migrate() (invariant #20). updated_at is the
+-- last-write-wins sync key (NULL on pre-migration rows → treated as created_at);
+-- deleted_at is the soft-delete tombstone (NULL = live). Read queries filter
+-- `deleted_at_epoch_ms IS NULL`; the *ChangedSince sync query includes tombstones.
+CREATE TABLE memories (
+    id TEXT NOT NULL PRIMARY KEY,
+    text TEXT NOT NULL,
+    category TEXT NOT NULL,                   -- personal_identity, preference, professional, interest, relationship, temporary_context
+    conversation_id TEXT,                     -- FK soft-reference (memory may outlive its source conversation)
+    created_at_epoch_ms INTEGER NOT NULL,
+    last_accessed_epoch_ms INTEGER NOT NULL,
+    embedding BLOB NOT NULL,                  -- 384-dim float32 (1536 bytes) for all-MiniLM-L6-v2
+    expires_at_epoch_ms INTEGER,              -- NULL for non-expiring memories
+    access_count INTEGER NOT NULL DEFAULT 0,  -- bumped on retrieval hit; tier-3 eviction key
+    updated_at_epoch_ms INTEGER,              -- 8.sqm (PR #57): LWW sync key; NULL → use created_at
+    deleted_at_epoch_ms INTEGER               -- 8.sqm (PR #57): soft-delete tombstone; NULL = live
+);
+
+CREATE INDEX memories_by_category ON memories(category);
+CREATE INDEX memories_by_conversation ON memories(conversation_id);
+CREATE INDEX memories_by_expires ON memories(expires_at_epoch_ms) WHERE expires_at_epoch_ms IS NOT NULL;
+CREATE INDEX memories_by_last_accessed ON memories(last_accessed_epoch_ms);
+
+-- -- Inserts -----------------------------------------------------------------
+
+insertMemory:
+INSERT INTO memories(
+    id, text, category, conversation_id, created_at_epoch_ms,
+    last_accessed_epoch_ms, access_count, embedding, expires_at_epoch_ms,
+    updated_at_epoch_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- -- Reads ------------------------------------------------------------------
+
+-- Retrieval candidates: all non-expired rows with their embeddings. The Kotlin
+-- side computes cosine similarity in process and returns top-K above a
+-- threshold. Used by MemoryStore.retrieveTopK and findCosineMatch / deleteByCosine.
+selectAllNonExpiredWithEmbedding:
+SELECT * FROM memories
+WHERE deleted_at_epoch_ms IS NULL AND (expires_at_epoch_ms IS NULL OR expires_at_epoch_ms > ?);
+
+-- Used by both findCosineMatch (Phase D dedup) and deleteByCosine (Phase D
+-- forget-command path). Same row set as selectAllNonExpiredWithEmbedding.
+-- Kept as a separate named query so the read intent is documented at call
+-- sites.
+selectAllForCosineSearch:
+SELECT * FROM memories
+WHERE deleted_at_epoch_ms IS NULL AND (expires_at_epoch_ms IS NULL OR expires_at_epoch_ms > ?);
+
+-- Per-conversation memory list (UI: ConversationMemoryListScreen). Newest first.
+selectByConversationId:
+SELECT * FROM memories
+WHERE conversation_id = ? AND deleted_at_epoch_ms IS NULL
+ORDER BY created_at_epoch_ms DESC;
+
+-- Per-conversation count (UI: ConversationMemoryBadge).
+countByConversationId:
+SELECT COUNT(*) FROM memories WHERE conversation_id = ? AND deleted_at_epoch_ms IS NULL;
+
+-- Full inventory (UI: MemoryScreen — grouped by category in the ViewModel).
+selectAllMemories:
+SELECT * FROM memories WHERE deleted_at_epoch_ms IS NULL ORDER BY created_at_epoch_ms DESC;
+
+-- Non-expired count (eviction pre-insert gate).
+countNonExpired:
+SELECT COUNT(*) FROM memories
+WHERE deleted_at_epoch_ms IS NULL AND (expires_at_epoch_ms IS NULL OR expires_at_epoch_ms > ?);
+
+-- -- Mutations -------------------------------------------------------------
+
+-- Atomic last-accessed bump + access_count++. Run on retrieval hits and
+-- explicit user views in the management UI.
+incrementAccessAndUpdateLastAccessed:
+UPDATE memories
+SET last_accessed_epoch_ms = ?, access_count = access_count + 1
+WHERE id = ?;
+
+-- Delete a single memory by primary key (hard delete; not sync-propagated).
+deleteMemory:
+DELETE FROM memories WHERE id = ?;
+
+-- Delete everything (UI: MemoryScreen "Clear all"). No filtering — the user
+-- has confirmed.
+deleteAllMemories:
+DELETE FROM memories;
+
+-- PR #57 sync: soft-delete (tombstone) so the delete propagates to the peer.
+-- Bumps updated_at so it rides the change feed.
+softDeleteMemory:
+UPDATE memories SET deleted_at_epoch_ms = :nowEpochMs, updated_at_epoch_ms = :nowEpochMs WHERE id = :id;
+
+-- PR #57 sync: change feed (includes tombstoned rows so deletes propagate).
+-- COALESCE handles pre-migration rows whose updated_at is NULL.
+selectMemoriesChangedSince:
+SELECT * FROM memories
+WHERE COALESCE(updated_at_epoch_ms, created_at_epoch_ms) > :since
+ORDER BY COALESCE(updated_at_epoch_ms, created_at_epoch_ms) ASC;
+
+-- PR #57 sync: last-write-wins upsert from a peer. The receiver re-embeds the
+-- text on-device, so a real embedding BLOB is always supplied. The WHERE guard
+-- only applies the peer's row when it is newer; created_at is never overwritten.
+upsertMemoryFromPeer:
+INSERT INTO memories(
+    id, text, category, conversation_id, created_at_epoch_ms,
+    last_accessed_epoch_ms, access_count, embedding, expires_at_epoch_ms,
+    updated_at_epoch_ms, deleted_at_epoch_ms
+)
+VALUES (:id, :text, :category, :conversationId, :createdAt, :lastAccessed, :accessCount, :embedding, :expiresAt, :updatedAt, :deletedAt)
+ON CONFLICT(id) DO UPDATE SET
+    text = excluded.text,
+    category = excluded.category,
+    conversation_id = excluded.conversation_id,
+    last_accessed_epoch_ms = excluded.last_accessed_epoch_ms,
+    access_count = excluded.access_count,
+    embedding = excluded.embedding,
+    expires_at_epoch_ms = excluded.expires_at_epoch_ms,
+    updated_at_epoch_ms = excluded.updated_at_epoch_ms,
+    deleted_at_epoch_ms = excluded.deleted_at_epoch_ms
+WHERE COALESCE(excluded.updated_at_epoch_ms, 0) > COALESCE(memories.updated_at_epoch_ms, 0);

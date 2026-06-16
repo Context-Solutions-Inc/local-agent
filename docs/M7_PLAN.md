@@ -24,7 +24,7 @@ deviation requires explicit re-scoping (see §8).
 | # | Criterion | Source |
 |---|---|---|
 | 1 | Release keystore generated, backed up to two custodial locations, Play App Signing enrolled | release hygiene |
-| 2 | Play Console app entry created; package name `com.contextsolutions.mobileagent` reserved | Play Console |
+| 2 | Play Console app entry created; package name `com.contextsolutions.localagent` reserved | Play Console |
 | 3 | Privacy policy live at a stable public URL | PRD §4.4 |
 | 4 | Data Safety form submitted; reflects the M6 telemetry + Crashlytics contract verbatim | PRD §4.4 |
 | 5 | Content rating certificate issued (IARC) | Play Console |
@@ -52,7 +52,7 @@ execution.
 |---|---|---|---|
 | 1 | Track sequence | **Internal → Closed → Open → Production**, no skips | Standard Play Store progression. Each track is a measurement window for the next promotion gate. Open testing is the optional widest soak; per Decision 6 it can be waived if closed-beta metrics are strong. |
 | 2 | Closed-beta cohort size | **TBD — open question Q1**, default plan: **50–100 testers** | 50 is the lower bound that gives meaningful crash signal; 100 stretches recruitment without much marginal data quality. Q1 surfaces before Phase B. |
-| 3 | Privacy policy hosting | **TBD — open question Q2**, default plan: **GitHub Pages on this repo** | Lowest friction: `docs/PRIVACY_POLICY.md` already exists; enabling GH Pages on `main` exposes it at `https://lley154.github.io/mobile-agent/PRIVACY_POLICY.html`. Context Solutions company site is the alternative if a marketing-facing URL is preferred. Phase A locks this. |
+| 3 | Privacy policy hosting | **TBD — open question Q2**, default plan: **GitHub Pages on this repo** | Lowest friction: `docs/PRIVACY_POLICY.md` already exists; enabling GH Pages on `main` exposes it at `https://lley154.github.io/local-agent/PRIVACY_POLICY.html`. Context Solutions company site is the alternative if a marketing-facing URL is preferred. Phase A locks this. |
 | 4 | Release versioning | **`versionName = "1.0.0"`; `versionCode` = HEAD's committer-date epoch seconds** (auto, set in `:androidApp/build.gradle.kts`; PR #45) | `versionCode` is generated from `git log -1 --format=%ct HEAD`, so it's monotonic across squash merges and unique per commit (no manual bump). Play Store only requires each upload's `versionCode` to be strictly greater than the last, which timestamps satisfy automatically. First internal build will be a ~1.78e9 value, not 1; values fit the Play Store/Android Int cap (~2.1e9) until ~2036. `versionName` stays "1.0.0" until a real semver change. *(Supersedes the original "`versionCode = 1`, +1 per upload" plan, which broke during dev with INSTALL_FAILED_VERSION_DOWNGRADE under squash merges.)* |
 | 5 | Pre-production bug-fix cadence | **One v1.0.x patch per week max during M7** | More than that and we're not measuring; less than that and we're not iterating. Hotfixes outside the cadence allowed for P0 only. |
 | 6 | Open testing track | **Optional**. Closed beta with 14 days of sustained crash-free ≥99.5% AND no open P1 bugs may skip directly to production at 1% staged | Open testing is risk reduction; if closed-beta signal is clean enough, the marginal value is low and the launch-day calendar gains a week. |
@@ -340,10 +340,10 @@ paperwork + keystore phase.
    Backup procedure documented in `docs/RELEASE_KEYS.md` (new file —
    custodial procedure, NOT the key material itself).
 4. **Play Console app entry created.** Reserve
-   `com.contextsolutions.mobileagent` package name. Set primary
+   `com.contextsolutions.localagent` package name. Set primary
    contact (Lawrence Ley) + privacy policy URL placeholder.
 5. **Privacy policy public URL live.** Per Decision 3, target is
-   GitHub Pages on this repo (`https://lley154.github.io/mobile-agent/`).
+   GitHub Pages on this repo (`https://lley154.github.io/local-agent/`).
    `docs/PRIVACY_POLICY.md` → rendered via Pages config; subdomain
    alternative if a marketing-facing URL is required.
 6. **Data Safety form submitted.** Filled per

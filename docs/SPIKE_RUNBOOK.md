@@ -27,7 +27,7 @@ something is broken in the harness it's much easier to debug against a stub.
 ```bash
 cd android-app
 ./gradlew :androidApp:installDebug
-adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.spike.SpikeActivity
+adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.spike.SpikeActivity
 ```
 
 In the SpikeActivity UI, tap **Run benchmark**. The stub will:
@@ -40,8 +40,8 @@ In the SpikeActivity UI, tap **Run benchmark**. The stub will:
 Pull the result:
 
 ```bash
-adb shell run-as com.contextsolutions.mobileagent.debug ls files/spike-results/
-adb shell run-as com.contextsolutions.mobileagent.debug cat files/spike-results/spike-<runId>.json > stub-run.json
+adb shell run-as com.contextsolutions.localagent.debug ls files/spike-results/
+adb shell run-as com.contextsolutions.localagent.debug cat files/spike-results/spike-<runId>.json > stub-run.json
 ```
 
 Confirm:
@@ -61,7 +61,7 @@ If any of these is missing or implausible, fix the harness before moving on.
 1. ✅ LiteRT-LM dep pinned (`com.google.ai.edge.litertlm:litertlm-android:0.10.2`)
    in `gradle/libs.versions.toml` and applied to `:shared`'s `androidMain`.
 2. ✅ `LiteRtInferenceEngine` lives at
-   `android-app/shared/src/androidMain/kotlin/com/contextsolutions/mobileagent/inference/`
+   `android-app/shared/src/androidMain/kotlin/com/contextsolutions/localagent/inference/`
    and implements the `InferenceEngine` contract:
    - `loadModel`: opens the model with `Engine(EngineConfig)` and the requested
      accelerator (`Backend.CPU` / `GPU` / `NPU`), respects `kvCacheTokens` via
@@ -110,9 +110,9 @@ hf download litert-community/gemma-4-E2B-it-litert-lm \
 Push to the app's external files dir on the connected Pixel 7:
 
 ```bash
-adb shell mkdir -p /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
+adb shell mkdir -p /sdcard/Android/data/com.contextsolutions.localagent.debug/files/models/
 adb push ~/models/gemma-4-E2B-it.litertlm \
-    /sdcard/Android/data/com.contextsolutions.mobileagent.debug/files/models/
+    /sdcard/Android/data/com.contextsolutions.localagent.debug/files/models/
 ```
 
 The spike UI looks for the file at exactly that path (it derives it from
@@ -189,9 +189,9 @@ finding stands: Pixel 7 ships E2B in Phase 1.
 
 ```bash
 mkdir -p ~/spike-results
-adb shell run-as com.contextsolutions.mobileagent.debug \
+adb shell run-as com.contextsolutions.localagent.debug \
     ls files/spike-results/ | tr -d '\r' | while read f; do
-        adb shell run-as com.contextsolutions.mobileagent.debug \
+        adb shell run-as com.contextsolutions.localagent.debug \
             cat "files/spike-results/$f" > ~/spike-results/$f
     done
 ```

@@ -32,7 +32,7 @@ plugins {
 // `processDebugGoogleServices` fails the build before unit tests run.
 //
 // Runtime impact when the file is missing: FirebaseApp.initializeApp() is
-// never auto-generated, so MobileAgentApplication.onCreate's
+// never auto-generated, so LocalAgentApplication.onCreate's
 // FirebaseAnalytics.getInstance(this) call throws on launch. CI does not
 // instantiate the Application (unit tests are pure JVM); developers
 // without the file should not install the APK on-device.
@@ -55,6 +55,39 @@ kotlin {
 // expected fields. Production builds leave the Brave key empty and require BYOK
 // in Settings.
 val secretsFile = rootProject.file("secrets.properties")
+
+// Fail a debug DEVICE build when secrets.properties is missing. Every getProperty
+// below has a default, so without this guard `assembleDebug`/`installDebug` silently
+// produce an app with no bundled dev Brave key / HF token / model checksums — it
+// installs but can't search or auto-download the model on-device. Scoped to the two
+// debug device tasks (mirrors the build-identity banner wiring below): release builds
+// ship empty keys by design (BYOK), and unit tests / the desktop build / CI never
+// touch this file, so they stay green. Gated on the REQUESTED task names so it fails
+// fast at configuration time, before the long compile, and only for an actual device
+// build. Fix: copy android-app/secrets.properties.example to
+// android-app/secrets.properties and fill it in.
+val deviceBuildRequested = gradle.startParameter.taskNames.any {
+    val taskName = it.substringAfterLast(':')
+    taskName == "assembleDebug" || taskName == "installDebug"
+}
+if (deviceBuildRequested && !secretsFile.exists()) {
+    throw GradleException(
+        """
+
+        android-app/secrets.properties was not found at:
+          ${secretsFile.absolutePath}
+
+        It is required for a debug device build (assembleDebug/installDebug) — it bundles
+        the dev Brave Search key, HuggingFace token, and Gemma model checksums. Without it
+        the installed app can't search or download the model.
+
+        Fix: copy android-app/secrets.properties.example to android-app/secrets.properties
+        and fill in the values.
+
+        """.trimIndent(),
+    )
+}
+
 val secrets: Properties = Properties().apply {
     if (secretsFile.exists()) secretsFile.inputStream().use { load(it) }
 }
@@ -124,7 +157,7 @@ val gitDescribe: String =
 // stale install shows a different versionCode/SHA on the phone than what printed.
 val buildIdentityBanner = """
     |────────────────────────────────────────────────────────
-    |  Mobile Agent (debug) build
+    |  Local Agent (debug) build
     |    versionName : $appVersionName
     |    versionCode : $gitCommitTimestamp   <- 'Build' in the About dialog
     |    git         : $gitDescribe
@@ -140,11 +173,11 @@ tasks.matching { it.name == "assembleDebug" || it.name == "installDebug" }
     .configureEach { finalizedBy(printBuildIdentity) }
 
 android {
-    namespace = "com.contextsolutions.mobileagent.app"
+    namespace = "com.contextsolutions.localagent.app"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.contextsolutions.mobileagent"
+        applicationId = "com.contextsolutions.localagent"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = gitCommitTimestamp

@@ -84,7 +84,7 @@ New code (file paths concrete; signatures illustrative):
   StubEmbedderEngine.kt             stub (Phase 2)
   StubMemoryStore.kt                stub (Phase 2)
 
-:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/
+:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/
   Memories.sq                       extend: add access_count column, add eviction queries, retrieve-with-embedding query, list-by-conversation, count-by-conversation
 
 :androidApp/src/main/assets/
@@ -686,11 +686,11 @@ section (analog to M3/M4) pointing future-Claude at the seams.
   table, the embedding BLOBs, or any logger output that includes
   text. Suggested counter shape (extracted/dedup-skipped/forgotten/
   evicted/retrieved/p95 ms) lives in `docs/M5_M6_HANDOFF.md` §1.
-- **Storage path.** `Context.dataDir/databases/mobile_agent.db` —
+- **Storage path.** `Context.dataDir/databases/local_agent.db` —
   Android FBE Credential Encrypted Storage by default on Android 16
   (PRD §4.4 satisfied; no extra config needed at the SQLDelight
   layer). User-side verification one-liner:
-  `adb shell run-as com.contextsolutions.mobileagent.debug ls databases/`.
+  `adb shell run-as com.contextsolutions.localagent.debug ls databases/`.
 - **Schema migration deferred.** The `access_count` column was added
   in-place; existing dev installs need `pm clear` before the new
   build runs. Documented inline in `Memories.sq` and as a M6 must-do

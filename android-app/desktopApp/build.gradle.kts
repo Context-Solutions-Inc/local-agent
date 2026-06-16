@@ -29,12 +29,21 @@ val gitDescribe: String =
     providers.exec { commandLine("git", "describe", "--always", "--dirty", "--abbrev=7") }
         .standardOutput.asText.get().trim().ifEmpty { "unknown" }
 
+// Compile-time-configurable hosting endpoint for the ONNX aux models (pre-flight
+// classifier + MiniLM embedder). Override with `-PauxModelBaseUrl=https://host/path`
+// (or set it in gradle.properties); blank ⇒ unconfigured, so the desktop app skips the
+// download and the operator places the .onnx files manually. Baked into
+// desktop_build_info.properties and read back by DesktopAuxModels (the sha256 + size
+// are pinned in code; only the base URL is supplied here).
+val auxModelBaseUrl: String = providers.gradleProperty("auxModelBaseUrl").orNull?.trim().orEmpty()
+
 val buildInfoDir = layout.buildDirectory.dir("generated/buildInfo")
 val generateDesktopBuildInfo by tasks.registering(WriteProperties::class) {
     destinationFile.set(buildInfoDir.map { it.file("desktop_build_info.properties") })
     property("versionName", appVersionName)
     property("versionCode", gitCommitTimestamp)
     property("gitDescribe", gitDescribe)
+    property("auxModelBaseUrl", auxModelBaseUrl)
 }
 
 sourceSets["main"].resources.srcDir(buildInfoDir)
@@ -77,7 +86,7 @@ configurations.all {
 
 compose.desktop {
     application {
-        mainClass = "com.contextsolutions.mobileagent.desktop.app.MainKt"
+        mainClass = "com.contextsolutions.localagent.desktop.app.MainKt"
 
         // The GGUF runs in the llama-server child process and ONNX classifier/embedder in
         // NATIVE (off-heap) memory, so the JVM heap stays modest — 2 GB covers the Compose
@@ -94,7 +103,7 @@ compose.desktop {
                 TargetFormat.Dmg, TargetFormat.Pkg,
                 TargetFormat.Msi, TargetFormat.Exe,
             )
-            packageName = "MobileAgent"
+            packageName = "LocalAgent"
             // Installer/upgrade-detection version ONLY — deliberately decoupled from the
             // release tag + app version (v0.1.0, see androidApp appVersionName /
             // DesktopAppBuildConfig.versionName / the About dialog). The Compose plugin
@@ -119,7 +128,7 @@ compose.desktop {
 
             linux {
                 iconFile.set(iconsDir.resolve("icon.png"))
-                packageName = "mobile-agent"        // dpkg/rpm package names are lowercase
+                packageName = "local-agent"        // dpkg/rpm package names are lowercase
                 debMaintainer = "lawrence.ley@contextsolutions.ca"
                 menuGroup = "Utility"
                 appCategory = "Utility"
@@ -128,13 +137,13 @@ compose.desktop {
             }
             macOS {
                 iconFile.set(iconsDir.resolve("icon.icns"))
-                bundleID = "com.contextsolutions.mobileagent"
+                bundleID = "com.contextsolutions.localagent"
                 appCategory = "public.app-category.productivity"
                 // dmgPackageVersion/pkgPackageVersion default to packageVersion.
             }
             windows {
                 iconFile.set(iconsDir.resolve("icon.ico"))
-                menuGroup = "Mobile Agent"
+                menuGroup = "Local Agent"
                 // STABLE across releases — MSI uses it to recognise upgrades vs fresh installs.
                 // Never regenerate this once shipped.
                 upgradeUuid = "b6c3f2a4-1e5d-4a7c-9f0b-2d8e6c1a4f33"

@@ -33,7 +33,7 @@ eval/canonical/
 ├── README.md                       (this file)
 └── baselines/                      (future — baseline JSON for the Kotlin test output)
 
-android-app/androidApp/src/test/kotlin/com/contextsolutions/mobileagent/canonical/
+android-app/androidApp/src/test/kotlin/com/contextsolutions/localagent/canonical/
 └── CanonicalEvalTest.kt            the canonical set + assertions
 ```
 
@@ -104,7 +104,7 @@ Each canonical query is a `CanonicalEvalTest.CanonicalQuery` instance:
 2. Pick classifier logits matching the intended band (`HIGH_BAND_LOGITS`,
    `MIDDLE_BAND_LOGITS`, `LOW_BAND_LOGITS`). For non-canonical edge
    cases, hand-craft a `FloatArray`.
-3. Run locally: `./gradlew :androidApp:testDebugUnitTest --tests com.contextsolutions.mobileagent.canonical.*`.
+3. Run locally: `./gradlew :androidApp:testDebugUnitTest --tests com.contextsolutions.localagent.canonical.*`.
 4. If the test passes, commit. The PR will run the same gate.
 5. If the test fails: read the bundled error report. The assertion lists
    every regression in one block; fix the underlying code or adjust the

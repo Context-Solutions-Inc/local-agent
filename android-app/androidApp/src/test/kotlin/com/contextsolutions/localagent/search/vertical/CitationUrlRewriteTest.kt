@@ -1,0 +1,104 @@
+package com.contextsolutions.localagent.search.vertical
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/**
+ * Coverage for [toHumanReadableUrl]: the rule that maps machine-readable
+ * fetch URLs onto consumer-facing pages, so a tap on a citation chip
+ * lands the user on something they can read instead of raw XML.
+ */
+class CitationUrlRewriteTest {
+
+    @Test
+    fun rewrites_ec_rss_english_feed_to_html_location_page() {
+        val out = toHumanReadableUrl(
+            "https://weather.gc.ca/rss/weather/43.6532_-79.3832_e.xml",
+        )
+        assertEquals(
+            "https://weather.gc.ca/en/location/index.html?coords=43.6532,-79.3832",
+            out,
+        )
+    }
+
+    @Test
+    fun rewrites_ec_rss_french_feed_to_english_html_page() {
+        // Even when fetching the French feed we point the user at the
+        // English HTML page — the app is currently English-only. When
+        // locale-aware citations land, switch on the suffix.
+        val out = toHumanReadableUrl(
+            "https://weather.gc.ca/rss/weather/45.5017_-73.5673_f.xml",
+        )
+        assertEquals(
+            "https://weather.gc.ca/en/location/index.html?coords=45.5017,-73.5673",
+            out,
+        )
+    }
+
+    @Test
+    fun handles_negative_lat_lon_pairs() {
+        val out = toHumanReadableUrl(
+            "https://weather.gc.ca/rss/weather/-33.8688_151.2093_e.xml",
+        )
+        assertEquals(
+            "https://weather.gc.ca/en/location/index.html?coords=-33.8688,151.2093",
+            out,
+        )
+    }
+
+    @Test
+    fun rewrites_nws_dwml_feed_to_mapclick_html_page() {
+        // The DWML fetch URL carries machine-readable params (FcstType=dwml,
+        // unit, lg); strip them so the chip lands on the human MapClick page.
+        val out = toHumanReadableUrl(
+            "https://forecast.weather.gov/MapClick.php?lat=25.7751&lon=-80.1947&unit=0&lg=english&FcstType=dwml",
+        )
+        assertEquals(
+            "https://forecast.weather.gov/MapClick.php?lat=25.7751&lon=-80.1947",
+            out,
+        )
+    }
+
+    @Test
+    fun rewrites_all_default_sports_feeds_to_consumer_pages() {
+        val expected = mapOf(
+            "https://www.tsn.ca/rss/news" to "https://www.tsn.ca/",
+            "https://www.sportsnet.ca/feed/" to "https://www.sportsnet.ca/",
+            "https://www.espn.com/espn/rss/news" to "https://www.espn.com/",
+            "https://www.cbssports.com/rss/headlines/" to "https://www.cbssports.com/",
+            "https://feeds.bbci.co.uk/sport/rss.xml" to "https://www.bbc.com/sport",
+            "https://www.skysports.com/rss/12040" to "https://www.skysports.com/",
+            "https://www.abc.net.au/news/feed/45924/rss.xml" to "https://www.abc.net.au/news/sport",
+        )
+        for ((feed, landing) in expected) {
+            assertEquals(landing, toHumanReadableUrl(feed))
+        }
+    }
+
+    @Test
+    fun sports_rewrite_is_exact_match_not_domain_prefix() {
+        // The map keys on the full feed URL, so an unrelated path on a
+        // shared domain (abc.net.au also hosts the NEWS source) falls
+        // through unchanged rather than being dragged to /news/sport.
+        val abcNews = "https://www.abc.net.au/news/feed/51120/rss.xml"
+        assertEquals(abcNews, toHumanReadableUrl(abcNews))
+    }
+
+    @Test
+    fun passes_through_unrelated_urls() {
+        val brave = "https://api.search.brave.com/res/v1/web/search?q=eagles"
+        assertEquals(brave, toHumanReadableUrl(brave))
+        val twn = "https://www.theweathernetwork.com/en/city/ca/ON/Toronto/current"
+        assertEquals(twn, toHumanReadableUrl(twn))
+    }
+
+    @Test
+    fun passes_through_other_ec_paths_unchanged() {
+        // Only the /rss/weather/{lat}_{lon}_{e|f}.xml shape rewrites.
+        // Alert feeds (/rss/battleboard/) and any other paths keep their
+        // fetch URL — the user CAN read those XML pages but they're
+        // alert feeds, not forecasts.
+        val alerts = "https://weather.gc.ca/rss/battleboard/on61_e.xml"
+        assertEquals(alerts, toHumanReadableUrl(alerts))
+    }
+}

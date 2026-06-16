@@ -314,7 +314,7 @@ New risks not previously in PHASE1_PLAN §7:
       to UI/telemetry.
 - [x] Wire `onTrimMemory()` to unload Gemma early under system pressure
       (PHASE1_PLAN §6) — DONE in M1 WS-1 Phase A
-      (`MobileAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`).
+      (`LocalAgentApplication.onTrimMemory` → `InferenceSessionManager.forceUnload`).
 - [x] Decision 3 (foreground service contract) — VALIDATED 2026-05-05 on
       Pixel 7 via M1 WS-1 Phase C exit-gate Drill 9. `specialUse`
       `foregroundServiceType` keeps the process alive across Home-button

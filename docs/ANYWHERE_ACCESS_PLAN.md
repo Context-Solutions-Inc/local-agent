@@ -31,7 +31,7 @@ claim-token endpoints). See CLAUDE.md invariant **#54**.
 - `/subscribe/callback` route on the existing `DesktopLinkServer` (browser-facing,
   loopback-only) → claims the credential.
 - Launch-time `GET /v1/subscription` in `Main.kt` (only when an account exists).
-- Settings "Mobile Agent Connection" desktop section: copy flips to "…anywhere…"
+- Settings "Local Agent Connection" desktop section: copy flips to "…anywhere…"
   + a "Subscription Settings" link when active, else "Upgrade to anywhere connection".
   "Subscription Settings" opens the Stripe Customer Portal via
   `RelayGatewayClient.billingPortalUrl` → `POST /v1/billing-portal`.
@@ -50,8 +50,8 @@ data path is `TODO`); it is **not** wired into routing, so the LAN path is untou
 
 | Env var | Purpose |
 |---|---|
-| `MOBILEAGENT_GATEWAY_URL` | Secure Gateway auth-service base URL (e.g. `http://127.0.0.1:8080`). Empty ⇒ the upgrade link is hidden. |
-| `MOBILEAGENT_SUBSCRIPTION_PORTAL_URL` | **Optional fallback** for "Subscription Settings". Normally the desktop mints a fresh Stripe Customer Portal URL via the gateway (`POST /v1/billing-portal`); this static URL is only used if that call fails. |
+| `LOCALAGENT_GATEWAY_URL` | Secure Gateway auth-service base URL (e.g. `http://127.0.0.1:8080`). Empty ⇒ the upgrade link is hidden. |
+| `LOCALAGENT_SUBSCRIPTION_PORTAL_URL` | **Optional fallback** for "Subscription Settings". Normally the desktop mints a fresh Stripe Customer Portal URL via the gateway (`POST /v1/billing-portal`); this static URL is only used if that call fails. |
 
 Gateway side needs `AUTH_STRIPE_PRICE_ID`, `AUTH_STRIPE_SECRET_KEY`,
 `AUTH_STRIPE_WEBHOOK_SECRET`, `AUTH_PUBLIC_URL` (success_url base), `AUTH_CLAIM_TTL`
@@ -71,7 +71,7 @@ Prereqs: Stripe **test mode** account + the [Stripe CLI](https://stripe.com/docs
 ### 1. A test subscription price
 
 ```sh
-stripe products create --name "Mobile Agent Anywhere (test)"
+stripe products create --name "Local Agent Anywhere (test)"
 stripe prices create --unit-amount 500 --currency usd \
   -d "recurring[interval]"=month -d product=<prod_id_from_above>
 # → note the price id (price_…). Optionally tag entitlement:
@@ -107,13 +107,13 @@ cd ../secure-gateway/sdk && ./gradlew publishToMavenLocal
 
 ```sh
 cd android-app
-MOBILEAGENT_GATEWAY_URL=http://127.0.0.1:8080 \
+LOCALAGENT_GATEWAY_URL=http://127.0.0.1:8080 \
   ./gradlew :desktopApp:run
 ```
 
 ### 5. Walk the flow
 
-1. Open **Settings → Mobile Agent Connection**. With a gateway URL set you'll see
+1. Open **Settings → Local Agent Connection**. With a gateway URL set you'll see
    **"Upgrade to anywhere connection"**.
 2. Click it → the default browser opens **Stripe Checkout**. Pay with the test
    card `4242 4242 4242 4242`, any future expiry/CVC/zip.
@@ -129,8 +129,8 @@ MOBILEAGENT_GATEWAY_URL=http://127.0.0.1:8080 \
    once** in the test dashboard: Settings → Billing → Customer portal, else the
    link no-ops / the gateway returns `502`.
 5. Verify persistence: the secret is in the OS keystore (not readable here) and
-   the ids are in `<app-data>/MobileAgent/subscription_prefs.json` (Linux:
-   `~/.local/share/MobileAgent/`).
+   the ids are in `<app-data>/LocalAgent/subscription_prefs.json` (Linux:
+   `~/.local/share/LocalAgent/`).
 6. **Relaunch** the app → `Main.kt` calls `GET /v1/subscription`; the section
    stays in the "anywhere" state. Console logs `[Subscription] subscription refreshed: valid`.
 
@@ -154,7 +154,7 @@ go test ./test/integration/ -run TestDesktopCheckoutClaimFlow -v
 
 ### Troubleshooting
 
-- **Upgrade link missing** → `MOBILEAGENT_GATEWAY_URL` unset, or you're on mobile.
+- **Upgrade link missing** → `LOCALAGENT_GATEWAY_URL` unset, or you're on mobile.
 - **`503 checkout_unavailable`** → gateway missing `AUTH_STRIPE_PRICE_ID` /
   `AUTH_STRIPE_SECRET_KEY` / `AUTH_PUBLIC_URL`.
 - **Callback never fires** → the fallback poll still claims via the held nonce;
@@ -162,7 +162,7 @@ go test ./test/integration/ -run TestDesktopCheckoutClaimFlow -v
 - **"Subscription Settings" does nothing** → enable the Stripe **Customer portal**
   in the dashboard (test: Settings → Billing → Customer portal). Without it
   `POST /v1/billing-portal` errors and the link no-ops (unless
-  `MOBILEAGENT_SUBSCRIPTION_PORTAL_URL` is set as a static fallback).
+  `LOCALAGENT_SUBSCRIPTION_PORTAL_URL` is set as a static fallback).
 - **Go not on PATH** → `/home/lawrenceley/.local/go-sdk/go/bin`. Android build →
   `export ANDROID_HOME=/home/lawrenceley/android-sdk`.
 
@@ -217,7 +217,7 @@ offline/revoked fallback. See CLAUDE.md invariant **#55**.
 In-process (no relay/device):
 ```sh
 cd android-app
-./gradlew :shared:desktopTest --tests "com.contextsolutions.mobileagent.link.transport.*"
+./gradlew :shared:desktopTest --tests "com.contextsolutions.localagent.link.transport.*"
 # FrameRoundTripTest — multiplexer↔dispatcher unary + streaming + id correlation
 # RelayRoutingTest   — relay-QR detection, config gating, LAN/relay selection
 ./gradlew :shared:compileKotlinDesktop :androidApp:compileDebugKotlin   # both targets
@@ -231,7 +231,7 @@ cd ../secure-gateway/sdk
 PATH="$PATH:/home/lawrenceley/.local/go-sdk/go/bin" ./gradlew :java:e2eTest
 ```
 
-Live local run (manual): set `MOBILEAGENT_GATEWAY_URL` (+ `MOBILEAGENT_RELAY_WS_URL`
+Live local run (manual): set `LOCALAGENT_GATEWAY_URL` (+ `LOCALAGENT_RELAY_WS_URL`
 if not derivable), subscribe on desktop → the relay QR renders → scan on the phone →
 both dial `wss /v1/connect` → relay reports `peer_online` → chat streams + sync flow
 over the relay. Pull the subscription (`stripe subscriptions cancel`) → `4004` →
@@ -241,12 +241,12 @@ On-device crypto smoke (proves the real AAR runs on arm64):
 ```sh
 cd android-app
 ANDROID_HOME=/home/lawrenceley/android-sdk ./gradlew :androidApp:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.mobileagent.relay.RelayCryptoSmokeTest
+  -Pandroid.testInstrumentationRunnerArguments.class=com.contextsolutions.localagent.relay.RelayCryptoSmokeTest
 # RelayCryptoSmokeTest — X25519 derive + XChaCha20-Poly1305 session round-trip + tamper
 # detection under lazysodium-android on the device (where lazysodium-java's JNA build can't load).
 ```
 
-## On-device relay (shipped — secure-gateway PR #8 / mobile-agent PR #76)
+## On-device relay (shipped — secure-gateway PR #8 / local-agent PR #76)
 
 The secure-gateway mobile SDK now ships a **real Android AAR** (`com.securegateway:android`,
 the `:android-aar` `com.android.library` module on **lazysodium-android**), so relay crypto
@@ -267,7 +267,7 @@ solely so the hermetic cross-platform `:java:e2eTest` keeps running on the JVM. 
   from the JVM modules' kotlin-jvm 1.9.24, which keeps `:java:e2eTest` untouched. Verified on the
   Pixel 7 APK: every native lib (libsodium/libjnidispatch + litert/tflite/datastore/graphics.path)
   is `p_align` 0x4000.
-- **Identity at rest:** `AndroidKeystoreKeyStore` (mobile-agent `androidMain`) stores the
+- **Identity at rest:** `AndroidKeystoreKeyStore` (local-agent `androidMain`) stores the
   X25519 private key in an androidx `EncryptedFile` under a hardware-backed AndroidKeyStore
   master key. (The Android hardware Keystore can't hold a raw X25519/Curve25519 key directly,
   so the libsodium-generated key is encrypted at rest rather than hardware-resident.)
@@ -283,7 +283,7 @@ covered (does the arm64 crypto load + round-trip) is now proven by `RelayCryptoS
 
 The chat-header relay status dot remains deferred (cosmetic — relay chat + sync work without it).
 
-# Relay UX, reconnect & robustness (mobile-agent PR #77 / secure-gateway PR #9)
+# Relay UX, reconnect & robustness (local-agent PR #77 / secure-gateway PR #9)
 
 The follow-up after the relay validated end-to-end on a Pixel 7 — the unpair/disconnect path,
 transport-aware status, the on-device SDK fixes found during validation, and the two
@@ -428,7 +428,7 @@ the single slot) is left to the operator (unpair the other desktop / raise `max_
 a memory-store gateway).
 
 **Manual reset alternative.** Stop the desktop, delete
-`~/.local/share/MobileAgent/subscription_prefs.json` and the relay entries in `secrets.p12`
+`~/.local/share/LocalAgent/subscription_prefs.json` and the relay entries in `secrets.p12`
 (`RELAY_ACCOUNT_SECRET` / `RELAY_DESKTOP_DEVICE_ID` / `RELAY_IDENTITY_KEY` — or just delete
 `secrets.p12` to wipe all app secrets), then re-subscribe and it registers fresh.
 
@@ -449,6 +449,6 @@ store and deletes the plaintext file, so a paired desktop keeps its identity (an
 re-pairing. Covered by `SecureStorageKeyStoreTest`.
 
 **Tier caveat (unchanged posture).** `secrets.p12`'s PKCS#12 password is per-user-derived by default
-(or `MOBILEAGENT_KEYSTORE_PASSWORD`), so this matches the account-secret tier — it defends against
+(or `LOCALAGENT_KEYSTORE_PASSWORD`), so this matches the account-secret tier — it defends against
 casual disk inspection, not a process already running as the user. The genuine hardening is an OS
 keyring (Secret Service / Keychain / DPAPI) via the SDK's `OsKeyStore` seam — still deferred.

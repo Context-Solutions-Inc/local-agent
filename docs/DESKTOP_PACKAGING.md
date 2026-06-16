@@ -61,7 +61,7 @@ The CI matrix installs the Linux tools; macOS/Windows runners ship theirs.
   so the JVM heap stays small — 2 GB covers the Compose UI, image preprocessing, and
   ONNX tensor marshalling with headroom. Raise only if an on-heap path is added.
 - **Per-OS:** Linux deb maintainer + `Utility` menu/category; macOS `bundleID`
-  `com.contextsolutions.mobileagent` + `public.app-category.productivity`; Windows
+  `com.contextsolutions.localagent` + `public.app-category.productivity`; Windows
   a **stable `upgradeUuid`** (`b6c3f2a4-…-4f33` — MSI keys upgrades off it; never
   regenerate once shipped), per-user install, dir chooser.
 - **Icons:** one brand master rendered by `desktopApp/icons/generate_icons.py`
@@ -133,14 +133,14 @@ or operator-supplied):
 | Artifact | Source | Notes |
 |---|---|---|
 | GGUF Gemma (Q4_K_M) | `DesktopModelDownloader` → tray progress | Spec ships blank sha256/size (`isConfigured=false`); operator fills verified coordinates, same BYO policy as Android `secrets.properties`. **Use a standard instruction GGUF with the stock Gemma template (`<start_of_turn>`); avoid "thinking"/"reasoning" community conversions — they carry a `<\|think\|>` block in the chat template and reason out loud in the chat (Android's E2B doesn't). Quick check: `strings model.gguf \| grep -m1 '<\|think\|>'` should find nothing.** |
-| ONNX classifier + embedder | app-data `models/` or `MOBILEAGENT_{CLASSIFIER,EMBEDDER}_ONNX` | exported by `ct-export-onnx` / `export_minilm_onnx.py` |
-| Vosk acoustic model | app-data `models/vosk` or `MOBILEAGENT_VOSK_MODEL` | optional; STT no-ops without it |
-| Piper binary + voice (neural TTS) | `PiperBinaryStore` (`rhasspy/piper`, pinned `PiperRelease.TAG`) + `PiperVoiceStore` (HF `rhasspy/piper-voices`, `en_US-lessac-medium` ≈63 MB) → app-data `piper/` or `MOBILEAGENT_PIPER_BINARY` | optional; only when the user picks the "piper" engine. Pinned sha256/size per OS/arch (Linux/macOS/Windows). Played in-JVM (Java Sound); falls back to OS shell-out if no prebuilt for the host (PR #66) |
+| ONNX classifier + embedder | `DesktopAuxModelStore` → app-data `models/` (auto-download), or `LOCALAGENT_{CLASSIFIER,EMBEDDER}_ONNX` env override | exported by `ct-export-onnx` / `export_minilm_onnx.py`; sha256/size pinned in `DesktopAuxModels`. **Hosting endpoint is compile-time:** `-PauxModelBaseUrl=https://host/path` (baked into `desktop_build_info.properties`); default is a placeholder ⇒ unconfigured ⇒ download is skipped and the operator places the `.onnx` manually. Absent ⇒ classifier no-ops (pre-flight under-fires; explicit `web search …` still works). PR #94 |
+| Vosk acoustic model | app-data `models/vosk` or `LOCALAGENT_VOSK_MODEL` | optional; STT no-ops without it |
+| Piper binary + voice (neural TTS) | `PiperBinaryStore` (`rhasspy/piper`, pinned `PiperRelease.TAG`) + `PiperVoiceStore` (HF `rhasspy/piper-voices`, `en_US-lessac-medium` ≈63 MB) → app-data `piper/` or `LOCALAGENT_PIPER_BINARY` | optional; only when the user picks the "piper" engine. Pinned sha256/size per OS/arch (Linux/macOS/Windows). Played in-JVM (Java Sound); falls back to OS shell-out if no prebuilt for the host (PR #66) |
 
 App-data dir per OS:
-- Linux: `~/.local/share/MobileAgent/`
-- macOS: `~/Library/Application Support/MobileAgent/`
-- Windows: `%LOCALAPPDATA%\MobileAgent\`
+- Linux: `~/.local/share/LocalAgent/`
+- macOS: `~/Library/Application Support/LocalAgent/`
+- Windows: `%LOCALAPPDATA%\LocalAgent\`
 
 This keeps the installer small (runtime + app jars, no model) and lets the model be
 updated independently of the app.
@@ -202,7 +202,7 @@ intended backend (best-effort — the JNI probe is deferred below).
 The desktop agent is the **only** host that runs Jobs (cron + one-shot) and serves the
 mobile↔desktop link, so it's useful to run it as an always-on background service — at
 boot, without popping a window, no login required. Set the env var
-**`MOBILEAGENT_HEADLESS=1`** and the same launcher starts the full runtime (jobs, clock,
+**`LOCALAGENT_HEADLESS=1`** and the same launcher starts the full runtime (jobs, clock,
 task queue, mobile-link server, warm LLM, ONNX classifier/embedder) **without opening the
 main window**. What happens next depends on whether a system tray is available:
 
@@ -214,7 +214,7 @@ main window**. What happens next depends on whether a system tray is available:
   Ctrl-C trigger a clean shutdown (link server stop, model unload). This is the path a
   systemd/launchd service on a headless box takes.
 
-Same gate convention as `DI_CHECK` / `MOBILEAGENT_LLAMA_SERVER_VARIANT`. The windowless
+Same gate convention as `DI_CHECK` / `LOCALAGENT_LLAMA_SERVER_VARIANT`. The windowless
 fallback needs no display (X11/Wayland/Quartz) — safe on a true headless server.
 
 > **One instance only.** A process-wide file lock (`<app-data>/.instance.lock`) is shared
@@ -224,7 +224,7 @@ fallback needs no display (X11/Wayland/Quartz) — safe on a true headless serve
 
 ### Implementation notes (CLAUDE.md invariant #53)
 
-`MOBILEAGENT_HEADLESS=1` only changes **window startup** — the full background runtime
+`LOCALAGENT_HEADLESS=1` only changes **window startup** — the full background runtime
 (jobs / clock / tasks / link / warm-LLM / aux engines) is launched on `appScope`
 **before** the `application{}` window block, so headless and GUI share the exact same
 runtime bring-up. The tray probe runs first, then:
@@ -240,7 +240,7 @@ runtime bring-up. The tray probe runs first, then:
 Nothing before the window touches AWT/Skia (`AppIcon` is `lazy`), so the windowless path
 is display-less-safe. The single-instance file lock (`<app-data>/.instance.lock`) is
 shared across modes (the "One instance only" note above). Same env-gate convention as
-`DI_CHECK` / `MOBILEAGENT_LLAMA_SERVER_VARIANT`.
+`DI_CHECK` / `LOCALAGENT_LLAMA_SERVER_VARIANT`.
 
 ### End-to-end deploy
 
@@ -250,61 +250,61 @@ shared across modes (the "One instance only" note above). Same env-gate conventi
    cd android-app
    ./gradlew :desktopApp:packageDistributionForCurrentOS   # → .deb/.rpm | .dmg/.pkg | .msi/.exe
    # or, no OS packaging tools / no install:
-   ./gradlew :desktopApp:createDistributable               # → build/compose/binaries/main/app/MobileAgent/
+   ./gradlew :desktopApp:createDistributable               # → build/compose/binaries/main/app/LocalAgent/
    ```
 
    The app-image / installer bundles the JDK runtime + app jars but **no models** — those
    download at first run (see [Models & assets](#models--assets--bundled-vs-downloaded)).
 
-2. **Install it.** `.deb` → `/opt/mobile-agent/bin/MobileAgent`; `.dmg`/`.pkg` →
-   `/Applications/MobileAgent.app`; Windows `.msi`/`.exe` → per-user
-   `%LOCALAPPDATA%\MobileAgent\MobileAgent.exe`. A `createDistributable` app-image runs
-   from its `bin/MobileAgent` in place.
+2. **Install it.** `.deb` → `/opt/local-agent/bin/LocalAgent`; `.dmg`/`.pkg` →
+   `/Applications/LocalAgent.app`; Windows `.msi`/`.exe` → per-user
+   `%LOCALAPPDATA%\LocalAgent\LocalAgent.exe`. A `createDistributable` app-image runs
+   from its `bin/LocalAgent` in place.
 
 3. **Provision models + keys once** (the service runs unattended, so seed first). Easiest
    is to launch the GUI once and let it download the GGUF + ONNX + (optional) Vosk into the
    app-data dir, fill the GGUF coordinates / Brave key, and — if you use the phone — pair
    it. Everything persists in the app-data dir
    ([per-OS paths](#models--assets--bundled-vs-downloaded)); the headless service inherits
-   it. Alternatively point the `MOBILEAGENT_*` model env vars at pre-staged files and pass
+   it. Alternatively point the `LOCALAGENT_*` model env vars at pre-staged files and pass
    the Brave key via the service environment. Verify headless before wiring startup:
 
    ```bash
-   MOBILEAGENT_HEADLESS=1 /opt/mobile-agent/bin/MobileAgent
+   LOCALAGENT_HEADLESS=1 /opt/local-agent/bin/LocalAgent
    # graphical session → starts minimized to tray (banner: "background: ... minimized to tray");
    # display-less box  → runs windowless and blocks (banner: "headless (no tray): ...").
    ```
 
 4. **Register it as a startup task** (templates in `android-app/desktopApp/packaging/`):
 
-   **Linux — systemd user service** (`mobileagent.user.service`):
+   **Linux — systemd user service** (`localagent.user.service`):
    ```bash
-   cp android-app/desktopApp/packaging/mobileagent.user.service \
-      ~/.config/systemd/user/mobileagent.service          # edit ExecStart to your install path
+   cp android-app/desktopApp/packaging/localagent.user.service \
+      ~/.config/systemd/user/localagent.service          # edit ExecStart to your install path
    systemctl --user daemon-reload
-   systemctl --user enable --now mobileagent.service
+   systemctl --user enable --now localagent.service
    sudo loginctl enable-linger "$USER"                    # start at boot before login
-   journalctl --user -u mobileagent -f                    # logs (the stderr banner)
+   journalctl --user -u localagent -f                    # logs (the stderr banner)
    ```
 
-   **Linux — systemd system service** (`mobileagent.system.service`): same, but edit
+   **Linux — systemd system service** (`localagent.system.service`): same, but edit
    `User=`/`Environment=HOME=` to the account owning the app-data dir, install to
-   `/etc/systemd/system/`, and `sudo systemctl enable --now mobileagent`.
+   `/etc/systemd/system/`, and `sudo systemctl enable --now localagent`.
 
-   **macOS — launchd** (`com.contextsolutions.mobileagent.plist`):
+   **macOS — launchd** (`com.contextsolutions.localagent.plist`):
    ```bash
-   cp android-app/desktopApp/packaging/com.contextsolutions.mobileagent.plist \
+   cp android-app/desktopApp/packaging/com.contextsolutions.localagent.plist \
       ~/Library/LaunchAgents/
-   launchctl load -w ~/Library/LaunchAgents/com.contextsolutions.mobileagent.plist
+   launchctl load -w ~/Library/LaunchAgents/com.contextsolutions.localagent.plist
    ```
 
    **Windows — Task Scheduler** (no template file). Set the env var, then create a task:
    ```powershell
-   setx MOBILEAGENT_HEADLESS 1     # user-scoped; or set it inside the task's action
-   schtasks /Create /SC ONLOGON /TN MobileAgent ^
-     /TR "%LOCALAPPDATA%\MobileAgent\MobileAgent.exe"
+   setx LOCALAGENT_HEADLESS 1     # user-scoped; or set it inside the task's action
+   schtasks /Create /SC ONLOGON /TN LocalAgent ^
+     /TR "%LOCALAPPDATA%\LocalAgent\LocalAgent.exe"
    ```
-   (Or drop a shortcut to `MobileAgent.exe` in `shell:startup`.) Env vars can also be set
+   (Or drop a shortcut to `LocalAgent.exe` in `shell:startup`.) Env vars can also be set
    machine-wide with `setx /M`.
 
 ## Deferred (not in v0.1.0)

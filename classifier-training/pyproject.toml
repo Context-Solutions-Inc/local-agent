@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "classifier-training"
 version = "0.1.0"
-description = "Dataset construction and classifier fine-tuning for the mobile-agent on-device assistant."
+description = "Dataset construction and classifier fine-tuning for the local-agent on-device assistant."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Context Solutions" }]

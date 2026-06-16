@@ -40,7 +40,7 @@ Exit criterion: **internal-quality build ready for closed beta (M7).**
 
 | # | Criterion | Source |
 |---|---|---|
-| 1 | `MobileAgentDatabase.Schema.version = 2`, `.sqm` migration captures `access_count`; existing M2/M4 installs upgrade in place without data loss | M5_M6_HANDOFF §2 |
+| 1 | `LocalAgentDatabase.Schema.version = 2`, `.sqm` migration captures `access_count`; existing M2/M4 installs upgrade in place without data loss | M5_M6_HANDOFF §2 |
 | 2 | `verifyMigrations = true` in SQLDelight Gradle block (build-time schema-drift gate) | hygiene |
 | 3 | Eager Gemma load fires on Chat navigation; first-token p50 on cold-open-then-send < 1.5 s (vs. ~5 s baseline) | M6_KICKOFF, PRD §4.1 |
 | 4 | Eager load skips at thermal SEVERE/CRITICAL | PRD §4.3 |
@@ -100,18 +100,18 @@ New code and the existing files M6 touches. Signatures illustrative.
     -- Captures the v1 → v2 delta: adds access_count column.
     ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0;
 
-:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/Memories.sq  (EDIT)
+:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/Memories.sq  (EDIT)
     -- Bump the embedded version comment to v2 to match.
 
 :shared/androidMain/.../db/AndroidDatabaseFactory.kt  (EDIT)
-    AndroidSqliteDriver(MobileAgentDatabase.Schema, context, "mobile_agent.db",
+    AndroidSqliteDriver(LocalAgentDatabase.Schema, context, "local_agent.db",
                         callback = MIGRATIONS_CALLBACK)
 
 :shared/build.gradle.kts  (EDIT)
     sqldelight {
       databases {
-        create("MobileAgentDatabase") {
-          packageName.set("com.contextsolutions.mobileagent.db")
+        create("LocalAgentDatabase") {
+          packageName.set("com.contextsolutions.localagent.db")
           verifyMigrations.set(true)   // ← Phase A
         }
       }
@@ -342,17 +342,17 @@ Eight phases. A is the strict prerequisite for everything; B–F have partial de
 
 **Deliverables (shipped 2026-05-10):**
 
-1. **Migration file shipped at** `:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/1.sqm`. Note the placement: SQLDelight 2.x expects `.sqm` files alongside `.sq` files in the same package directory, not in a `migrations/` sub-directory as the original plan implied. Final contents:
+1. **Migration file shipped at** `:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/1.sqm`. Note the placement: SQLDelight 2.x expects `.sqm` files alongside `.sq` files in the same package directory, not in a `migrations/` sub-directory as the original plan implied. Final contents:
    ```sql
    ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0;
    CREATE INDEX memories_by_conversation ON memories(conversation_id);
    CREATE INDEX memories_by_last_accessed ON memories(last_accessed_epoch_ms);
    ```
    M5 added more than just the column — it also introduced two new indexes (`memories_by_conversation`, `memories_by_last_accessed`). The migration covers all three deltas so v1 → v2 fully reconciles with the current `.sq` schema and `verifyMigrations` is happy.
-2. **Version bump confirmed.** Generated `MobileAgentDatabaseImpl.Schema.version = 2` after SQLDelight code-gen picks up `1.sqm`. Verified via `MemoriesMigrationTest.schema_version_is_two_after_adding_first_migration`.
-3. **Driver wiring unchanged.** `AndroidSqliteDriver(MobileAgentDatabase.Schema, context, DB_NAME)`'s default `Callback(schema)` already routes `SQLiteOpenHelper.onUpgrade` to `Schema.migrate(...)`. No explicit callback parameter needed. KDoc on `DatabaseModule.provideDatabase` documents this so future readers don't re-add a redundant callback.
-4. **Build-time gate enabled.** `:shared/build.gradle.kts` SQLDelight block now sets both `verifyMigrations = true` and `schemaOutputDirectory = file("src/commonMain/sqldelight/databases")`. The Gradle plugin exposes a new `verifyCommonMainMobileAgentDatabaseMigration` task that runs migrations forward from `databases/1.db` and diffs against the current `.sq` schema; mismatches fail the build.
-5. **Schema snapshot bootstrapped.** `databases/1.db` (~65 KB SQLite binary) committed to the repo. Captured via the one-time "snapshot dance": (a) temporarily restore `Memories.sq` from the M0 git baseline, (b) `./gradlew :shared:generateCommonMainMobileAgentDatabaseSchema`, (c) restore v2 `Memories.sq`. Documented in this section so future schema bumps can repeat the pattern (or just commit the new `N.db` from `generateCommonMainMobileAgentDatabaseSchema` after each schema change).
+2. **Version bump confirmed.** Generated `LocalAgentDatabaseImpl.Schema.version = 2` after SQLDelight code-gen picks up `1.sqm`. Verified via `MemoriesMigrationTest.schema_version_is_two_after_adding_first_migration`.
+3. **Driver wiring unchanged.** `AndroidSqliteDriver(LocalAgentDatabase.Schema, context, DB_NAME)`'s default `Callback(schema)` already routes `SQLiteOpenHelper.onUpgrade` to `Schema.migrate(...)`. No explicit callback parameter needed. KDoc on `DatabaseModule.provideDatabase` documents this so future readers don't re-add a redundant callback.
+4. **Build-time gate enabled.** `:shared/build.gradle.kts` SQLDelight block now sets both `verifyMigrations = true` and `schemaOutputDirectory = file("src/commonMain/sqldelight/databases")`. The Gradle plugin exposes a new `verifyCommonMainLocalAgentDatabaseMigration` task that runs migrations forward from `databases/1.db` and diffs against the current `.sq` schema; mismatches fail the build.
+5. **Schema snapshot bootstrapped.** `databases/1.db` (~65 KB SQLite binary) committed to the repo. Captured via the one-time "snapshot dance": (a) temporarily restore `Memories.sq` from the M0 git baseline, (b) `./gradlew :shared:generateCommonMainLocalAgentDatabaseSchema`, (c) restore v2 `Memories.sq`. Documented in this section so future schema bumps can repeat the pattern (or just commit the new `N.db` from `generateCommonMainLocalAgentDatabaseSchema` after each schema change).
 6. **Cosmetic .sq alignment.** SQLite's `ALTER TABLE ADD COLUMN` always appends to the end of the column list, while `CREATE TABLE` honors declared order. To make the v2 schema produced by `Schema.create()` byte-identical to the schema produced by `Schema.migrate()`, `access_count` was moved to the *end* of the `memories` table declaration in `Memories.sq`, and the `embedding` column comment was held to its v1 wording (`(1536 bytes)` rather than `(1,536 bytes)`). A comment on the CREATE TABLE explains the constraint so a future cleanup doesn't undo it. SQLite is order-insensitive at the query layer, so the placement has no behavioral effect.
 7. **Host unit test shipped.** `:androidApp/src/test/.../db/MemoriesMigrationTest.kt` — 5 tests covering: Schema.version == 2, ALTER adds `access_count` with DEFAULT 0, post-migration inserts honor the new column, all v1 column values survive the migration, `migrate(2, 2)` is a no-op. Test stands up the v1 schema directly via DDL on `JdbcSqliteDriver.IN_MEMORY` — doesn't depend on the committed `1.db` snapshot.
 8. **Memories.sq header comment updated** to point at `1.sqm` instead of the "needs `pm clear`" warning M5 left behind.
@@ -361,7 +361,7 @@ Eight phases. A is the strict prerequisite for everything; B–F have partial de
 
 | Check | Status |
 |---|---|
-| `./gradlew :shared:verifyCommonMainMobileAgentDatabaseMigration` | PASS |
+| `./gradlew :shared:verifyCommonMainLocalAgentDatabaseMigration` | PASS |
 | `./gradlew :androidApp:testDebugUnitTest` | 270/270 (was 265 at end of M5; +5 from `MemoriesMigrationTest`) |
 | `Schema.version` reflects the migration (== 2) | PASS |
 | On-device M4 → M6 upgrade preserves memories | **Pending user execution** (see procedure below) |
@@ -371,7 +371,7 @@ Eight phases. A is the strict prerequisite for everything; B–F have partial de
 ```bash
 # 1. Confirm you're starting from an M4-or-earlier install (pre-M5 schema).
 #    If you're currently on an M5 build, pm clear ONCE before this procedure:
-#      adb shell pm clear com.contextsolutions.mobileagent.debug
+#      adb shell pm clear com.contextsolutions.localagent.debug
 #    Then reinstall an M4 build to get a known v1 DB. M5 → M6 direct upgrade
 #    is the known-broken case (column already exists; ALTER would throw).
 #    There's no production M5 install in the world, so this only affects
@@ -384,14 +384,14 @@ Eight phases. A is the strict prerequisite for everything; B–F have partial de
 #    Verify in Settings → Memory: 3 entries listed.
 
 # 3. (Optional) Back up the pre-migration DB so the procedure is repeatable:
-adb shell run-as com.contextsolutions.mobileagent.debug \
-  cp databases/mobile_agent.db /sdcard/Download/m4_db.db
+adb shell run-as com.contextsolutions.localagent.debug \
+  cp databases/local_agent.db /sdcard/Download/m4_db.db
 adb pull /sdcard/Download/m4_db.db ~/m6-phase-a/m4_db.db
 
 # 4. Build + install the M6 Phase A APK over the top (no uninstall):
-cd /home/lawrenceley/src/mobile-agent/android-app
+cd /home/lawrenceley/src/local-agent/android-app
 ./gradlew :androidApp:installDebug
-adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.MainActivity
+adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.MainActivity
 
 # 5. Launch app, open Memory screen. Expect: all 3 memories present.
 #    Expect: no crash, no error toast, app launches normally.
@@ -404,8 +404,8 @@ adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolution
 
 # 6. (Optional, deeper check) Inspect the on-disk schema. Android strips
 #    `sqlite3` from the device shell — pull the DB to host instead:
-adb shell run-as com.contextsolutions.mobileagent.debug \
-  cp databases/mobile_agent.db /sdcard/Download/m6_db.db
+adb shell run-as com.contextsolutions.localagent.debug \
+  cp databases/local_agent.db /sdcard/Download/m6_db.db
 adb pull /sdcard/Download/m6_db.db /tmp/m6_db.db
 sqlite3 /tmp/m6_db.db <<'SQL'
 PRAGMA user_version;
@@ -437,7 +437,7 @@ SQL
 - SQLDelight's `verifyMigrations` needed the `1.db` schema fixture — resolved via the snapshot dance, committed `databases/1.db`.
 - Code-gen failed initially with `verifyMigrations.set(true)` enabled but no snapshot present ("No table found with name memories"). Resolved once `schemaOutputDirectory` was added and `1.db` generated.
 - The column-order mismatch between ALTER TABLE (appends) and CREATE TABLE (honors declared order) surfaced via the verifyMigration diff; resolved by reordering `access_count` to the end in `Memories.sq` and adding an explanatory comment.
-- A future schema change (e.g., the `telemetry_aggregate` tables in Phase C) lands as `2.sqm` + re-running `./gradlew :shared:generateCommonMainMobileAgentDatabaseSchema` to commit `2.db` alongside `1.db`. Adding fresh tables is straightforward — only existing-table modifications need the column-order alignment dance.
+- A future schema change (e.g., the `telemetry_aggregate` tables in Phase C) lands as `2.sqm` + re-running `./gradlew :shared:generateCommonMainLocalAgentDatabaseSchema` to commit `2.db` alongside `1.db`. Adding fresh tables is straightforward — only existing-table modifications need the column-order alignment dance.
 
 ### Phase B — Eager Gemma load + thermal infra (1–2 d) — ✅ HOST-SIDE COMPLETE 2026-05-10
 
@@ -460,8 +460,8 @@ SQL
 5. **Unit tests shipped** (7 new in `InferenceSessionManagerTest`): warm-up loads + returns Loaded; AlreadyLoaded short-circuit; SkippedThermal at SEVERE; SkippedThermal at CRITICAL; proceeds at MODERATE; Failed without throwing when engine throws; idempotent under 3-way concurrent calls (only one underlying load).
 6. **Manual on-device verification (pending user).** Procedure:
    - Fresh install on Pixel 7 (or continue from the Phase A `pm clear` state), complete onboarding, model present.
-   - Force-stop the app: `adb shell am force-stop com.contextsolutions.mobileagent.debug`.
-   - Open the app via `adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.MainActivity` (or just tap the icon).
+   - Force-stop the app: `adb shell am force-stop com.contextsolutions.localagent.debug`.
+   - Open the app via `adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.MainActivity` (or just tap the icon).
    - **Wait 5 seconds** on the Chat screen without typing. Watch logcat: `adb logcat -s EagerWarmUp:I` — expect a `eager warm-up outcome: loaded(GPU)` line within 4–8 s of the app launch.
    - Type "hello" and send. Expect first token in < 1.5 s (vs. ~5 s baseline).
    - Compare against the no-wait case: force-stop again, reopen, immediately send "hello" without waiting. Expect first token in 4–6 s (the load is still in flight when send fires; `InferenceSessionManager.generate` blocks on the same mutex the warm-up holds, then proceeds).
@@ -499,7 +499,7 @@ SQL
 **Deliverables (shipped 2026-05-11):**
 
 1. **`TelemetryConsentManager` shipped** at `:shared/commonMain/telemetry/`. Interface exposes `enabled()` + `enabledFlow()` + `setEnabled()` + `firstRunDecided()` + `firstRunDecidedFlow()` + `markFirstRunDecided()`. Android impl backed by a non-encrypted `SharedPreferences` file (privacy preference, not a credential). In-memory `MutableStateFlow`s back the reactive reads so collectors don't hit disk. Hilt-bound in `TelemetryModule`. Default OFF (PRD §3.2.1 explicit-opt-in).
-2. **Schema migration v2 → v3 shipped** via `2.sqm`. Drops the M1 stub `telemetry_counters` table and creates two new tables per §3.3.1: `telemetry_aggregate` (counters with `uploaded_at_epoch_ms` marker column) + `telemetry_latency_aggregate` (per-metric p50/p95/p99 + sample_count). Bumps `MobileAgentDatabase.Schema.version = 3`. `2.db` snapshot committed; `verifyMigrations` green for the chained v1→v2→v3 path.
+2. **Schema migration v2 → v3 shipped** via `2.sqm`. Drops the M1 stub `telemetry_counters` table and creates two new tables per §3.3.1: `telemetry_aggregate` (counters with `uploaded_at_epoch_ms` marker column) + `telemetry_latency_aggregate` (per-metric p50/p95/p99 + sample_count). Bumps `LocalAgentDatabase.Schema.version = 3`. `2.db` snapshot committed; `verifyMigrations` green for the chained v1→v2→v3 path.
 3. **`TelemetryCounters` API + `InMemoryTelemetryCounters` shipped.** Interface (`increment(name)`, `increment(name, tag)`, `observeLatency(metric, ms)`) lives in commonMain; `CounterNames` + `LatencyNames` constant objects pin the wire-format names; `NoOpTelemetryCounters` default for unit tests. Android implementation uses `ConcurrentHashMap<WindowedKey, AtomicLong>` for counters and a `ReservoirSampler` (Vitter's Algorithm R, 1024 samples per metric per UTC day). Flush via the `TelemetryFlusher` interface — separate from the recorder so production callsites never see a `suspend` flush on the hot path. Window boundaries snapshot at RECORD time, so counts attribute to the correct UTC day even when a flush spans midnight.
 4. **`TelemetryPayloadBuilder` shipped.** Reads from `telemetry_aggregate` + `telemetry_latency_aggregate` ONLY. Routes counters into 4 themed Firebase events by prefix (`preflight_*` → `daily_preflight`, `inference_*`/`first_token_*` → `daily_inference`, `search_*` → `daily_search`, `memory_*` → `daily_memory`). Each event carries `window_start_epoch_ms` so the Firebase → BigQuery export joins cleanly on day boundary. **Memory-exclusion guard test:** seeds the `memories` and `messages` tables with unique canary strings and asserts neither marker appears in any event name, parameter key, or parameter value — the load-bearing privacy gate.
 5. **`TelemetryUploader` shipped.** Common-side orchestrator: reads consent, calls `flusher.flush()` to drain in-memory state, asks the builder for events with `windowCutoff = startOfTodayUTC` (so today's open window isn't transmitted mid-flight), dispatches each event via `AnalyticsSink.send`, then marks the rows uploaded in a single SQL transaction. Three outcomes (`SkippedConsent`, `Empty`, `Sent(count)`) drive the worker's logging.
@@ -507,7 +507,7 @@ SQL
 7. **Counter wiring at 7 production sites + first-token latency at AgentLoop.** `AgentLoop` (queries + first-token), `PreflightRouter` (band counts + preflight_ms), `MemoryRetriever` (retrieved + retrieval_ms), `MemoryEvictor` (evicted by tier), `MemoryExtractor` (extracted / dedup_skipped / forgotten / creation_disabled), `SearchService` (invoked / cache_hit / error{network|client_error|server_error|unexpected} / disabled / no_key + search_ms), `InferenceSessionManager` (warm-up loaded/already_loaded/already_loading/skipped_thermal/failed; idle/trim-memory unload via new `UnloadReason` enum so the debug-button "Unload" doesn't trip the trim-memory counter). All constructor params default to `NoOpTelemetryCounters` so existing unit tests don't need to change.
 8. **Firebase plugin + dependency wiring shipped.** `com.google.gms.google-services` plugin declared at root build.gradle.kts + applied in `:androidApp`. `firebase-bom:33.7.0` + `firebase-analytics` deps. The `google-services.json` file the user added is at `:androidApp/google-services.json` (correct module-level location; the user originally placed it at `android-app/` and I moved it). The root `.gitignore`'s `**/google-services.json` rule keeps it out of git.
 9. **`AnalyticsSink` abstraction + `FirebaseAnalyticsSink` shipped.** Interface in `:shared/commonMain/telemetry/` with a single `send(AnalyticsEvent)` method + `AnalyticsEvent(name, params: Map<String, Long>)` data class. Firebase impl in `:androidApp/.../telemetry/` (not `:shared/androidMain` — the Firebase deps are scoped to `:androidApp` only, no need to leak them into `:shared`). The abstraction lets `TelemetryUploaderTest` use a recording fake without a Firebase Test Lab or `FirebaseApp.initializeApp` dance.
-10. **`MobileAgentApplication.onCreate` updates shipped.** Binds the consent toggle to `FirebaseAnalytics.setAnalyticsCollectionEnabled` so the Firebase SDK's own internal collection (session_start, screen_view, etc.) is also gated by the user's opt-in. Schedules `TelemetryUploadWorker.schedule(this)` with KEEP policy. `onTerminate` does a best-effort session-end flush (note: `Application.onTerminate` is emulator-only on stock Android; real session-end is handled by the next worker fire reading the SQL tables).
+10. **`LocalAgentApplication.onCreate` updates shipped.** Binds the consent toggle to `FirebaseAnalytics.setAnalyticsCollectionEnabled` so the Firebase SDK's own internal collection (session_start, screen_view, etc.) is also gated by the user's opt-in. Schedules `TelemetryUploadWorker.schedule(this)` with KEEP policy. `onTerminate` does a best-effort session-end flush (note: `Application.onTerminate` is emulator-only on stock Android; real session-end is handled by the next worker fire reading the SQL tables).
 11. **Settings → "Anonymous telemetry" section shipped.** Material 3 toggle in `SettingsScreen.kt` wired to `TelemetryConsentManager` via `SettingsViewModel.setTelemetryEnabled`. Mirrors the consent state via `enabledFlow().launchIn(viewModelScope)` so toggle flips from any source stay consistent. Body copy enumerates what is and isn't collected.
 12. **First-run `TelemetryConsentScreen` deferred to Phase E.** Reason: the screen lives inside the onboarding host (Phase E §3.6), which doesn't yet exist. Phase C ships the underlying `TelemetryConsentManager` + Settings toggle; Phase E wires the first-run consent screen against the same consent manager.
 13. **Privacy policy first draft shipped** at `docs/PRIVACY_POLICY.md`. Reviewed in Phase G; the "Effective: TBD" placeholder gets the launch date there.
@@ -520,7 +520,7 @@ SQL
 - `TelemetryUploaderTest` (5): uploads closed window when consent ON, second pass after success is empty, consent-OFF returns SkippedConsent (and preserves SQL row for future opt-in), open window not transmitted, flush-then-send picks up in-memory counters.
 - `MemoriesMigrationTest` (+1): full v1→v3 chain test verifies access_count add + telemetry table creation.
 
-**Exit gate (host-side):** ✅ 301/301 unit tests pass · `verifyCommonMainMobileAgentDatabaseMigration` green · `assembleDebug` builds clean · `TelemetryPayloadBuilderTest` memory + message exclusion guards pass · `TelemetryUploaderTest.consent_off_returns_skipped_and_sends_nothing` passes · M5 regression suite (277 prior tests) all still green.
+**Exit gate (host-side):** ✅ 301/301 unit tests pass · `verifyCommonMainLocalAgentDatabaseMigration` green · `assembleDebug` builds clean · `TelemetryPayloadBuilderTest` memory + message exclusion guards pass · `TelemetryUploaderTest.consent_off_returns_skipped_and_sends_nothing` passes · M5 regression suite (277 prior tests) all still green.
 
 **Exit gate (on-device, pending you):**
 - Toggle ON in a debug build, accelerate the worker via `adb shell cmd jobscheduler run`, confirm payload arrives in Firebase Analytics DebugView.
@@ -530,13 +530,13 @@ SQL
 
 ```bash
 # 1. Build + install the M6 Phase C APK:
-cd /home/lawrenceley/src/mobile-agent/android-app
+cd /home/lawrenceley/src/local-agent/android-app
 ./gradlew :androidApp:installDebug
 
 # 2. Enable Firebase DebugView so events appear within seconds instead of
 #    the 24-48h propagation to BigQuery:
-adb shell setprop debug.firebase.analytics.app com.contextsolutions.mobileagent.debug
-adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.MainActivity
+adb shell setprop debug.firebase.analytics.app com.contextsolutions.localagent.debug
+adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.MainActivity
 
 # 3. Settings → "Anonymous telemetry" → toggle ON.
 
@@ -547,9 +547,9 @@ adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolution
 #    "did my team win last night"                  # preflight high band w/ memory
 
 # 5. Force the periodic worker to fire NOW (instead of waiting 24h):
-adb shell dumpsys jobscheduler | grep -A 3 com.contextsolutions.mobileagent.debug
+adb shell dumpsys jobscheduler | grep -A 3 com.contextsolutions.localagent.debug
 # Find the job id for telemetry-upload-periodic, then:
-adb shell cmd jobscheduler run -f com.contextsolutions.mobileagent.debug <jobid>
+adb shell cmd jobscheduler run -f com.contextsolutions.localagent.debug <jobid>
 # Watch logcat for the outcome:
 adb logcat -s TelemetryWorker:I
 
@@ -569,7 +569,7 @@ adb logcat -s TelemetryWorker:I
 - **WorkManager `RequiresCharging.NONE` decision.** Plan originally specified `UNMETERED + RequiresCharging.NONE`. Final decision: drop the charging requirement — 24h cadence on UNMETERED is already low-pressure, and gating on charging would strand uploads for users who rarely plug in.
 - **Per-counter upload tracking semantic.** `markCounterUploaded` flips `uploaded_at_epoch_ms` but `upsertCounter` (the increment path) does NOT reset that column. Consequence: an already-uploaded counter row that gets a new increment in the same window has the new delta dropped on the next upload (the row stays marked uploaded). Bounded misattribution: at most 1 window per counter per upload cycle. Documented in `TelemetryAggregate.sq` + `InMemoryTelemetryCountersTest.later_flush_does_not_revive_uploaded_counter`. v1.x can fix with a `delta_value` column the uploader subtracts on send.
 - **No `AtomicCounterRegistry` class name** — used `InMemoryTelemetryCounters` instead (the plan's name implied JVM-specific atomicity but the impl is in androidMain anyway). Just a naming difference.
-- **`Application.onTerminate` is emulator-only on stock Android.** Documented inline in `MobileAgentApplication.onTerminate`. Real session-end flush relies on the next worker fire reading the SQL tables; on-device flushes happen when the user triggers a chat turn (each increment lands the counter directly into the in-memory accumulator, which the worker later flushes).
+- **`Application.onTerminate` is emulator-only on stock Android.** Documented inline in `LocalAgentApplication.onTerminate`. Real session-end flush relies on the next worker fire reading the SQL tables; on-device flushes happen when the user triggers a chat turn (each increment lands the counter directly into the in-memory accumulator, which the worker later flushes).
 
 ### Phase D — Crashlytics + perf telemetry hookup (2–3 d) — ✅ HOST-SIDE COMPLETE 2026-05-11
 
@@ -589,8 +589,8 @@ adb logcat -s TelemetryWorker:I
    - URL query strings (`?...` up to whitespace) → `?<redacted-query>`
    `redact(text)` is allocation-free on the no-secret path. `redactThrowable(t)` wraps the throwable in a `RedactedThrowable` whose message is scrubbed while preserving the original `stackTrace` array; the original class name is encoded in the wrapping message (so the Crashlytics dashboard still surfaces the exception type).
 3. **`SafeCrashReporter` interface + `FirebaseSafeCrashReporter` shipped.** Interface in `:shared/commonMain/observability/`: `recordException(t, context)` + `log(message)` + `setCustomKey(key, value)` + `setCollectionEnabled(b)`. Every input runs through `ContentRedactor` before reaching `FirebaseCrashlytics`. Firebase impl in `:androidApp/.../observability/FirebaseSafeCrashReporter.kt` (same module-scoping pattern as `FirebaseAnalyticsSink` from Phase C). `NoOpSafeCrashReporter` object in commonMain for tests + stub builds.
-4. **Custom uncaught-exception handler shipped.** `MobileAgentApplication.installRedactingUncaughtExceptionHandler()` chains: wrap whatever handler Crashlytics installed (the SDK installs its own at init time), and on uncaught: call `crashReporter.recordException(t)` first (which redacts + forwards via Crashlytics's `recordException`), then delegate to the chained handler so Crashlytics's own auto-capture pipeline also runs. The double-capture is a deliberate trade-off — without delegation we'd lose Crashlytics's JNI / native crash surface; with it, the SDK dedups same-process crashes within a session. Documented inline. The `runCatching { crashReporter.recordException(t) }` wrapper around the redacted path ensures our scrubber itself can't crash the uncaught handler.
-5. **Consent gate shipped.** `MobileAgentApplication.onCreate` binds `TelemetryConsentManager.enabledFlow()` to BOTH `FirebaseAnalytics.setAnalyticsCollectionEnabled` AND `crashReporter.setCollectionEnabled` (which forwards to `FirebaseCrashlytics.isCrashlyticsCollectionEnabled`). Phase C's single "Anonymous telemetry" toggle now controls both Analytics counters and Crashlytics crash reports. Settings copy updated to include "Plus redacted crash reports so we can fix what breaks" in the "What we send" line.
+4. **Custom uncaught-exception handler shipped.** `LocalAgentApplication.installRedactingUncaughtExceptionHandler()` chains: wrap whatever handler Crashlytics installed (the SDK installs its own at init time), and on uncaught: call `crashReporter.recordException(t)` first (which redacts + forwards via Crashlytics's `recordException`), then delegate to the chained handler so Crashlytics's own auto-capture pipeline also runs. The double-capture is a deliberate trade-off — without delegation we'd lose Crashlytics's JNI / native crash surface; with it, the SDK dedups same-process crashes within a session. Documented inline. The `runCatching { crashReporter.recordException(t) }` wrapper around the redacted path ensures our scrubber itself can't crash the uncaught handler.
+5. **Consent gate shipped.** `LocalAgentApplication.onCreate` binds `TelemetryConsentManager.enabledFlow()` to BOTH `FirebaseAnalytics.setAnalyticsCollectionEnabled` AND `crashReporter.setCollectionEnabled` (which forwards to `FirebaseCrashlytics.isCrashlyticsCollectionEnabled`). Phase C's single "Anonymous telemetry" toggle now controls both Analytics counters and Crashlytics crash reports. Settings copy updated to include "Plus redacted crash reports so we can fix what breaks" in the "What we send" line.
 6. **Debug Crashlytics leak-test panel shipped.** Two new `BuildConfig.DEBUG`-gated buttons in Settings → "Anonymous telemetry":
    - **"Test crash redaction (debug)"** — fires `crashReporter.recordException(RuntimeException("... Authorization: Bearer test_secret_12345 should be redacted"))`. Crashlytics dashboard should show the message with `Bearer <redacted>` instead of the raw token.
    - **"Test breadcrumb redaction (debug)"** — fires `crashReporter.log("... X-Subscription-Token: BSA-test-key-12345 should be redacted")`. The breadcrumb that accompanies the next reported crash should show `X-Subscription-Token: <redacted>`.
@@ -618,7 +618,7 @@ adb logcat -s TelemetryWorker:I
 
 ```bash
 # 1. Build + install the M6 Phase D APK:
-cd /home/lawrenceley/src/mobile-agent/android-app
+cd /home/lawrenceley/src/local-agent/android-app
 ./gradlew :androidApp:installDebug
 
 # 2. Open Settings → "Anonymous telemetry" → toggle ON.
@@ -701,10 +701,10 @@ adb logcat -s FirebaseCrashlytics:I
 
 ```bash
 # 1. Fresh install — pm clear to reset onboarding state, then reinstall:
-adb shell pm clear com.contextsolutions.mobileagent.debug
-cd /home/lawrenceley/src/mobile-agent/android-app
+adb shell pm clear com.contextsolutions.localagent.debug
+cd /home/lawrenceley/src/local-agent/android-app
 ./gradlew :androidApp:installDebug
-adb shell am start -n com.contextsolutions.mobileagent.debug/com.contextsolutions.mobileagent.app.MainActivity
+adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.MainActivity
 
 # 2. Walk the onboarding flow:
 #    - Disclosure screen → check the "I understand" box → Continue
@@ -875,7 +875,7 @@ Parallelism opportunity: B can land any time after A; F can land any time after 
 | SQLDelight migration verification fails due to fixture-generation quirk | Medium | Hand-author a v1 schema dump captured from a clean M4 install; commit as `:shared/commonMain/test-resources/schema_v1.sql`. Fallback if `verifyMigrations` auto-gen misbehaves. |
 | Eager Gemma load 300 ms debounce too short | Low | Phase B measures Chat first-frame composition on Pixel 7; raise to 500 ms if needed. |
 | Eager load + first send race produces a race condition in `InferenceSessionManager.state` | Medium | The state machine is already validated for `send()` waiting on `Loading → Loaded`. Phase B adds an instrumentation test that fires `warmUpIfPossible()` and `send()` within 100 ms of each other and asserts a clean Loaded outcome. |
-| Firebase Analytics 24 h propagation delay slows iteration | Low | Use Firebase DebugView (`adb shell setprop debug.firebase.analytics.app com.contextsolutions.mobileagent.debug`) for real-time validation in Phase C. |
+| Firebase Analytics 24 h propagation delay slows iteration | Low | Use Firebase DebugView (`adb shell setprop debug.firebase.analytics.app com.contextsolutions.localagent.debug`) for real-time validation in Phase C. |
 | 25-parameter event cap hit by v1.x growth | Low | Themed events (Decision 2) leave room; if a v1.x change pushes one event over, split it. |
 | `TelemetryPayloadBuilder` test misses a code path that reads `memories`/`messages` indirectly | Medium | Two-pronged: (a) unit test mocks the query interface, (b) integration test seeds the `memories` table with a known-marker string and asserts the marker never appears in any built payload. |
 | Crashlytics redaction misses a content shape | Medium | Defense in depth: never put user text in exception messages or breadcrumbs in the first place. Phase D code review for any `throw X(userText)`. Lint rule prevents direct `FirebaseCrashlytics` calls outside the facade. |
@@ -948,9 +948,9 @@ None remaining — Q1–Q9 from the kickoff resolved (see §2 Decisions). Phase-
 
 ### Resolved during Phase A (2026-05-10)
 
-- **`.sqm` file placement.** SQLDelight 2.x expects `.sqm` files alongside `.sq` files in the same package directory, NOT in a separate `migrations/` sub-directory as the original plan implied. Final placement: `:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/1.sqm`.
-- **`verifyMigrations` requires a committed `.db` snapshot** — auto-generation isn't sufficient on its own. With `verifyMigrations.set(true)` and `1.sqm` present but no snapshot, the code-gen task (`generateCommonMainMobileAgentDatabaseInterface`) fails with "No table found with name memories" while parsing the `.sqm`. Resolved by adding `schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))` and committing `databases/1.db` (~65 KB) bootstrapped via the snapshot dance.
-- **Snapshot dance procedure.** Future schema changes (e.g., `2.sqm` for Phase C's revised telemetry tables) need a `2.db` snapshot too. Recipe: (a) check out the prior schema state, (b) `./gradlew :shared:generateCommonMainMobileAgentDatabaseSchema`, (c) restore the current schema, (d) commit the new `N.db`. For brand-new tables (no migration of existing rows), the snapshot can be generated at the latest state — only modifications to *existing* tables hit the column-order alignment problem.
+- **`.sqm` file placement.** SQLDelight 2.x expects `.sqm` files alongside `.sq` files in the same package directory, NOT in a separate `migrations/` sub-directory as the original plan implied. Final placement: `:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/1.sqm`.
+- **`verifyMigrations` requires a committed `.db` snapshot** — auto-generation isn't sufficient on its own. With `verifyMigrations.set(true)` and `1.sqm` present but no snapshot, the code-gen task (`generateCommonMainLocalAgentDatabaseInterface`) fails with "No table found with name memories" while parsing the `.sqm`. Resolved by adding `schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))` and committing `databases/1.db` (~65 KB) bootstrapped via the snapshot dance.
+- **Snapshot dance procedure.** Future schema changes (e.g., `2.sqm` for Phase C's revised telemetry tables) need a `2.db` snapshot too. Recipe: (a) check out the prior schema state, (b) `./gradlew :shared:generateCommonMainLocalAgentDatabaseSchema`, (c) restore the current schema, (d) commit the new `N.db`. For brand-new tables (no migration of existing rows), the snapshot can be generated at the latest state — only modifications to *existing* tables hit the column-order alignment problem.
 - **M5 schema delta was not just one column.** M5 also added two indexes (`memories_by_conversation`, `memories_by_last_accessed`). The migration covers all three deltas (the column plus both indexes), not just the column as the kickoff plan implied.
 - **SQLite ALTER TABLE column-order constraint.** `ALTER TABLE ADD COLUMN` appends to the end; `CREATE TABLE` honors declared order. To make `Schema.create()` byte-identical to `Schema.migrate()`, `access_count` was moved to the end of the `memories` declaration in `Memories.sq` and the `embedding` comment held to its v1 wording. Documented inline in `Memories.sq` so a future cleanup doesn't undo it. No behavioral impact (SQLite is order-insensitive at the query layer).
 - **AndroidSqliteDriver migration wiring is automatic.** No callback parameter needed in `DatabaseModule.provideDatabase` — the default `Callback(schema)` already routes `SQLiteOpenHelper.onUpgrade` to `Schema.migrate()`. KDoc added to document this so future readers don't re-add a redundant callback.
@@ -994,12 +994,12 @@ None remaining — Q1–Q9 from the kickoff resolved (see §2 Decisions). Phase-
 
 When Phase A kicks off (next chat session or this one — see CLAUDE.md "Always read first"):
 
-1. Read `:shared/commonMain/sqldelight/com/contextsolutions/mobileagent/db/Memories.sq` to confirm the current `access_count` column declaration.
+1. Read `:shared/commonMain/sqldelight/com/contextsolutions/localagent/db/Memories.sq` to confirm the current `access_count` column declaration.
 2. Read `:shared/build.gradle.kts` SQLDelight block to confirm the database name + package.
 3. Check whether `:shared/commonMain/sqldelight/migrations/` already exists (it shouldn't per M5 handoff).
 4. Read M5_M6_HANDOFF §2 for the migration's explicit prerequisites.
 5. Plan the SQLDelight schema version bump:
-   - Confirm `MobileAgentDatabase.Schema.version` references in code
+   - Confirm `LocalAgentDatabase.Schema.version` references in code
    - Determine whether `verifyMigrations` requires a hand-captured v1 schema fixture (research SQLDelight docs first)
 6. Write `migrations/1.sqm`.
 7. Update `Memories.sq` header comment.

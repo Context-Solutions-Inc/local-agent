@@ -72,7 +72,7 @@ same sampling/stop mapping. `/api/tags` (native) is used only for model discover
 The backend is cached in the resident handle, so two things must drop it and force the
 next turn to re-decide:
 
-1. **Settings change** — the app (`MobileAgentApplication`) / desktop (`Main`) observe
+1. **Settings change** — the app (`LocalAgentApplication`) / desktop (`Main`) observe
    `OllamaPreferences.configFlow()` and call `InferenceSessionManager.forceUnload(Manual)`
    / `WarmModel.invalidate()`.
 2. **Server offline → online** — `OllamaConnectionMonitor`. `OllamaInferenceEngine`
@@ -122,7 +122,7 @@ HTTPS and unaffected. Desktop (CIO) needs nothing.
   `androidMain/SharedPreferencesOllamaPreferences.kt` +
   `desktopMain/DesktopOllamaPreferences.kt`.
 - DI: `DesktopModule.kt`, `AndroidKoinModule.kt`.
-- App observers: `MobileAgentApplication.kt` (Android), `desktopApp/.../Main.kt` +
+- App observers: `LocalAgentApplication.kt` (Android), `desktopApp/.../Main.kt` +
   `WarmModel.invalidate()`.
 - UI: `ui/.../settings/{SettingsScreen, SettingsViewModel}.kt`; banner in
   `ui/.../chat/ChatScreen.kt`.

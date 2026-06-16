@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Mobile Agent</string>
+    <string name="app_name">Local Agent</string>
     <string name="spike_title">M0 Inference Spike</string>
 
     <!-- Foreground service notification (PRD section 4.1: UI must remain responsive). -->

@@ -82,7 +82,7 @@ Ask any clarifying questions before implementing.
 **M5 carry-overs (must-do before public launch, per `docs/M5_M6_HANDOFF.md`):**
 
 1. **Schema migration files** for `Memories.sq`. Bump
-   `MobileAgentDatabase.Schema.version` to 2 and ship the v1→v2
+   `LocalAgentDatabase.Schema.version` to 2 and ship the v1→v2
    `.sqm` capturing the M5 `access_count` addition. Wire
    `verifyMigrations = true` so future drift fails at build time.
    Re-run M5 Phase E walkthrough starting from an M2/M4 install to

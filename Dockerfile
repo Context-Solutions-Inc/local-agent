@@ -116,13 +116,13 @@ RUN apt-get update \
 ENV VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:${PATH}"
 COPY classifier-training/pyproject.toml classifier-training/README.md \
-     /home/lawrenceley/src/mobile-agent/classifier-training/
+     /home/lawrenceley/src/local-agent/classifier-training/
 COPY classifier-training/src \
-     /home/lawrenceley/src/mobile-agent/classifier-training/src
+     /home/lawrenceley/src/local-agent/classifier-training/src
 RUN python3.11 -m venv "${VIRTUAL_ENV}" \
     && pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -e \
-        "/home/lawrenceley/src/mobile-agent/classifier-training[dev,training,claude,dedup]"
+        "/home/lawrenceley/src/local-agent/classifier-training[dev,training,claude,dedup]"
 
 # Non-root user matching the host UID/GID so bind-mounted files keep host ownership.
 # Pre-create cache dirs that docker-compose mounts named volumes onto — Docker

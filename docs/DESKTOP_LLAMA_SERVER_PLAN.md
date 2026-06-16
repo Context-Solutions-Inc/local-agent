@@ -60,9 +60,9 @@ Resolves / downloads / verifies / extracts the prebuilt `llama-server` for the h
   build also self-degrades to CPU when no Vulkan device is present (verified), so the
   fallback is a backstop for a hard crash. CUDA/ROCm (needs the extra cudart redist) is a
   later opt-in.
-- **Env overrides:** `MOBILEAGENT_LLAMA_SERVER` → absolute path to an existing
-  `llama-server` (skips download); `MOBILEAGENT_LLAMA_SERVER_VARIANT` = `cpu`|`vulkan`|`auto`
-  forces the variant. Mirror `MOBILEAGENT_MMPROJ_GGUF`.
+- **Env overrides:** `LOCALAGENT_LLAMA_SERVER` → absolute path to an existing
+  `llama-server` (skips download); `LOCALAGENT_LLAMA_SERVER_VARIANT` = `cpu`|`vulkan`|`auto`
+  forces the variant. Mirror `LOCALAGENT_MMPROJ_GGUF`.
 
 ### 2. `LlamaServerProcess` (`inference/`)
 Owns one server process for the app's lifetime.
@@ -131,10 +131,10 @@ Owns one server process for the app's lifetime.
 
 **Extras shipped in the same PR (beyond the original plan):**
 - ✅ **GPU (Vulkan) variant** with CPU fallback (`assetForHost(wantGpu)`); `InferenceConfig.accelerator`
-  + `MOBILEAGENT_LLAMA_SERVER_VARIANT` select it. Metal is automatic in the macOS archive.
+  + `LOCALAGENT_LLAMA_SERVER_VARIANT` select it. Metal is automatic in the macOS archive.
 - ✅ **First-launch GPU race fix** — a `Mutex` in `ensure()` serializes the prefetch + warm so they
   don't race the same download (which previously tripped a spurious CPU fallback on run #1).
-- ✅ **Single-user perf defaults** — `--parallel 1` + `-fa on`; `MOBILEAGENT_LLAMA_SERVER_ARGS`
+- ✅ **Single-user perf defaults** — `--parallel 1` + `-fa on`; `LOCALAGENT_LLAMA_SERVER_ARGS`
   passthrough for rebuild-free tuning (KV quant, etc.). NOT `--swa-full` (slows the decode bottleneck).
 - ✅ **Default model → Gemma 4 E2B** (`unsloth/...E2B...Q4_K_M`, ~3.1 GB) — ~2× decode vs E4B.
 - ✅ **Download banner** — `SessionState.Downloading(fraction)` shows "Downloading model files… N%"
@@ -167,7 +167,7 @@ Owns one server process for the app's lifetime.
 - **Security:** bind `127.0.0.1` only + random `--api-key`; never expose the port.
 - **Perf tuning (`LlamaServerProcess`):** single-user defaults `--parallel 1` (auto picks 4,
   splitting the KV cache for no benefit + 4× memory) and `-fa on` (flash attention — helps
-  Gemma's SWA decode). `MOBILEAGENT_LLAMA_SERVER_ARGS` appends extra flags without a rebuild
+  Gemma's SWA decode). `LOCALAGENT_LLAMA_SERVER_ARGS` appends extra flags without a rebuild
   (e.g. KV-cache quant `--cache-type-k q8_0 --cache-type-v q8_0` for a bandwidth-bound iGPU).
   Decode throughput is ultimately GPU-bound (~19 tok/s for 4B-Q4 on a mobile Arc iGPU, ~5×
   the CPU path); the bigger levers are answer length and model size (E2B / lower quant), not

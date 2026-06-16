@@ -13,11 +13,11 @@ dependencies {
     // (LlamaCppInferenceEngine, DesktopHttpEngineFactory, NoOp aux engines).
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines.core)
-    // JDBC SQLite driver so the harness can stand up an in-memory MobileAgentDatabase
+    // JDBC SQLite driver so the harness can stand up an in-memory LocalAgentDatabase
     // (proves the SQLDelight JVM driver seam too).
     implementation(libs.sqldelight.sqlite.driver)
 }
 
 application {
-    mainClass.set("com.contextsolutions.mobileagent.desktop.harness.MainKt")
+    mainClass.set("com.contextsolutions.localagent.desktop.harness.MainKt")
 }

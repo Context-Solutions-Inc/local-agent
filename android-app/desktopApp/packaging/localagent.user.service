@@ -1,0 +1,30 @@
+# Local Agent — headless desktop agent (systemd USER service).
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp localagent.user.service ~/.config/systemd/user/localagent.service
+#   # edit ExecStart below to match how you installed the app (see DESKTOP_PACKAGING.md)
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now localagent.service
+#   sudo loginctl enable-linger "$USER"      # so it runs at boot before you log in
+#   journalctl --user -u localagent -f      # follow logs
+
+[Unit]
+Description=Local Agent (headless desktop agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LOCALAGENT_HEADLESS=1
+# Optional: force the CPU llama-server build instead of the Vulkan GPU one.
+# Environment=LOCALAGENT_LLAMA_SERVER_VARIANT=cpu
+# Optional: Brave search key (or provision via the app's SecureStorage).
+# Environment=BRAVE_API_KEY=...
+# .deb install path shown; for a `createDistributable` app-image use that bin/LocalAgent.
+ExecStart=/opt/local-agent/bin/LocalAgent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

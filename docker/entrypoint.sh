@@ -3,7 +3,7 @@
 # to the requested command (shell, gradle, claude, etc.).
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/home/lawrenceley/src/mobile-agent}"
+PROJECT_DIR="${PROJECT_DIR:-/home/lawrenceley/src/local-agent}"
 LOCAL_PROPS="${PROJECT_DIR}/android-app/local.properties"
 
 # Self-heal cache-volume ownership. Docker creates named-volume mountpoints with

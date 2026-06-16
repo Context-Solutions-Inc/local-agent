@@ -35,7 +35,7 @@ kotlin {
     // com.android.kotlin.multiplatform.library) instead of the old combo of
     // kotlin.androidTarget + a top-level android { } block.
     android {
-        namespace = "com.contextsolutions.mobileagent.shared"
+        namespace = "com.contextsolutions.localagent.shared"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
@@ -210,8 +210,8 @@ configurations.matching {
 
 sqldelight {
     databases {
-        create("MobileAgentDatabase") {
-            packageName.set("com.contextsolutions.mobileagent.db")
+        create("LocalAgentDatabase") {
+            packageName.set("com.contextsolutions.localagent.db")
             srcDirs.setFrom("src/commonMain/sqldelight")
             // SQLite 3.25+ for UPSERT (`ON CONFLICT ... DO UPDATE`) in TelemetryAggregate.sq.
             // Default 3.18 dialect is older than what Android 16's bundled SQLite supports,
@@ -220,7 +220,7 @@ sqldelight {
             // Schema snapshots live next to the .sq + .sqm files. verifyMigrations
             // (enabled below) walks .sqm files forward from the snapshot and compares
             // the result against the .sq schema. Generated via
-            // `./gradlew :shared:generateMobileAgentDatabaseSchema` after a clean v1
+            // `./gradlew :shared:generateLocalAgentDatabaseSchema` after a clean v1
             // state is checked in (one-time bootstrap; subsequent versions auto-update).
             schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
             // Build-time schema-drift gate. Re-enabled in Phase A once the v1 snapshot

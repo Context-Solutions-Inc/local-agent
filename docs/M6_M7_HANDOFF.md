@@ -65,7 +65,7 @@ in production).
 ### DebugView workflow (for in-session validation)
 
 ```bash
-adb shell setprop debug.firebase.analytics.app com.contextsolutions.mobileagent.debug
+adb shell setprop debug.firebase.analytics.app com.contextsolutions.localagent.debug
 ```
 
 Then Settings → Anonymous telemetry → "Run telemetry upload now"
@@ -142,7 +142,7 @@ Two GitHub Actions workflows shipped in Phase F:
   `PromptAssembler.kt`, `PreflightRouter.kt`, `QueryRewriter.kt`, the
   `:shared/commonMain/agent/**` tree, and the canonical test files.
 - Runs `./gradlew :androidApp:testDebugUnitTest --tests
-  "com.contextsolutions.mobileagent.canonical.*"`.
+  "com.contextsolutions.localagent.canonical.*"`.
 - Single Kotlin test file (`CanonicalEvalTest.kt`) drives 15 canonical
   queries through `PreflightRouter` + `QueryRewriter` +
   `PromptAssembler` with fake classifier outputs (the routing layer is
@@ -220,7 +220,7 @@ M1 WS-1 drill 10 ("Tap 'Unload' debug button mid-generation —
 forceUnload deferred") referenced a debug button in Settings that no
 longer exists in the M6 UI. The underlying `forceUnload(reason)`
 API is still load-bearing (production path is
-`MobileAgentApplication.onTrimMemory` + the 5-min idle timer); host
+`LocalAgentApplication.onTrimMemory` + the 5-min idle timer); host
 test `InferenceSessionManagerTest` covers all `UnloadReason` paths
 including the M6 addition of `TrimMemory` (CLAUDE.md inv. #21).
 Drill 10 retired from the bug-bash spec; the production path is
