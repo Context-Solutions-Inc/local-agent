@@ -20,8 +20,8 @@ class SharedPreferencesThemePreferences(context: Context) : ThemePreferences {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val state = MutableStateFlow(
-        runCatching { ThemeMode.valueOf(prefs.getString(KEY_MODE, ThemeMode.System.name)!!) }
-            .getOrDefault(ThemeMode.System),
+        runCatching { ThemeMode.valueOf(prefs.getString(KEY_MODE, ThemeMode.Dark.name)!!) }
+            .getOrDefault(ThemeMode.Dark),
     )
 
     private val scaleState = MutableStateFlow(

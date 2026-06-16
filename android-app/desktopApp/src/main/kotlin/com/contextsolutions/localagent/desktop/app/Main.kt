@@ -389,6 +389,9 @@ fun main() {
         downloader = koin.get<DesktopModelDownloader>(),
         notifications = presenter,
         scope = appScope,
+        // PR #95 — suppress the per-model start/complete toast; a single aggregated
+        // "Models ready" notification fires once all first-run models finish.
+        notifyMilestones = false,
     )
 
     // PR #55 — vision projector (mmproj) acquisition. Fetched in the background like
@@ -403,6 +406,7 @@ fun main() {
         notifications = presenter,
         scope = appScope,
         logger = { System.err.println("[MmprojDownload] $it") },
+        notifyMilestones = false, // PR #95 — see modelDownload above (single aggregate notice)
     )
 
     // PR #55 (Option 3) — prebuilt llama-server acquisition, with its own status flow so the
@@ -422,6 +426,16 @@ fun main() {
             DownloadSource(mmprojInventory.spec.sizeBytes, mmprojDownload.status),
             DownloadSource(serverAssetBytes, serverStatus),
         ),
+        scope = appScope,
+    )
+
+    // PR #95 — one "Models ready" notification once ALL first-run downloads (GGUF +
+    // vision projector + server binary) finish, instead of one toast per model. The
+    // per-controller milestone toasts are suppressed (notifyMilestones = false above);
+    // stays silent for a returning user whose models are already present.
+    notifyWhenAllModelsDownloaded(
+        sources = listOf(modelDownload.status, mmprojDownload.status, serverStatus),
+        notifications = presenter,
         scope = appScope,
     )
 

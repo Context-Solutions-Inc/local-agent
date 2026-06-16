@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class DesktopThemePreferences(private val store: DesktopJsonStore) : ThemePreferences {
 
     private val state = MutableStateFlow(
-        runCatching { ThemeMode.valueOf(store.getString(KEY_MODE) ?: ThemeMode.System.name) }
-            .getOrDefault(ThemeMode.System),
+        runCatching { ThemeMode.valueOf(store.getString(KEY_MODE) ?: ThemeMode.Dark.name) }
+            .getOrDefault(ThemeMode.Dark),
     )
 
     private val scaleState = MutableStateFlow(
