@@ -43,28 +43,28 @@ object StringKeys {
     const val CLOCK_DURATION_MINUTES = "clock.duration.minutes"
     const val CLOCK_DURATION_SECONDS = "clock.duration.seconds"
 
-    // ── Todo formatter + guidance ────────────────────────────────────────
-    const val TODO_GUIDANCE = "todo.guidance"
-    const val TODO_ADDED = "todo.added"
-    const val TODO_DUE = "todo.due"
-    const val TODO_PRIORITY_HIGH = "todo.priority.high"
-    const val TODO_PRIORITY_MEDIUM = "todo.priority.medium"
-    const val TODO_PRIORITY_LOW = "todo.priority.low"
-    const val TODO_PRIORITY_TAG = "todo.priority_tag"
-    const val TODO_NONE_ALL = "todo.none_all"
-    const val TODO_NONE_OPEN = "todo.none_open"
-    const val TODO_ONE_HEADER = "todo.one_header"
-    const val TODO_HEADER = "todo.header"
-    const val TODO_DONE_MARKER = "todo.done_marker"
-    const val TODO_MARKED_DONE = "todo.marked_done"
-    const val TODO_REOPENED = "todo.reopened"
-    const val TODO_DELETED = "todo.deleted"
-    const val TODO_UPDATED = "todo.updated"
-    const val TODO_CLEAR_NONE = "todo.clear_none"
-    const val TODO_CLEARED = "todo.cleared"
-    const val TODO_DUE_TODAY = "todo.due.today"
-    const val TODO_DUE_TOMORROW = "todo.due.tomorrow"
-    const val TODO_DUE_YESTERDAY = "todo.due.yesterday"
+    // ── My List formatter + guidance ─────────────────────────────────────
+    const val MYLIST_GUIDANCE = "mylist.guidance"
+    const val MYLIST_ADDED = "mylist.added"
+    const val MYLIST_DUE = "mylist.due"
+    const val MYLIST_PRIORITY_HIGH = "mylist.priority.high"
+    const val MYLIST_PRIORITY_MEDIUM = "mylist.priority.medium"
+    const val MYLIST_PRIORITY_LOW = "mylist.priority.low"
+    const val MYLIST_PRIORITY_TAG = "mylist.priority_tag"
+    const val MYLIST_NONE_ALL = "mylist.none_all"
+    const val MYLIST_NONE_OPEN = "mylist.none_open"
+    const val MYLIST_ONE_HEADER = "mylist.one_header"
+    const val MYLIST_HEADER = "mylist.header"
+    const val MYLIST_DONE_MARKER = "mylist.done_marker"
+    const val MYLIST_MARKED_DONE = "mylist.marked_done"
+    const val MYLIST_REOPENED = "mylist.reopened"
+    const val MYLIST_DELETED = "mylist.deleted"
+    const val MYLIST_UPDATED = "mylist.updated"
+    const val MYLIST_CLEAR_NONE = "mylist.clear_none"
+    const val MYLIST_CLEARED = "mylist.cleared"
+    const val MYLIST_DUE_TODAY = "mylist.due.today"
+    const val MYLIST_DUE_TOMORROW = "mylist.due.tomorrow"
+    const val MYLIST_DUE_YESTERDAY = "mylist.due.yesterday"
 
     // ── Weather formatter + prompts ──────────────────────────────────────
     const val WEATHER_LOCATION_PROMPT = "weather.location_prompt"
@@ -262,7 +262,7 @@ object StringKeys {
     const val CHAT_THERMAL_BLOCK_TITLE = "chat.thermal.block_title"
     const val CHAT_THERMAL_BLOCK_BODY = "chat.thermal.block_body"
     const val CHAT_CD_NEW_CHAT = "chat.cd.new_chat"
-    const val CHAT_CD_TODOS = "chat.cd.todos"
+    const val CHAT_CD_MYLIST = "chat.cd.mylist"
     const val CHAT_CD_TIMERS = "chat.cd.timers"
     const val CHAT_CD_ALARMS = "chat.cd.alarms"
     const val CHAT_CD_JOBS = "chat.cd.jobs"
@@ -404,28 +404,28 @@ object StringKeys {
     const val CLOCK_UI_DAY_SHORT_SAT = "clock.ui.day_short.sat"
     const val CLOCK_UI_DAY_SHORT_SUN = "clock.ui.day_short.sun"
 
-    // ── Todo (UI) ────────────────────────────────────────────────────────
-    const val TODO_UI_TITLE = "todo.ui.title"
-    const val TODO_UI_EMPTY = "todo.ui.empty"
-    const val TODO_UI_EMPTY_HINT = "todo.ui.empty_hint"
-    const val TODO_UI_CLEAR_DONE = "todo.ui.clear_done"
-    const val TODO_UI_DELETE_TITLE = "todo.ui.delete_title"
-    const val TODO_UI_DELETE_BODY = "todo.ui.delete_body"
-    const val TODO_UI_DELETE = "todo.ui.delete"
-    const val TODO_UI_CANCEL = "todo.ui.cancel"
-    const val TODO_UI_NEW_TODO = "todo.ui.new_todo"
-    const val TODO_UI_EDIT_TODO = "todo.ui.edit_todo"
-    const val TODO_UI_TITLE_LABEL = "todo.ui.title_label"
-    const val TODO_UI_PRIORITY = "todo.ui.priority"
-    const val TODO_UI_DUE_PREFIX = "todo.ui.due_prefix"
-    const val TODO_UI_SET = "todo.ui.set"
-    const val TODO_UI_CHANGE = "todo.ui.change"
-    const val TODO_UI_NOTES_OPTIONAL = "todo.ui.notes_optional"
-    const val TODO_UI_ADD = "todo.ui.add"
-    const val TODO_UI_OK = "todo.ui.ok"
-    const val TODO_UI_CD_ADD = "todo.ui.cd.add"
-    const val TODO_UI_CD_EDIT = "todo.ui.cd.edit"
-    const val TODO_UI_CD_DELETE = "todo.ui.cd.delete"
+    // ── My List (UI) ─────────────────────────────────────────────────────
+    const val MYLIST_UI_TITLE = "mylist.ui.title"
+    const val MYLIST_UI_EMPTY = "mylist.ui.empty"
+    const val MYLIST_UI_EMPTY_HINT = "mylist.ui.empty_hint"
+    const val MYLIST_UI_CLEAR_DONE = "mylist.ui.clear_done"
+    const val MYLIST_UI_DELETE_TITLE = "mylist.ui.delete_title"
+    const val MYLIST_UI_DELETE_BODY = "mylist.ui.delete_body"
+    const val MYLIST_UI_DELETE = "mylist.ui.delete"
+    const val MYLIST_UI_CANCEL = "mylist.ui.cancel"
+    const val MYLIST_UI_NEW_ITEM = "mylist.ui.new_item"
+    const val MYLIST_UI_EDIT_ITEM = "mylist.ui.edit_item"
+    const val MYLIST_UI_TITLE_LABEL = "mylist.ui.title_label"
+    const val MYLIST_UI_PRIORITY = "mylist.ui.priority"
+    const val MYLIST_UI_DUE_PREFIX = "mylist.ui.due_prefix"
+    const val MYLIST_UI_SET = "mylist.ui.set"
+    const val MYLIST_UI_CHANGE = "mylist.ui.change"
+    const val MYLIST_UI_NOTES_OPTIONAL = "mylist.ui.notes_optional"
+    const val MYLIST_UI_ADD = "mylist.ui.add"
+    const val MYLIST_UI_OK = "mylist.ui.ok"
+    const val MYLIST_UI_CD_ADD = "mylist.ui.cd.add"
+    const val MYLIST_UI_CD_EDIT = "mylist.ui.cd.edit"
+    const val MYLIST_UI_CD_DELETE = "mylist.ui.cd.delete"
 
     // ── History (UI) ─────────────────────────────────────────────────────
     const val HISTORY_TITLE = "history.title"
@@ -598,12 +598,12 @@ object StringKeys {
         CLOCK_ALARM_SET, CLOCK_TIMER_SET, CLOCK_TIMER_REMAINING,
         CLOCK_CANCELLED_ALARMS, CLOCK_CANCELLED_TIMERS,
         CLOCK_DURATION_ZERO, CLOCK_DURATION_HOURS, CLOCK_DURATION_MINUTES, CLOCK_DURATION_SECONDS,
-        TODO_GUIDANCE, TODO_ADDED, TODO_DUE,
-        TODO_PRIORITY_HIGH, TODO_PRIORITY_MEDIUM, TODO_PRIORITY_LOW, TODO_PRIORITY_TAG,
-        TODO_NONE_ALL, TODO_NONE_OPEN, TODO_ONE_HEADER, TODO_HEADER, TODO_DONE_MARKER,
-        TODO_MARKED_DONE, TODO_REOPENED, TODO_DELETED, TODO_UPDATED,
-        TODO_CLEAR_NONE, TODO_CLEARED,
-        TODO_DUE_TODAY, TODO_DUE_TOMORROW, TODO_DUE_YESTERDAY,
+        MYLIST_GUIDANCE, MYLIST_ADDED, MYLIST_DUE,
+        MYLIST_PRIORITY_HIGH, MYLIST_PRIORITY_MEDIUM, MYLIST_PRIORITY_LOW, MYLIST_PRIORITY_TAG,
+        MYLIST_NONE_ALL, MYLIST_NONE_OPEN, MYLIST_ONE_HEADER, MYLIST_HEADER, MYLIST_DONE_MARKER,
+        MYLIST_MARKED_DONE, MYLIST_REOPENED, MYLIST_DELETED, MYLIST_UPDATED,
+        MYLIST_CLEAR_NONE, MYLIST_CLEARED,
+        MYLIST_DUE_TODAY, MYLIST_DUE_TOMORROW, MYLIST_DUE_YESTERDAY,
         WEATHER_LOCATION_PROMPT, WEATHER_HEADER, WEATHER_YOUR_AREA,
         WEATHER_ALERT_WARNING, WEATHER_ALERT_WATCH, WEATHER_ALERT_ADVISORY,
         WEATHER_ALERT_STATEMENT, WEATHER_ALERT_GENERIC,
@@ -673,7 +673,7 @@ object StringKeys {
         CHAT_SESSION_UNLOADED, CHAT_SESSION_DOWNLOADING, CHAT_SESSION_LOADING,
         CHAT_SESSION_LOADED_CPU, CHAT_SESSION_LOADED, CHAT_SESSION_FAILED,
         CHAT_THERMAL_WARM, CHAT_THERMAL_BLOCK_TITLE, CHAT_THERMAL_BLOCK_BODY,
-        CHAT_CD_NEW_CHAT, CHAT_CD_TODOS, CHAT_CD_TIMERS, CHAT_CD_ALARMS,
+        CHAT_CD_NEW_CHAT, CHAT_CD_MYLIST, CHAT_CD_TIMERS, CHAT_CD_ALARMS,
         CHAT_CD_JOBS, CHAT_CD_SETTINGS, CHAT_CD_JUMP_TO_LATEST,
         CHAT_CD_ATTACHED_IMAGE, CHAT_CD_ATTACH_IMAGE, CHAT_CD_REMOVE_IMAGE,
         CHAT_CD_MIC_START, CHAT_CD_MIC_STOP, CHAT_CD_TTS_ENABLE, CHAT_CD_TTS_DISABLE,
@@ -730,12 +730,12 @@ object StringKeys {
         CLOCK_UI_DAY_SHORT_MON, CLOCK_UI_DAY_SHORT_TUE, CLOCK_UI_DAY_SHORT_WED,
         CLOCK_UI_DAY_SHORT_THU, CLOCK_UI_DAY_SHORT_FRI, CLOCK_UI_DAY_SHORT_SAT,
         CLOCK_UI_DAY_SHORT_SUN,
-        // ── Todo (UI) ──
-        TODO_UI_TITLE, TODO_UI_EMPTY, TODO_UI_EMPTY_HINT, TODO_UI_CLEAR_DONE,
-        TODO_UI_DELETE_TITLE, TODO_UI_DELETE_BODY, TODO_UI_DELETE, TODO_UI_CANCEL,
-        TODO_UI_NEW_TODO, TODO_UI_EDIT_TODO, TODO_UI_TITLE_LABEL, TODO_UI_PRIORITY,
-        TODO_UI_DUE_PREFIX, TODO_UI_SET, TODO_UI_CHANGE, TODO_UI_NOTES_OPTIONAL,
-        TODO_UI_ADD, TODO_UI_OK, TODO_UI_CD_ADD, TODO_UI_CD_EDIT, TODO_UI_CD_DELETE,
+        // ── My List (UI) ──
+        MYLIST_UI_TITLE, MYLIST_UI_EMPTY, MYLIST_UI_EMPTY_HINT, MYLIST_UI_CLEAR_DONE,
+        MYLIST_UI_DELETE_TITLE, MYLIST_UI_DELETE_BODY, MYLIST_UI_DELETE, MYLIST_UI_CANCEL,
+        MYLIST_UI_NEW_ITEM, MYLIST_UI_EDIT_ITEM, MYLIST_UI_TITLE_LABEL, MYLIST_UI_PRIORITY,
+        MYLIST_UI_DUE_PREFIX, MYLIST_UI_SET, MYLIST_UI_CHANGE, MYLIST_UI_NOTES_OPTIONAL,
+        MYLIST_UI_ADD, MYLIST_UI_OK, MYLIST_UI_CD_ADD, MYLIST_UI_CD_EDIT, MYLIST_UI_CD_DELETE,
         // ── Jobs (UI) ──
         JOBS_TITLE, JOBS_CD_ADD, JOBS_DELETE_TITLE, JOBS_DELETE_BODY, JOBS_DELETE, JOBS_CANCEL,
         JOBS_SYNCED, JOBS_NEVER_SYNCED,

@@ -62,7 +62,7 @@ class MainViewModel(
      * Eager warm-up of the aux (classifier + embedder) engines when the user
      * lands on the Chat surface. Gemma is NOT warmed eagerly (PR #25): it
      * loads on the first `InferenceSessionManager.generate()` call, which
-     * happens only on fall-through queries — regex tools (clock/todo/memory)
+     * happens only on fall-through queries — regex tools (clock/my-list/memory)
      * and classifier-routed verticals like weather never touch the LLM.
      *
      * The classifier (~113 ms warm-up, 67 MB) and embedder (~41 ms, 23 MB)

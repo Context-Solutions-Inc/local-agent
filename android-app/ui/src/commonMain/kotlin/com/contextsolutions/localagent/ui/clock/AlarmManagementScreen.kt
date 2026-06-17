@@ -52,7 +52,7 @@ import com.contextsolutions.localagent.ui.platform.rememberIsLandscape
 
 /**
  * Full-screen alarms surface (PR #17). Replaces the prior
- * `ModalBottomSheet`-based `AlarmSheet`. Mirrors `TodoManagementScreen`'s
+ * `ModalBottomSheet`-based `AlarmSheet`. Mirrors `MyListScreen`'s
  * shape: top bar + LazyColumn + FAB → create-dialog, plus an edit dialog
  * reached from each row.
  *

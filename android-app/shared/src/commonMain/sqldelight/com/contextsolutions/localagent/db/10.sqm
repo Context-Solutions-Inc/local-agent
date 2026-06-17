@@ -1,0 +1,12 @@
+-- v10 -> v11 (PR #99). Rename the personal-checklist table `todos` -> `mylist`.
+-- The feature is now "My List" (STT mis-hears "todo"); this is a pure rename —
+-- columns, types, and the priority/due ordering are unchanged, so existing
+-- rows migrate in place. The index is dropped + recreated under the new name
+-- to match MyList.sq (verifyMigrations replays this against the v10 snapshot,
+-- CLAUDE.md invariant #20).
+
+ALTER TABLE todos RENAME TO mylist;
+
+DROP INDEX IF EXISTS todos_by_completed_due;
+
+CREATE INDEX mylist_by_completed_due ON mylist(completed, due_date_epoch_ms);

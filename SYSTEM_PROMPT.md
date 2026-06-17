@@ -40,7 +40,7 @@ The full system prompt has the following structure (see
 
 **There is no `web_search` tool exposed to the model.** LLM tool-calling is
 fully disabled (CLAUDE.md invariants #8–#11). All tool dispatch — clock,
-todo, memory, and web search — happens *before* the model: clock/todo/memory
+my-list, memory, and web search — happens *before* the model: clock/my-list/memory
 via regex parsers, web search via the pre-flight classifier (`PreflightRouter`).
 When the host has run a search, the results are injected as a `[SEARCH CONTEXT]`
 block; §7 is the "no callable tools" block that explains this to the model.
@@ -276,7 +276,7 @@ is enabled in the user's settings.
 === Available tools ===
 You have no callable tools this turn. Do NOT emit tool-call markers like
 `<|tool_call>` — the host application strips them and the user will see
-broken text. Clock, alarm, todo, and memory commands are handled by the
+broken text. Clock, alarm, my-list, and memory commands are handled by the
 host BEFORE you see the message; if one reaches you, just answer in plain
 text.
 
@@ -384,7 +384,7 @@ statement.
 === Available tools ===
 You have no callable tools this turn. Do NOT emit tool-call markers like
 `<|tool_call>` — the host application strips them and the user will see
-broken text. Clock, alarm, todo, and memory commands are handled by the
+broken text. Clock, alarm, my-list, and memory commands are handled by the
 host BEFORE you see the message; if one reaches you, just answer in plain
 text.
 

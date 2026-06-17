@@ -18,7 +18,7 @@ sealed interface MainRoute {
     data object Settings : MainRoute
     data object MemoryManagement : MainRoute
     data object ConversationHistory : MainRoute
-    data object TodoManagement : MainRoute
+    data object MyListManagement : MainRoute
     data object TimerManagement : MainRoute
     data object AlarmManagement : MainRoute
     data object SearchSources : MainRoute
@@ -39,7 +39,7 @@ sealed interface MainRoute {
                     Settings -> "settings"
                     MemoryManagement -> "mem"
                     ConversationHistory -> "history"
-                    TodoManagement -> "todos"
+                    MyListManagement -> "mylist"
                     TimerManagement -> "timers"
                     AlarmManagement -> "alarms"
                     SearchSources -> "search_sources"
@@ -53,7 +53,7 @@ sealed interface MainRoute {
                     encoded == "settings" -> Settings
                     encoded == "mem" -> MemoryManagement
                     encoded == "history" -> ConversationHistory
-                    encoded == "todos" -> TodoManagement
+                    encoded == "mylist" -> MyListManagement
                     encoded == "timers" -> TimerManagement
                     encoded == "alarms" -> AlarmManagement
                     encoded == "search_sources" -> SearchSources

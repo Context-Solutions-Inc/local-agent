@@ -18,7 +18,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Render a [TodoToolHandler] JSON result into a short human-readable
+ * Render a [MyListToolHandler] JSON result into a short human-readable
  * sentence. Mirrors [ClockResponseFormatter] — the deterministic agent
  * path uses this to surface a friendly reply without involving the LLM.
  *
@@ -26,7 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * structural punctuation, indices and tool-supplied titles stay literal.
  * Defaults to [Strings.ENGLISH] so direct callers and tests stay English.
  */
-class TodoResponseFormatter(
+class MyListResponseFormatter(
     private val clock: Clock = Clock.System,
     private val timeZoneProvider: () -> TimeZone = { TimeZone.currentSystemDefault() },
 ) {
@@ -44,26 +44,26 @@ class TodoResponseFormatter(
             return strings.get(StringKeys.COMMON_ERROR_GENERIC, msg)
         }
         return when (toolName) {
-            TodoToolHandler.ADD_TODO_NAME -> formatAdd(obj, strings)
-            TodoToolHandler.LIST_TODOS_NAME -> formatList(obj, strings)
-            TodoToolHandler.COMPLETE_TODO_NAME -> formatComplete(obj, strings)
-            TodoToolHandler.DELETE_TODO_NAME -> formatDelete(obj, strings)
-            TodoToolHandler.EDIT_TODO_NAME -> formatEdit(obj, strings)
-            TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME -> formatClearCompleted(obj, strings)
+            MyListToolHandler.ADD_ITEM_NAME -> formatAdd(obj, strings)
+            MyListToolHandler.SHOW_LIST_NAME -> formatList(obj, strings)
+            MyListToolHandler.COMPLETE_ITEM_NAME -> formatComplete(obj, strings)
+            MyListToolHandler.DELETE_ITEM_NAME -> formatDelete(obj, strings)
+            MyListToolHandler.EDIT_ITEM_NAME -> formatEdit(obj, strings)
+            MyListToolHandler.CLEAR_COMPLETED_NAME -> formatClearCompleted(obj, strings)
             else -> strings.get(StringKeys.COMMON_DONE)
         }
     }
 
     private fun formatAdd(obj: JsonObject, strings: Strings): String {
-        val title = obj["title"]?.jsonPrimitive?.content ?: "todo"
+        val title = obj["title"]?.jsonPrimitive?.content ?: "item"
         val priorityRaw = obj["priority"]?.jsonPrimitive?.content
         val priority = priorityRaw?.let { priorityLabel(it, strings) }
         val due = obj["due_date_epoch_ms"]?.jsonPrimitive?.content?.toLongOrNull()
         return buildString {
-            append(strings.get(StringKeys.TODO_ADDED, title))
+            append(strings.get(StringKeys.MYLIST_ADDED, title))
             val tags = buildList {
                 if (priority != null && priorityRaw.uppercase() != "MEDIUM") add(priority)
-                if (due != null) add(strings.get(StringKeys.TODO_DUE, dueLabel(due, strings)))
+                if (due != null) add(strings.get(StringKeys.MYLIST_DUE, dueLabel(due, strings)))
             }
             if (tags.isNotEmpty()) {
                 append(" (")
@@ -75,17 +75,17 @@ class TodoResponseFormatter(
     }
 
     private fun formatList(obj: JsonObject, strings: Strings): String {
-        val rows = obj["todos"]?.jsonArray.orEmpty().map { it.jsonObject }
+        val rows = obj["items"]?.jsonArray.orEmpty().map { it.jsonObject }
         if (rows.isEmpty()) {
             val includeCompleted = obj["include_completed"]?.jsonPrimitive?.booleanOrNull ?: false
-            return if (includeCompleted) strings.get(StringKeys.TODO_NONE_ALL)
-            else strings.get(StringKeys.TODO_NONE_OPEN)
+            return if (includeCompleted) strings.get(StringKeys.MYLIST_NONE_ALL)
+            else strings.get(StringKeys.MYLIST_NONE_OPEN)
         }
         val lines = rows.map { renderRow(it, strings) }
         val header = if (rows.size == 1) {
-            strings.get(StringKeys.TODO_ONE_HEADER)
+            strings.get(StringKeys.MYLIST_ONE_HEADER)
         } else {
-            strings.get(StringKeys.TODO_HEADER, rows.size)
+            strings.get(StringKeys.MYLIST_HEADER, rows.size)
         }
         return header + "\n" + lines.joinToString("\n")
     }
@@ -101,13 +101,13 @@ class TodoResponseFormatter(
             append(index)
             append(". ")
             if (completed) {
-                append(strings.get(StringKeys.TODO_DONE_MARKER))
+                append(strings.get(StringKeys.MYLIST_DONE_MARKER))
                 append(' ')
             }
             append(title)
             val tags = buildList {
                 if (priority != null && priorityRaw.uppercase() != "MEDIUM") add(priority)
-                if (due != null) add(strings.get(StringKeys.TODO_DUE, dueLabel(due, strings)))
+                if (due != null) add(strings.get(StringKeys.MYLIST_DUE, dueLabel(due, strings)))
             }
             if (tags.isNotEmpty()) {
                 append(" (")
@@ -118,29 +118,29 @@ class TodoResponseFormatter(
     }
 
     private fun formatComplete(obj: JsonObject, strings: Strings): String {
-        val title = obj["title"]?.jsonPrimitive?.content ?: "todo"
+        val title = obj["title"]?.jsonPrimitive?.content ?: "item"
         val completed = obj["completed"]?.jsonPrimitive?.booleanOrNull ?: true
         return if (completed) {
-            strings.get(StringKeys.TODO_MARKED_DONE, title)
+            strings.get(StringKeys.MYLIST_MARKED_DONE, title)
         } else {
-            strings.get(StringKeys.TODO_REOPENED, title)
+            strings.get(StringKeys.MYLIST_REOPENED, title)
         }
     }
 
     private fun formatDelete(obj: JsonObject, strings: Strings): String {
-        val title = obj["title"]?.jsonPrimitive?.content ?: "todo"
-        return strings.get(StringKeys.TODO_DELETED, title)
+        val title = obj["title"]?.jsonPrimitive?.content ?: "item"
+        return strings.get(StringKeys.MYLIST_DELETED, title)
     }
 
     private fun formatEdit(obj: JsonObject, strings: Strings): String {
-        val title = obj["title"]?.jsonPrimitive?.content ?: "todo"
+        val title = obj["title"]?.jsonPrimitive?.content ?: "item"
         val priority = obj["priority"]?.jsonPrimitive?.content?.let { priorityLabel(it, strings) }
         val due = obj["due_date_epoch_ms"]?.jsonPrimitive?.content?.toLongOrNull()
         return buildString {
-            append(strings.get(StringKeys.TODO_UPDATED, title))
+            append(strings.get(StringKeys.MYLIST_UPDATED, title))
             val tags = buildList {
-                if (priority != null) add(strings.get(StringKeys.TODO_PRIORITY_TAG, priority))
-                if (due != null) add(strings.get(StringKeys.TODO_DUE, dueLabel(due, strings)))
+                if (priority != null) add(strings.get(StringKeys.MYLIST_PRIORITY_TAG, priority))
+                if (due != null) add(strings.get(StringKeys.MYLIST_DUE, dueLabel(due, strings)))
             }
             if (tags.isNotEmpty()) {
                 append(" (")
@@ -154,16 +154,16 @@ class TodoResponseFormatter(
     private fun formatClearCompleted(obj: JsonObject, strings: Strings): String {
         val count = obj["deleted_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
         return if (count == 0) {
-            strings.get(StringKeys.TODO_CLEAR_NONE)
+            strings.get(StringKeys.MYLIST_CLEAR_NONE)
         } else {
-            strings.plural(StringKeys.TODO_CLEARED, count, count)
+            strings.plural(StringKeys.MYLIST_CLEARED, count, count)
         }
     }
 
     private fun priorityLabel(raw: String, strings: Strings): String = when (raw.uppercase()) {
-        "HIGH" -> strings.get(StringKeys.TODO_PRIORITY_HIGH)
-        "MEDIUM" -> strings.get(StringKeys.TODO_PRIORITY_MEDIUM)
-        "LOW" -> strings.get(StringKeys.TODO_PRIORITY_LOW)
+        "HIGH" -> strings.get(StringKeys.MYLIST_PRIORITY_HIGH)
+        "MEDIUM" -> strings.get(StringKeys.MYLIST_PRIORITY_MEDIUM)
+        "LOW" -> strings.get(StringKeys.MYLIST_PRIORITY_LOW)
         else -> raw
     }
 
@@ -172,9 +172,9 @@ class TodoResponseFormatter(
         val today: LocalDate = clock.now().toLocalDateTime(tz).date
         val target: LocalDate = Instant.fromEpochMilliseconds(epochMs).toLocalDateTime(tz).date
         return when (target) {
-            today -> strings.get(StringKeys.TODO_DUE_TODAY)
-            today.plus(1, DateTimeUnit.DAY) -> strings.get(StringKeys.TODO_DUE_TOMORROW)
-            today.plus(-1, DateTimeUnit.DAY) -> strings.get(StringKeys.TODO_DUE_YESTERDAY)
+            today -> strings.get(StringKeys.MYLIST_DUE_TODAY)
+            today.plus(1, DateTimeUnit.DAY) -> strings.get(StringKeys.MYLIST_DUE_TOMORROW)
+            today.plus(-1, DateTimeUnit.DAY) -> strings.get(StringKeys.MYLIST_DUE_YESTERDAY)
             else -> target.toString()
         }
     }

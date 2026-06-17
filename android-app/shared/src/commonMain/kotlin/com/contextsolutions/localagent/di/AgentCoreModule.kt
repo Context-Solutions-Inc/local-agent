@@ -6,10 +6,10 @@ import com.contextsolutions.localagent.agent.InferenceSession
 import com.contextsolutions.localagent.agent.PromptAssembler
 import com.contextsolutions.localagent.agent.ResponseFilter
 import com.contextsolutions.localagent.agent.StockResponseFormatter
-import com.contextsolutions.localagent.agent.TodoCommandParser
-import com.contextsolutions.localagent.agent.TodoIntentDetector
-import com.contextsolutions.localagent.agent.TodoResponseFormatter
-import com.contextsolutions.localagent.agent.TodoToolHandler
+import com.contextsolutions.localagent.agent.MyListCommandParser
+import com.contextsolutions.localagent.agent.MyListIntentDetector
+import com.contextsolutions.localagent.agent.MyListResponseFormatter
+import com.contextsolutions.localagent.agent.MyListToolHandler
 import com.contextsolutions.localagent.agent.WeatherResponseFormatter
 import com.contextsolutions.localagent.agent.currentTimeContext
 import com.contextsolutions.localagent.classifier.PreflightRouter
@@ -77,10 +77,10 @@ val agentCoreModule: Module = module {
         val searchService = get<SearchService>()
         val preflightRouter = get<PreflightRouter>()
         val memoryRetriever = getOrNull<MemoryRetriever>()
-        val toolHandlers = listOfNotNull(getOrNull<ClockToolHandler>(), getOrNull<TodoToolHandler>())
-        val todoIntentDetector = getOrNull<TodoIntentDetector>() ?: TodoIntentDetector()
-        val todoCommandParser = getOrNull<TodoCommandParser>() ?: TodoCommandParser()
-        val todoResponseFormatter = getOrNull<TodoResponseFormatter>() ?: TodoResponseFormatter()
+        val toolHandlers = listOfNotNull(getOrNull<ClockToolHandler>(), getOrNull<MyListToolHandler>())
+        val myListIntentDetector = getOrNull<MyListIntentDetector>() ?: MyListIntentDetector()
+        val myListCommandParser = getOrNull<MyListCommandParser>() ?: MyListCommandParser()
+        val myListResponseFormatter = getOrNull<MyListResponseFormatter>() ?: MyListResponseFormatter()
         val verticalDispatcher = getOrNull<VerticalSearchDispatcher>()
         val searchPreferences = getOrNull<SearchPreferencesRepository>()
         val locationCatalog = getOrNull<LocationCatalog>()
@@ -110,9 +110,9 @@ val agentCoreModule: Module = module {
                 preflightRouter = preflightRouter,
                 memoryRetriever = memoryRetriever,
                 toolHandlers = toolHandlers,
-                todoIntentDetector = todoIntentDetector,
-                todoCommandParser = todoCommandParser,
-                todoResponseFormatter = todoResponseFormatter,
+                myListIntentDetector = myListIntentDetector,
+                myListCommandParser = myListCommandParser,
+                myListResponseFormatter = myListResponseFormatter,
                 verticalDispatcher = verticalDispatcher,
                 searchPreferences = searchPreferences,
                 locationCatalog = locationCatalog,

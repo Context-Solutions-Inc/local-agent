@@ -9,7 +9,7 @@ import com.contextsolutions.localagent.ui.onboarding.OnboardingViewModel
 import com.contextsolutions.localagent.ui.settings.SearchSourcesViewModel
 import com.contextsolutions.localagent.ui.settings.SettingsViewModel
 import com.contextsolutions.localagent.ui.theme.ThemeModeViewModel
-import com.contextsolutions.localagent.ui.todo.TodoViewModel
+import com.contextsolutions.localagent.ui.mylist.MyListViewModel
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
@@ -23,17 +23,17 @@ import org.koin.dsl.module
  * ([com.contextsolutions.localagent.di.agentCoreModule]) and their
  * platform module (`androidModule` / `desktopModule`).
  *
- * Starts empty: the screen-by-screen cutover (Todo first, Chat last) adds a
+ * Starts empty: the screen-by-screen cutover (My List first, Chat last) adds a
  * `viewModelOf(::X)` here as each screen moves and its ViewModel sheds its
  * Android types. ViewModels that still need a platform dependency (e.g. a
  * `Context`-backed helper) bind in the platform module instead — this module
  * only owns the all-common-dependency ViewModels.
  */
 val uiModule: Module = module {
-    // Phase 9 inc 2 — Todo (the migration proof). All-common dependencies
-    // (TodoRepository, already Koin-owned), so it binds here rather than in a
+    // Phase 9 inc 2 — My List (the migration proof). All-common dependencies
+    // (MyListRepository, already Koin-owned), so it binds here rather than in a
     // platform module.
-    viewModelOf(::TodoViewModel)
+    viewModelOf(::MyListViewModel)
     // Phase 9 inc 3 — Settings cluster. All deps are Koin-owned on both shells
     // (the Context-bound bits were replaced by the AppBuildConfig seam +
     // TelemetryUploader, and the memory summary reads MemoryStore directly).

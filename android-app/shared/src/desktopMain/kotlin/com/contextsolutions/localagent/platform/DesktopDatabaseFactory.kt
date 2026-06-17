@@ -11,7 +11,7 @@ import java.util.Properties
 /**
  * File-backed SQLDelight driver for desktop (Phase 6, docs/DESKTOP_PORT_PLAN.md).
  * Replaces the Phase-2 in-memory `JdbcSqliteDriver(IN_MEMORY)` so conversations,
- * memories, the search cache, clock/todos and telemetry survive across launches —
+ * memories, the search cache, clock/my-list and telemetry survive across launches —
  * the desktop counterpart of Android's `AndroidSqliteDriver` over `local_agent.db`.
  *
  * SQLDelight 2.0.2's `JdbcSqliteDriver` has no schema-aware constructor, so we

@@ -107,47 +107,47 @@ class FormatterI18nParityTest {
         )
     }
 
-    // ── Todo ─────────────────────────────────────────────────────────────────
+    // ── My List ──────────────────────────────────────────────────────────────
 
-    private val todo = TodoResponseFormatter()
+    private val myList = MyListResponseFormatter()
 
     @Test
-    fun todo_add_unchanged() {
+    fun mylist_add_unchanged() {
         assertEquals(
             "Added \"buy milk\".",
-            todo.format(TodoToolHandler.ADD_TODO_NAME, """{"title":"buy milk"}"""),
+            myList.format(MyListToolHandler.ADD_ITEM_NAME, """{"title":"buy milk"}"""),
         )
     }
 
     @Test
-    fun todo_empty_open_unchanged() {
+    fun mylist_empty_open_unchanged() {
         assertEquals(
-            "You don't have any open todos.",
-            todo.format(TodoToolHandler.LIST_TODOS_NAME, """{"todos":[]}"""),
+            "You don't have any open items.",
+            myList.format(MyListToolHandler.SHOW_LIST_NAME, """{"items":[]}"""),
         )
     }
 
     @Test
-    fun todo_clear_completed_plural_unchanged() {
+    fun mylist_clear_completed_plural_unchanged() {
         assertEquals(
-            "No completed todos to clear.",
-            todo.format(TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME, """{"deleted_count":0}"""),
+            "No completed items to clear.",
+            myList.format(MyListToolHandler.CLEAR_COMPLETED_NAME, """{"deleted_count":0}"""),
         )
         assertEquals(
-            "Cleared 1 completed todo.",
-            todo.format(TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME, """{"deleted_count":1}"""),
+            "Cleared 1 completed item.",
+            myList.format(MyListToolHandler.CLEAR_COMPLETED_NAME, """{"deleted_count":1}"""),
         )
         assertEquals(
-            "Cleared 3 completed todos.",
-            todo.format(TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME, """{"deleted_count":3}"""),
+            "Cleared 3 completed items.",
+            myList.format(MyListToolHandler.CLEAR_COMPLETED_NAME, """{"deleted_count":3}"""),
         )
     }
 
     @Test
-    fun todo_mark_done_unchanged() {
+    fun mylist_mark_done_unchanged() {
         assertEquals(
             "Marked \"gym\" as done.",
-            todo.format(TodoToolHandler.COMPLETE_TODO_NAME, """{"title":"gym","completed":true}"""),
+            myList.format(MyListToolHandler.COMPLETE_ITEM_NAME, """{"title":"gym","completed":true}"""),
         )
     }
 }

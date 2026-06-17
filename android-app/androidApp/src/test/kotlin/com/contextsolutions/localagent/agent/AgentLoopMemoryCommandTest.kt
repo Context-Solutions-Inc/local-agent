@@ -37,10 +37,10 @@ import org.junit.Test
  * "forget …", the agent loop dispatches a deterministic acknowledgement
  * and the LLM is NEVER invoked.
  *
- * Bug being prevented: prior to the short-circuit, Gemma saw the add_todo
- * tool description and reliably called add_todo("favorite color is blue")
+ * Bug being prevented: prior to the short-circuit, Gemma saw the add_mylist_item
+ * tool description and reliably called add_mylist_item("favorite color is blue")
  * for prompts like "remember my favorite color is blue", producing both
- * a spurious todo AND an empty assistant bubble (no follow-up text after
+ * a spurious list item AND an empty assistant bubble (no follow-up text after
  * the tool result).
  *
  * The actual memory save still happens downstream in
@@ -132,7 +132,7 @@ class AgentLoopMemoryCommandTest {
             searchService = service,
             preflightRouter = unavailablePreflightRouter(service, context),
             // No tool handlers — memory short-circuit must work even when
-            // the LLM path is fully wired up. Tests with handlers (Todo,
+            // the LLM path is fully wired up. Tests with handlers (My List,
             // Clock) are covered separately; here we exercise the no-handler
             // path which exercises a slightly different code branch.
         )

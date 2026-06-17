@@ -107,6 +107,14 @@ enum class PreferredLanguage(
         val DEFAULT: PreferredLanguage = EN
 
         /**
+         * Languages offered in the UI picker (onboarding + Settings).
+         * English-only at launch (PR #99). The full [entries] table, string
+         * packs, and catalog all stay in place — add entries here to re-enable
+         * another language without touching the picker composables.
+         */
+        val selectable: List<PreferredLanguage> = listOf(EN)
+
+        /**
          * Resolve a persisted ISO code back to an enum value. Unknown / null
          * codes return [DEFAULT] so a future re-export that drops a language
          * doesn't crash existing installs.

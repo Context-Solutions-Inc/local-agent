@@ -32,7 +32,7 @@ package com.contextsolutions.localagent.search
  * "the URL of …", not "web search the URL of …".
  *
  * **Subordinate to the AgentLoop force-fires.** This lives in the router, which
- * runs only after the AgentLoop-level image / clock-todo / WEATHER short-circuits
+ * runs only after the AgentLoop-level image / clock-my-list / WEATHER short-circuits
  * (#32, #48). An explicit-search message that also carries an image, or that the
  * weather resolver claims, is handled by those higher-priority deterministic
  * paths — benign, since weather is itself a deterministic web fetch. See

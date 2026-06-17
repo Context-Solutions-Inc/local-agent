@@ -21,7 +21,7 @@ import com.contextsolutions.localagent.search.BraveSearchClient
 import com.contextsolutions.localagent.search.BraveSearchResult
 import com.contextsolutions.localagent.search.SearchCacheDao
 import com.contextsolutions.localagent.search.SearchService
-import com.contextsolutions.localagent.todo.SqlDelightTodoRepository
+import com.contextsolutions.localagent.mylist.SqlDelightMyListRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -37,23 +37,23 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Locks the load-bearing contract introduced by PR #15: TODO turns are
+ * Locks the load-bearing contract introduced by PR #15: My List turns are
  * served deterministically and a partial-match intent (parser returns
  * null) NEVER falls through to the LLM. The test asserts that
- * `engine.generate` is not invoked for any TODO-shaped input — that
+ * `engine.generate` is not invoked for any My List-shaped input — that
  * invariant is the reliability guarantee the structural comment in
  * [AgentLoop.run] documents.
  *
- * Also covers the clock-vs-todo precedence rule: clock branch runs first,
- * so phrases containing both keywords resolve to clock.
+ * Also covers the clock-vs-my-list precedence rule: clock branch runs first,
+ * so phrases containing both surfaces resolve to clock.
  */
-class AgentLoopTodoTest {
+class AgentLoopMyListTest {
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var db: LocalAgentDatabase
     private lateinit var dao: SearchCacheDao
-    private lateinit var todoRepo: SqlDelightTodoRepository
-    private lateinit var handler: TodoToolHandler
+    private lateinit var myListRepo: SqlDelightMyListRepository
+    private lateinit var handler: MyListToolHandler
 
     @Before
     fun setUp() {
@@ -61,8 +61,8 @@ class AgentLoopTodoTest {
         LocalAgentDatabase.Schema.create(driver)
         db = LocalAgentDatabase(driver)
         dao = SearchCacheDao(db.searchCacheQueries, nowEpochMs = { 1_000L })
-        todoRepo = SqlDelightTodoRepository(db.todosQueries, ioDispatcher = Dispatchers.Unconfined)
-        handler = TodoToolHandler(todoRepo)
+        myListRepo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
+        handler = MyListToolHandler(myListRepo)
     }
 
     @After
@@ -75,57 +75,57 @@ class AgentLoopTodoTest {
         val session = RecordingSession()
         val loop = newLoop(session)
 
-        val events = loop.run(AgentTurnInput("add buy milk to my todos")).toList()
+        val events = loop.run(AgentTurnInput("add buy milk to my list")).toList()
 
-        assertFalse("engine.generate must NOT be called on TODO turns", session.invoked)
+        assertFalse("engine.generate must NOT be called on My List turns", session.invoked)
         val done = events.filterIsInstance<AgentEvent.Done>().single()
         // Synthetic turn chain: User → Assistant(toolCall) → Tool → Assistant(final)
         assertEquals(4, done.turnMessages.size)
         assertTrue(done.skipMemoryExtraction)
         // The repository observed the write.
-        val saved = todoRepo.snapshot()
+        val saved = myListRepo.snapshot()
         assertEquals(1, saved.size)
         assertEquals("buy milk", saved.single().title)
     }
 
     @Test
-    fun `intent without parse match emits TODO_GUIDANCE_TEXT and skips engine`() = runTest {
+    fun `intent without parse match emits MYLIST_GUIDANCE and skips engine`() = runTest {
         val session = RecordingSession()
         val loop = newLoop(session)
 
-        val events = loop.run(AgentTurnInput("do something with my todos")).toList()
+        val events = loop.run(AgentTurnInput("do something with my list")).toList()
 
         assertFalse(session.invoked)
         val text = events.filterIsInstance<AgentEvent.TokenChunk>().joinToString("") { it.text }
-        assertEquals(Strings.ENGLISH.get(StringKeys.TODO_GUIDANCE), text)
+        assertEquals(Strings.ENGLISH.get(StringKeys.MYLIST_GUIDANCE), text)
     }
 
     @Test
-    fun `non-todo message falls through to the engine`() = runTest {
+    fun `non-list message falls through to the engine`() = runTest {
         val session = RecordingSession()
         val loop = newLoop(session)
 
         loop.run(AgentTurnInput("what's the weather in Toronto")).toList()
 
-        assertTrue("engine.generate must be invoked for non-todo turns", session.invoked)
+        assertTrue("engine.generate must be invoked for non-list turns", session.invoked)
     }
 
     @Test
-    fun `list_todos via chat returns the repository contents`() = runTest {
-        // Seed two rows directly so the deterministic list path has something
+    fun `show my list via chat returns the repository contents`() = runTest {
+        // Seed two rows directly so the deterministic show path has something
         // to report.
-        todoRepo.create(
+        myListRepo.create(
             id = "t1",
             title = "buy milk",
-            priority = com.contextsolutions.localagent.todo.TodoPriority.HIGH,
+            priority = com.contextsolutions.localagent.mylist.MyListItemPriority.HIGH,
             dueDateEpochMs = null,
             notes = null,
             nowEpochMs = 100L,
         )
-        todoRepo.create(
+        myListRepo.create(
             id = "t2",
             title = "call mom",
-            priority = com.contextsolutions.localagent.todo.TodoPriority.LOW,
+            priority = com.contextsolutions.localagent.mylist.MyListItemPriority.LOW,
             dueDateEpochMs = null,
             notes = null,
             nowEpochMs = 100L,
@@ -134,7 +134,7 @@ class AgentLoopTodoTest {
         val session = RecordingSession()
         val loop = newLoop(session)
 
-        val events = loop.run(AgentTurnInput("list my todos")).toList()
+        val events = loop.run(AgentTurnInput("show my list")).toList()
 
         assertFalse(session.invoked)
         val text = events.filterIsInstance<AgentEvent.TokenChunk>().joinToString("") { it.text }
@@ -145,14 +145,14 @@ class AgentLoopTodoTest {
     }
 
     @Test
-    fun `clock keyword wins precedence over todo keyword on ambiguous turns`() = runTest {
+    fun `clock keyword wins precedence over my-list on ambiguous turns`() = runTest {
         val session = RecordingSession()
         val loop = newLoop(session)
 
         // Both intents could plausibly fire; the clock branch is checked
         // first so the parser sees this as a clock guidance turn (clock
         // parser will fail, clock intent fires, clock guidance emitted).
-        val events = loop.run(AgentTurnInput("set a timer for my todo list")).toList()
+        val events = loop.run(AgentTurnInput("set a timer for my list")).toList()
 
         assertFalse(session.invoked)
         val text = events.filterIsInstance<AgentEvent.TokenChunk>().joinToString("") { it.text }
@@ -210,7 +210,7 @@ class AgentLoopTodoTest {
     /**
      * InferenceSession that records whether [generate] was invoked.
      * Returns a single text emit + Done if it ever gets called, so
-     * non-todo control turns still complete.
+     * non-list control turns still complete.
      */
     private class RecordingSession : InferenceSession {
         var invoked: Boolean = false

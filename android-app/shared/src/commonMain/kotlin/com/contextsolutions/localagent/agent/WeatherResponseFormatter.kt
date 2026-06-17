@@ -19,7 +19,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * even when the [SEARCH CONTEXT] block carries clean data). Weather is
  * structured CRUD, exactly the surface where the deterministic short-circuit
  * pattern used for clock ([ClockResponseFormatter] /
- * [AgentLoop.runClockCommandDirect]) and todo ([TodoResponseFormatter])
+ * [AgentLoop.runClockCommandDirect]) and my-list ([MyListResponseFormatter])
  * shines. The agent loop calls [format] when classifier+regex pick the
  * weather subtype and the RSS fetch succeeds; on null return (unfamiliar
  * payload shape, empty entries) the loop falls through to the legacy LLM

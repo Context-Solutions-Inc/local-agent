@@ -52,10 +52,11 @@ class MemoriesMigrationTest {
         // (messages.image_bytes), PR#50 added 6.sqm (messages.render_markdown),
         // the desktop port's Phase 7 added 7.sqm (tasks table), PR#57 added
         // 8.sqm (conversations/memories soft-delete tombstones + memory updated_at
-        // for sync), and PR#70 added 9.sqm (jobs + job_runs) — current version must
-        // be 10. If this fails after a new schema change, either the SQLDelight
-        // build didn't regenerate the schema or the new .sqm is misnamed.
-        assertEquals(10L, LocalAgentDatabase.Schema.version)
+        // for sync), PR#70 added 9.sqm (jobs + job_runs), and PR#99 added 10.sqm
+        // (rename the todos table -> mylist) — current version must be 11. If
+        // this fails after a new schema change, either the SQLDelight build
+        // didn't regenerate the schema or the new .sqm is misnamed.
+        assertEquals(11L, LocalAgentDatabase.Schema.version)
     }
 
     @Test

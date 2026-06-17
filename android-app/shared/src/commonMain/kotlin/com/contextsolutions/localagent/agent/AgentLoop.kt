@@ -52,14 +52,14 @@ import kotlinx.serialization.json.put
 /**
  * The agent layer for a single user turn. LLM-side tool calling is fully
  * disabled — every tool dispatch happens BEFORE the engine, either via
- * regex/parsers (clock, todo, memory) or via the pre-flight classifier
+ * regex/parsers (clock, my-list, memory) or via the pre-flight classifier
  * (search). The engine just consumes a system prompt + history + an optional
  * `[SEARCH CONTEXT]` block of plain text:
  *
- *  1. **Regex short-circuits** — clock, todo, and remember/forget commands
+ *  1. **Regex short-circuits** — clock, my-list, and remember/forget commands
  *     are caught at lines ~117-174 and dispatched directly to their handlers
  *     (no LLM call at all).
- *  2. **Pre-flight (M4 / WS-8)** — call [PreflightRouter] for non-clock/todo
+ *  2. **Pre-flight (M4 / WS-8)** — call [PreflightRouter] for non-clock/my-list
  *     turns. On `FireSearch`, fetch results inline and inject them as a
  *     `[SEARCH CONTEXT]` block in the system instruction. Other decisions
  *     leave the prompt untouched.
@@ -83,9 +83,9 @@ class AgentLoop(
     private val memoryRetriever: MemoryRetriever? = null,
     private val toolHandlers: List<ToolHandler> = emptyList(),
     private val clockIntentDetector: ClockIntentDetector = ClockIntentDetector(),
-    private val todoIntentDetector: TodoIntentDetector = TodoIntentDetector(),
-    private val todoCommandParser: TodoCommandParser = TodoCommandParser(),
-    private val todoResponseFormatter: TodoResponseFormatter = TodoResponseFormatter(),
+    private val myListIntentDetector: MyListIntentDetector = MyListIntentDetector(),
+    private val myListCommandParser: MyListCommandParser = MyListCommandParser(),
+    private val myListResponseFormatter: MyListResponseFormatter = MyListResponseFormatter(),
     private val rememberForgetDetector: RememberForgetDetector = RememberForgetDetector(),
     /**
      * PR #23 — vertical dispatcher. When non-null, FireSearch routes via
@@ -176,7 +176,7 @@ class AgentLoop(
         counters.increment(CounterNames.QUERIES_TOTAL)
         // PR #48 — an attached photo makes this a vision turn: the query is about
         // the image, not the web or a device tool. Image turns skip the
-        // deterministic clock/todo/memory short-circuits AND preflight/search,
+        // deterministic clock/my-list/memory short-circuits AND preflight/search,
         // going straight to the model. Capture it once up front.
         val hasImage = input.imageBytes != null
         logger(
@@ -216,34 +216,34 @@ class AgentLoop(
                 emitClockGuidance(input.userMessage)
                 return@channelFlow
             }
-            // TODO list shares the same reliability constraint as the clock
+            // My List shares the same reliability constraint as the clock
             // surface (PR #15): structured CRUD over a typed schema that
             // Gemma cannot be trusted to produce. Clock runs first because
-            // its verbs (`set`, `cancel`, `remind`) overlap todo verbs
+            // its verbs (`set`, `cancel`, `remind`) overlap list verbs
             // (`set priority`, `remind me to <task>`) — clock wins
             // precedence so the older, more battle-tested path stays
             // authoritative on ambiguous turns. The static guidance below
             // is the explicit no-LLM-fallback contract: an intent-but-no-
             // parse turn returns a fixed reply listing valid command
             // shapes, never falls through to Gemma.
-            val todoCommand = todoCommandParser.parse(input.userMessage)
-            if (todoCommand != null) {
-                logger("[turn] deterministic todo command: ${todoCommand::class.simpleName}")
-                runTodoCommandDirect(input.userMessage, todoCommand)
+            val myListCommand = myListCommandParser.parse(input.userMessage)
+            if (myListCommand != null) {
+                logger("[turn] deterministic my-list command: ${myListCommand::class.simpleName}")
+                runMyListCommandDirect(input.userMessage, myListCommand)
                 return@channelFlow
             }
-            if (todoIntentDetector.isTodoIntent(input.userMessage)) {
-                logger("[turn] todo intent but unmatched parser; emitting guidance")
-                emitTodoGuidance(input.userMessage)
+            if (myListIntentDetector.isMyListIntent(input.userMessage)) {
+                logger("[turn] my-list intent but unmatched parser; emitting guidance")
+                emitMyListGuidance(input.userMessage)
                 return@channelFlow
             }
         }
 
-        // Explicit memory-command short-circuit. Mirrors the clock/todo
+        // Explicit memory-command short-circuit. Mirrors the clock/my-list
         // pattern above: when the user prefixes a turn with "remember …"
         // or "forget …", dispatch a deterministic acknowledgement and
         // skip the LLM. Without this, Gemma sees "remember" + the
-        // add_todo tool description and reliably calls add_todo with
+        // add_mylist_item tool description and reliably calls add_mylist_item with
         // the post-prefix payload as the title — wrong tool, plus the
         // model emits no follow-up text and the user gets an empty
         // assistant bubble. The actual memory write still happens
@@ -299,10 +299,10 @@ class AgentLoop(
         // Clock-intent short-circuit (PR #11): the shipped classifier was
         // trained before clock tools existed and occasionally fires a search
         // for queries like "set a 5-minute timer for tea". Those are caught
-        // upstream by the clock/todo regex pre-detection (lines 117-157), so
+        // upstream by the clock/my-list regex pre-detection (lines 117-157), so
         // pre-flight only sees messages that already fell through those
         // checks. Keep the historical skipPreflight gate as defense-in-depth
-        // for any clock/todo intent the parser couldn't pin down.
+        // for any clock/my-list intent the parser couldn't pin down.
         val historyForPrompt = mutableListOf<ChatMessage>().apply {
             addAll(priorHistory)
             add(userMessage)
@@ -310,7 +310,7 @@ class AgentLoop(
         var searchContextBlock: String? = null
         val skipPreflight = toolHandlers.isNotEmpty() &&
             (clockIntentDetector.isClockIntent(input.userMessage) ||
-                todoIntentDetector.isTodoIntent(input.userMessage))
+                myListIntentDetector.isMyListIntent(input.userMessage))
         // PR #37 — deterministic WEATHER force-fire. The shipped classifier
         // under-fires on bare forecast queries ("what's the weather" lands in
         // the middle band → LLM, which can't know the user's location or read
@@ -577,7 +577,7 @@ class AgentLoop(
                 // Weather subtype direct path — bypass Gemma entirely.
                 // Renders a deterministic chat bubble from the parsed RSS
                 // entries (same pattern as runClockCommandDirect /
-                // runTodoCommandDirect). On any failure (formatter
+                // runMyListCommandDirect). On any failure (formatter
                 // returns null for an unfamiliar payload shape, or the
                 // outcome isn't Success), falls through to the legacy
                 // [SEARCH CONTEXT] + LLM path so non-CA weather and any
@@ -775,7 +775,7 @@ class AgentLoop(
         val generateStartMs = nowEpochMs()
         var firstTokenObserved = false
         // Signal that the model is about to produce text. Deterministic
-        // short-circuits (weather/finance/clock/todo/memory) returned before
+        // short-circuits (weather/finance/clock/my-list/memory) returned before
         // here, so this fires only on real LLM turns — the speaker-mode
         // "working on it" cue rides on it and is therefore suppressed on the
         // fast deterministic renders.
@@ -1438,24 +1438,24 @@ class AgentLoop(
     }
 
     /**
-     * Deterministic TODO path. Synthesises the same User → Assistant(toolCall)
+     * Deterministic My List path. Synthesises the same User → Assistant(toolCall)
      * → Tool → Assistant(final) chain that [runClockCommandDirect] does so
      * memory extraction and conversation persistence see a complete tool
-     * round-trip. Bypasses pre-flight + the engine — TODO is a structured
+     * round-trip. Bypasses pre-flight + the engine — My List is a structured
      * CRUD surface Gemma cannot drive reliably.
      */
-    private suspend fun ProducerScope<AgentEvent>.runTodoCommandDirect(
+    private suspend fun ProducerScope<AgentEvent>.runMyListCommandDirect(
         userMessageText: String,
-        command: TodoCommand,
+        command: MyListCommand,
     ) {
-        val (toolName, argsJson) = todoCommandToCall(command)
+        val (toolName, argsJson) = myListCommandToCall(command)
         val handler = toolHandlers.firstOrNull { it.handles(toolName) }
         if (handler == null) {
             send(AgentEvent.Error(strings.get(StringKeys.AGENT_ENGINE_ERROR), null))
             return
         }
 
-        val callId = "deterministic-todo-0"
+        val callId = "deterministic-mylist-0"
         val userMessage = ChatMessage.User(userMessageText)
         val toolCallMessage = ChatMessage.Assistant(
             text = "",
@@ -1471,7 +1471,7 @@ class AgentLoop(
             isError = isError,
         )
 
-        val rendered = todoResponseFormatter.format(toolName, result, strings)
+        val rendered = myListResponseFormatter.format(toolName, result, strings)
         // Deterministic handler output — render plain, not markdown (PR #50).
         val finalMessage = ChatMessage.Assistant(text = rendered, renderMarkdown = false)
 
@@ -1489,14 +1489,14 @@ class AgentLoop(
             ),
         )
         logger(
-            "[turn] done via deterministic todo path tool=$toolName " +
+            "[turn] done via deterministic my-list path tool=$toolName " +
                 "finalTextLen=${rendered.length}",
         )
     }
 
     /**
      * Deterministic ack for explicit "remember …" / "forget …" turns.
-     * Same pattern as [emitClockGuidance] / [emitTodoGuidance]: short
+     * Same pattern as [emitClockGuidance] / [emitMyListGuidance]: short
      * fixed text, no LLM, no tool call. `skipMemoryExtraction = false`
      * is load-bearing — the actual memory write lives in
      * `MemoryExtractor.extract()` downstream and consults the same
@@ -1525,12 +1525,12 @@ class AgentLoop(
     }
 
     /**
-     * Static guidance message for "intent detected, parser unmatched" TODO
+     * Static guidance message for "intent detected, parser unmatched" My List
      * turns. Same reliability rationale as [emitClockGuidance] — see the
      * structural comment at the call site in [run] (lines 100–149).
      */
-    private suspend fun ProducerScope<AgentEvent>.emitTodoGuidance(userMessageText: String) {
-        val message = strings.get(StringKeys.TODO_GUIDANCE)
+    private suspend fun ProducerScope<AgentEvent>.emitMyListGuidance(userMessageText: String) {
+        val message = strings.get(StringKeys.MYLIST_GUIDANCE)
         val userMessage = ChatMessage.User(userMessageText)
         val finalMessage = ChatMessage.Assistant(text = message, renderMarkdown = false)
         send(AgentEvent.TokenChunk(message))
@@ -1543,8 +1543,8 @@ class AgentLoop(
         )
     }
 
-    private fun todoCommandToCall(command: TodoCommand): Pair<String, String> = when (command) {
-        is TodoCommand.Add -> TodoToolHandler.ADD_TODO_NAME to Json.encodeToString(
+    private fun myListCommandToCall(command: MyListCommand): Pair<String, String> = when (command) {
+        is MyListCommand.Add -> MyListToolHandler.ADD_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 put("title", JsonPrimitive(command.title))
@@ -1552,53 +1552,53 @@ class AgentLoop(
                 command.dueDateEpochMs?.let { put("due_date_epoch_ms", JsonPrimitive(it)) }
             },
         )
-        is TodoCommand.List -> TodoToolHandler.LIST_TODOS_NAME to Json.encodeToString(
+        is MyListCommand.Show -> MyListToolHandler.SHOW_LIST_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 put("include_completed", JsonPrimitive(command.includeCompleted))
             },
         )
-        is TodoCommand.SetCompleted -> TodoToolHandler.COMPLETE_TODO_NAME to Json.encodeToString(
+        is MyListCommand.SetCompleted -> MyListToolHandler.COMPLETE_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 putRef(command.ref)
                 put("completed", JsonPrimitive(command.completed))
             },
         )
-        is TodoCommand.Delete -> TodoToolHandler.DELETE_TODO_NAME to Json.encodeToString(
+        is MyListCommand.Delete -> MyListToolHandler.DELETE_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 putRef(command.ref)
             },
         )
-        is TodoCommand.SetPriority -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+        is MyListCommand.SetPriority -> MyListToolHandler.EDIT_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 putRef(command.ref)
                 put("priority", JsonPrimitive(command.priority.name))
             },
         )
-        is TodoCommand.SetDueDate -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+        is MyListCommand.SetDueDate -> MyListToolHandler.EDIT_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 putRef(command.ref)
                 command.dueDateEpochMs?.let { put("due_date_epoch_ms", JsonPrimitive(it)) }
             },
         )
-        is TodoCommand.SetTitle -> TodoToolHandler.EDIT_TODO_NAME to Json.encodeToString(
+        is MyListCommand.SetTitle -> MyListToolHandler.EDIT_ITEM_NAME to Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 putRef(command.ref)
                 put("title", JsonPrimitive(command.title))
             },
         )
-        TodoCommand.ClearCompleted -> TodoToolHandler.CLEAR_COMPLETED_TODOS_NAME to "{}"
+        MyListCommand.ClearCompleted -> MyListToolHandler.CLEAR_COMPLETED_NAME to "{}"
     }
 
-    private fun kotlinx.serialization.json.JsonObjectBuilder.putRef(ref: TodoRef) {
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putRef(ref: MyListRef) {
         when (ref) {
-            is TodoRef.Index -> put("index", JsonPrimitive(ref.oneBased))
-            is TodoRef.TitleSubstring -> put("title_substring", JsonPrimitive(ref.needle))
+            is MyListRef.Index -> put("index", JsonPrimitive(ref.oneBased))
+            is MyListRef.TitleSubstring -> put("title_substring", JsonPrimitive(ref.needle))
         }
     }
 
@@ -1784,10 +1784,10 @@ class AgentLoop(
             """(?:^|(?<=[\{,]))\s*([A-Za-z_][A-Za-z0-9_]*)\s*:""",
         )
 
-        // User-facing reply text (engine error, weather prompt, clock/todo
+        // User-facing reply text (engine error, weather prompt, clock/my-list
         // guidance) moved to the i18n catalog (PR #96): resolved via the
         // per-turn `strings` from `StringKeys.AGENT_ENGINE_ERROR`,
-        // `WEATHER_LOCATION_PROMPT`, `CLOCK_GUIDANCE`, `TODO_GUIDANCE`.
+        // `WEATHER_LOCATION_PROMPT`, `CLOCK_GUIDANCE`, `MYLIST_GUIDANCE`.
 
         /**
          * Tight match for a bare "use my location" weather request — the only

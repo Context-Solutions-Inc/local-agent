@@ -1,10 +1,10 @@
-package com.contextsolutions.localagent.ui.todo
+package com.contextsolutions.localagent.ui.mylist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.contextsolutions.localagent.todo.Todo
-import com.contextsolutions.localagent.todo.TodoPriority
-import com.contextsolutions.localagent.todo.TodoRepository
+import com.contextsolutions.localagent.mylist.MyListItem
+import com.contextsolutions.localagent.mylist.MyListItemPriority
+import com.contextsolutions.localagent.mylist.MyListRepository
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.Dispatchers
@@ -16,21 +16,21 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 
 /**
- * UI-facing state for the TODO management screen. The repository's [flow]
+ * UI-facing state for the My List management screen. The repository's [flow]
  * is the source of truth; this view-model just re-exposes it on
  * [viewModelScope] and routes user actions back through the repository on
  * [Dispatchers.IO] so writes never touch the main thread.
  *
- * Chat-side mutations (through [TodoToolHandler]) and UI-side mutations
+ * Chat-side mutations (through [MyListToolHandler]) and UI-side mutations
  * (through this VM) hit the same singleton repository, so both views stay
  * live without any cross-coupling between the two surfaces.
  */
 @OptIn(ExperimentalUuidApi::class)
-class TodoViewModel(
-    private val repository: TodoRepository,
+class MyListViewModel(
+    private val repository: MyListRepository,
 ) : ViewModel() {
 
-    val todos: StateFlow<List<Todo>> = repository.flow()
+    val items: StateFlow<List<MyListItem>> = repository.flow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Active (not-completed) count — used by the chat header badge. */
@@ -38,9 +38,9 @@ class TodoViewModel(
         .map { list -> list.count { !it.completed } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    fun createTodo(
+    fun createItem(
         title: String,
-        priority: TodoPriority,
+        priority: MyListItemPriority,
         dueDateEpochMs: Long?,
         notes: String?,
     ) {
@@ -48,7 +48,7 @@ class TodoViewModel(
         if (trimmed.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             repository.create(
-                id = "todo-${Uuid.random()}",
+                id = "mylist-${Uuid.random()}",
                 title = trimmed,
                 priority = priority,
                 dueDateEpochMs = dueDateEpochMs,
@@ -58,10 +58,10 @@ class TodoViewModel(
         }
     }
 
-    fun updateTodo(todo: Todo) {
-        if (todo.title.isBlank()) return
+    fun updateItem(item: MyListItem) {
+        if (item.title.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.update(todo, Clock.System.now().toEpochMilliseconds())
+            repository.update(item, Clock.System.now().toEpochMilliseconds())
         }
     }
 
@@ -71,7 +71,7 @@ class TodoViewModel(
         }
     }
 
-    fun deleteTodo(id: String) {
+    fun deleteItem(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.delete(id)
         }

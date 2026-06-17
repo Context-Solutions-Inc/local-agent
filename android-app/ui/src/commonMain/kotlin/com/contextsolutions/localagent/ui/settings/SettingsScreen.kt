@@ -1076,7 +1076,7 @@ private fun LanguageDropdown(
             label = { Text("${selected.nativeName} · ${selected.englishName}") },
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            PreferredLanguage.entries.forEach { lang ->
+            PreferredLanguage.selectable.forEach { lang ->
                 DropdownMenuItem(
                     text = { Text("${lang.nativeName} · ${lang.englishName}") },
                     onClick = { onSelect(lang); open = false },

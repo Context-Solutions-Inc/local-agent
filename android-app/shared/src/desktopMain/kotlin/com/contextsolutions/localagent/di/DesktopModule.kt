@@ -112,10 +112,10 @@ import com.contextsolutions.localagent.platform.SecureStorageKeys
 import com.contextsolutions.localagent.preferences.LocationCatalog
 import com.contextsolutions.localagent.preferences.WeatherLocationResolver
 import com.contextsolutions.localagent.agent.StockResponseFormatter
-import com.contextsolutions.localagent.agent.TodoCommandParser
-import com.contextsolutions.localagent.agent.TodoIntentDetector
-import com.contextsolutions.localagent.agent.TodoResponseFormatter
-import com.contextsolutions.localagent.agent.TodoToolHandler
+import com.contextsolutions.localagent.agent.MyListCommandParser
+import com.contextsolutions.localagent.agent.MyListIntentDetector
+import com.contextsolutions.localagent.agent.MyListResponseFormatter
+import com.contextsolutions.localagent.agent.MyListToolHandler
 import com.contextsolutions.localagent.agent.WeatherResponseFormatter
 import com.contextsolutions.localagent.agent.currentTimeContext
 import com.contextsolutions.localagent.memory.MemoryBackupController
@@ -128,8 +128,8 @@ import com.contextsolutions.localagent.memory.QuestionDetector
 import com.contextsolutions.localagent.memory.RememberForgetDetector
 import com.contextsolutions.localagent.memory.SqlDelightMemoryStore
 import com.contextsolutions.localagent.memory.TempContextDateParser
-import com.contextsolutions.localagent.todo.SqlDelightTodoRepository
-import com.contextsolutions.localagent.todo.TodoRepository
+import com.contextsolutions.localagent.mylist.SqlDelightMyListRepository
+import com.contextsolutions.localagent.mylist.MyListRepository
 import org.koin.core.qualifier.named
 import com.contextsolutions.localagent.platform.DesktopResources
 import com.contextsolutions.localagent.inference.DesktopMemoryHeadroomProvider
@@ -203,7 +203,7 @@ private const val EMPTY_DEFAULTS_JSON = """{"fallback":"US","countries":{"US":{}
  * file-backed SQLite + PKCS#12 `SecureStorage` + file-JSON preferences, with
  * **search ON** (the four Brave `SearchService` variants + vertical dispatcher,
  * gated by a Brave key from `SecureStorage`/`BRAVE_API_KEY`), **memory** (store +
- * retriever + extractor over the live embedder), and the **todo** tool. Every
+ * retriever + extractor over the live embedder), and the **My List** tool. Every
  * model-dependent piece degrades gracefully when its artifact/key is absent
  * (null engine warmUp, `SearchService.isAvailable()` = false) so the graph
  * resolves with or without the downloaded models / a Brave key present.
@@ -437,7 +437,7 @@ val desktopModule: Module = module {
     single { LocalAgentDatabase(get()) }
     single { get<LocalAgentDatabase>().searchCacheQueries }
     single { get<LocalAgentDatabase>().memoriesQueries }
-    single { get<LocalAgentDatabase>().todosQueries }
+    single { get<LocalAgentDatabase>().myListQueries }
     single { get<LocalAgentDatabase>().telemetryAggregateQueries }
     single { get<LocalAgentDatabase>().tasksQueries }
     // Conversation history — wired on desktop with the Phase-9 Chat surface
@@ -847,10 +847,10 @@ val desktopModule: Module = module {
         )
     }
 
-    // -- Todo subsystem (agent tool). --
-    single<TodoRepository> { SqlDelightTodoRepository(get()) }
-    single { TodoIntentDetector() }
-    single { TodoCommandParser() }
-    single { TodoResponseFormatter() }
-    single { TodoToolHandler(get()) }
+    // -- My List subsystem (agent tool). --
+    single<MyListRepository> { SqlDelightMyListRepository(get()) }
+    single { MyListIntentDetector() }
+    single { MyListCommandParser() }
+    single { MyListResponseFormatter() }
+    single { MyListToolHandler(get()) }
 }

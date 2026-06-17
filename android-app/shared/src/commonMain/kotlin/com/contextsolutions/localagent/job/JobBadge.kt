@@ -26,7 +26,7 @@ internal fun Job.noteworthyRunAtEpochMs(): Long? {
  * Drives the chat-header Jobs-icon count bubble (PR #85, mobile-only). [unseenCount]
  * is the number of jobs whose latest run is noteworthy ([noteworthyRunAtEpochMs])
  * and newer than the persisted "seen" watermark — rendered as a numbered bubble on
- * the Jobs icon (the same style the alarm/timer/todo icons used pre-PR #26).
+ * the Jobs icon (the same style the alarm/timer/my-list icons used pre-PR #26).
  * Opening the Jobs screen calls [markSeen], which advances the watermark to the
  * newest noteworthy run → the count drops to 0 and the bubble disappears.
  *

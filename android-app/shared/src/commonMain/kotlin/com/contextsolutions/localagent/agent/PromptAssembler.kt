@@ -24,8 +24,8 @@ import kotlinx.datetime.LocalDateTime
  *  - Base template (§3)
  *  - Temporal context (§4, regenerated per turn from device clock + locale)
  *  - No-tools block (§7) — LLM tool-calling is fully disabled; all tool
- *    dispatch (clock, todo, memory, search) happens BEFORE the model via
- *    regex/parsers (`ClockCommandParser`, `TodoCommandParser`,
+ *    dispatch (clock, my-list, memory, search) happens BEFORE the model via
+ *    regex/parsers (`ClockCommandParser`, `MyListCommandParser`,
  *    `RememberForgetDetector`) or the pre-flight classifier
  *    (`PreflightRouter`). The LLM only consumes prompt + history + an
  *    optional `[SEARCH CONTEXT]` block when pre-flight fired.
@@ -272,7 +272,7 @@ unnecessary preamble or filler."""
         const val NO_TOOLS_BLOCK: String = """=== Available tools ===
 You have no callable tools this turn. Do NOT emit tool-call markers like
 `<|tool_call>` — the host application strips them and the user will see
-broken text. Clock, alarm, todo, and memory commands are handled by the
+broken text. Clock, alarm, my-list, and memory commands are handled by the
 host BEFORE you see the message; if one reaches you, just answer in plain
 text.
 

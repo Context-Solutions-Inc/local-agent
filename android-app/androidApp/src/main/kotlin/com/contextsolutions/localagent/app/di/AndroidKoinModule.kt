@@ -67,10 +67,10 @@ import com.contextsolutions.localagent.telemetry.TelemetryCounters
 import com.contextsolutions.localagent.telemetry.TelemetryFlusher
 import com.contextsolutions.localagent.agent.ClockToolHandler
 import com.contextsolutions.localagent.agent.StockResponseFormatter
-import com.contextsolutions.localagent.agent.TodoCommandParser
-import com.contextsolutions.localagent.agent.TodoIntentDetector
-import com.contextsolutions.localagent.agent.TodoResponseFormatter
-import com.contextsolutions.localagent.agent.TodoToolHandler
+import com.contextsolutions.localagent.agent.MyListCommandParser
+import com.contextsolutions.localagent.agent.MyListIntentDetector
+import com.contextsolutions.localagent.agent.MyListResponseFormatter
+import com.contextsolutions.localagent.agent.MyListToolHandler
 import com.contextsolutions.localagent.agent.WeatherResponseFormatter
 import com.contextsolutions.localagent.app.service.clock.AndroidAlarmScheduler
 import com.contextsolutions.localagent.app.service.clock.ClockNotifications
@@ -99,8 +99,8 @@ import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.localagent.preferences.WeatherLocationResolver
 import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcherFactory
-import com.contextsolutions.localagent.todo.SqlDelightTodoRepository
-import com.contextsolutions.localagent.todo.TodoRepository
+import com.contextsolutions.localagent.mylist.SqlDelightMyListRepository
+import com.contextsolutions.localagent.mylist.MyListRepository
 import com.contextsolutions.localagent.agent.TranslationIntentDetector
 import com.contextsolutions.localagent.conversation.ConversationRepository
 import com.contextsolutions.localagent.conversation.SqlDelightConversationRepository
@@ -252,7 +252,7 @@ val androidModule: Module = module {
         )
     }
     single { get<LocalAgentDatabase>().conversationsQueries }
-    single { get<LocalAgentDatabase>().todosQueries }
+    single { get<LocalAgentDatabase>().myListQueries }
     single { get<LocalAgentDatabase>().memoriesQueries }
 
     // Bundled DistilBERT/MiniLM WordPiece vocab (shared by classifier + embedder).
@@ -612,13 +612,13 @@ val androidModule: Module = module {
     // Consumed by the AgentLoopFactory binding in the shared agentCoreModule.
     single<AgentLogger> { AgentLogger { Log.i("AgentLoop", it) } }
 
-    // -- Todo subsystem (agent tool). --
-    single<TodoRepository> { SqlDelightTodoRepository(get()) }
-    single { TodoIntentDetector() }
-    single { TodoCommandParser() }
-    single { TodoResponseFormatter() }
-    single { TodoToolHandler(get()) }
-    // TodoViewModel migrated to :ui commonMain (Phase 9 inc 2) — bound in `uiModule`.
+    // -- My List subsystem (agent tool). --
+    single<MyListRepository> { SqlDelightMyListRepository(get()) }
+    single { MyListIntentDetector() }
+    single { MyListCommandParser() }
+    single { MyListResponseFormatter() }
+    single { MyListToolHandler(get()) }
+    // MyListViewModel migrated to :ui commonMain (Phase 9 inc 2) — bound in `uiModule`.
 
     // -- Clock subsystem (agent tool). AlarmScheduler/ClockNotifications are
     //    Android-only; desktop gets coroutine/OS-notification equivalents in Phase 7. --

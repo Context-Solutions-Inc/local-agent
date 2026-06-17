@@ -46,7 +46,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Full-screen timers surface (PR #17). Replaces the prior
- * `ModalBottomSheet`-based `TimerSheet`. Mirrors `TodoManagementScreen`'s
+ * `ModalBottomSheet`-based `TimerSheet`. Mirrors `MyListScreen`'s
  * shape: top bar + LazyColumn + FAB → create-dialog.
  *
  * Each row shows a live-ticking remaining countdown driven by a single

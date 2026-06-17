@@ -65,40 +65,40 @@ object EnglishStrings {
             mapOf("one" to "%1\$d second", "other" to "%1\$d seconds"),
         ),
 
-        // ── Todo ──
-        StringKeys.TODO_GUIDANCE to Simple(
-            "Sorry, I didn't quite understand that todo command. Try " +
-                "phrasings like \"add buy milk to my todos\", \"add finish " +
-                "report with high priority by tomorrow\", \"list my todos\", " +
-                "\"complete #2\", \"delete the gym task\", or \"set #1 to " +
-                "high priority\". Due dates accept today, tomorrow, or an " +
-                "ISO date like 2026-05-20.",
+        // ── My List ──
+        StringKeys.MYLIST_GUIDANCE to Simple(
+            "Sorry, I didn't quite understand that list command. Try " +
+                "phrasings like \"add buy milk to my list\", \"add finish " +
+                "report with high priority by tomorrow to my list\", \"show " +
+                "my list\", \"complete #2 on my list\", \"remove the gym item " +
+                "from my list\", or \"set #1 to high priority on my list\". " +
+                "Due dates accept today, tomorrow, or an ISO date like 2026-05-20.",
         ),
-        StringKeys.TODO_ADDED to Simple("Added \"%1\$s\""),
-        StringKeys.TODO_DUE to Simple("due %1\$s"),
-        StringKeys.TODO_PRIORITY_HIGH to Simple("High"),
-        StringKeys.TODO_PRIORITY_MEDIUM to Simple("Medium"),
-        StringKeys.TODO_PRIORITY_LOW to Simple("Low"),
-        StringKeys.TODO_PRIORITY_TAG to Simple("priority %1\$s"),
-        StringKeys.TODO_NONE_ALL to Simple("You don't have any todos."),
-        StringKeys.TODO_NONE_OPEN to Simple("You don't have any open todos."),
-        StringKeys.TODO_ONE_HEADER to Simple("You have one todo:"),
-        StringKeys.TODO_HEADER to Simple("You have %1\$d todos:"),
-        StringKeys.TODO_DONE_MARKER to Simple("[done]"),
-        StringKeys.TODO_MARKED_DONE to Simple("Marked \"%1\$s\" as done."),
-        StringKeys.TODO_REOPENED to Simple("Reopened \"%1\$s\"."),
-        StringKeys.TODO_DELETED to Simple("Deleted \"%1\$s\"."),
-        StringKeys.TODO_UPDATED to Simple("Updated \"%1\$s\""),
-        StringKeys.TODO_CLEAR_NONE to Simple("No completed todos to clear."),
-        StringKeys.TODO_CLEARED to Plural(
+        StringKeys.MYLIST_ADDED to Simple("Added \"%1\$s\""),
+        StringKeys.MYLIST_DUE to Simple("due %1\$s"),
+        StringKeys.MYLIST_PRIORITY_HIGH to Simple("High"),
+        StringKeys.MYLIST_PRIORITY_MEDIUM to Simple("Medium"),
+        StringKeys.MYLIST_PRIORITY_LOW to Simple("Low"),
+        StringKeys.MYLIST_PRIORITY_TAG to Simple("priority %1\$s"),
+        StringKeys.MYLIST_NONE_ALL to Simple("Your list is empty."),
+        StringKeys.MYLIST_NONE_OPEN to Simple("You don't have any open items."),
+        StringKeys.MYLIST_ONE_HEADER to Simple("You have one item:"),
+        StringKeys.MYLIST_HEADER to Simple("You have %1\$d items:"),
+        StringKeys.MYLIST_DONE_MARKER to Simple("[done]"),
+        StringKeys.MYLIST_MARKED_DONE to Simple("Marked \"%1\$s\" as done."),
+        StringKeys.MYLIST_REOPENED to Simple("Reopened \"%1\$s\"."),
+        StringKeys.MYLIST_DELETED to Simple("Deleted \"%1\$s\"."),
+        StringKeys.MYLIST_UPDATED to Simple("Updated \"%1\$s\""),
+        StringKeys.MYLIST_CLEAR_NONE to Simple("No completed items to clear."),
+        StringKeys.MYLIST_CLEARED to Plural(
             mapOf(
-                "one" to "Cleared %1\$d completed todo.",
-                "other" to "Cleared %1\$d completed todos.",
+                "one" to "Cleared %1\$d completed item.",
+                "other" to "Cleared %1\$d completed items.",
             ),
         ),
-        StringKeys.TODO_DUE_TODAY to Simple("today"),
-        StringKeys.TODO_DUE_TOMORROW to Simple("tomorrow"),
-        StringKeys.TODO_DUE_YESTERDAY to Simple("yesterday"),
+        StringKeys.MYLIST_DUE_TODAY to Simple("today"),
+        StringKeys.MYLIST_DUE_TOMORROW to Simple("tomorrow"),
+        StringKeys.MYLIST_DUE_YESTERDAY to Simple("yesterday"),
 
         // ── Weather ──
         StringKeys.WEATHER_LOCATION_PROMPT to Simple(
@@ -398,7 +398,7 @@ object EnglishStrings {
                 "disabled until the thermal state clears.",
         ),
         StringKeys.CHAT_CD_NEW_CHAT to Simple("New chat"),
-        StringKeys.CHAT_CD_TODOS to Simple("Todos (%1\$d open)"),
+        StringKeys.CHAT_CD_MYLIST to Simple("My List (%1\$d open)"),
         StringKeys.CHAT_CD_TIMERS to Simple("Timers (%1\$d active)"),
         StringKeys.CHAT_CD_ALARMS to Simple("Alarms (%1\$d active)"),
         StringKeys.CHAT_CD_JOBS to Simple("Jobs"),
@@ -617,30 +617,30 @@ object EnglishStrings {
         StringKeys.CLOCK_UI_DAY_SHORT_SAT to Simple("Sat"),
         StringKeys.CLOCK_UI_DAY_SHORT_SUN to Simple("Sun"),
 
-        // ── Todo (UI) ──
-        StringKeys.TODO_UI_TITLE to Simple("Todos"),
-        StringKeys.TODO_UI_EMPTY to Simple("No todos yet."),
-        StringKeys.TODO_UI_EMPTY_HINT to Simple(
-            "Tap + to add one, or ask in chat — try \"add buy milk to my todos\".",
+        // ── My List (UI) ──
+        StringKeys.MYLIST_UI_TITLE to Simple("My List"),
+        StringKeys.MYLIST_UI_EMPTY to Simple("Your list is empty."),
+        StringKeys.MYLIST_UI_EMPTY_HINT to Simple(
+            "Tap + to add one, or ask in chat — try \"add buy milk to my list\".",
         ),
-        StringKeys.TODO_UI_CLEAR_DONE to Simple("Clear done"),
-        StringKeys.TODO_UI_DELETE_TITLE to Simple("Delete todo?"),
-        StringKeys.TODO_UI_DELETE_BODY to Simple("\"%1\$s\" will be permanently removed."),
-        StringKeys.TODO_UI_DELETE to Simple("Delete"),
-        StringKeys.TODO_UI_CANCEL to Simple("Cancel"),
-        StringKeys.TODO_UI_NEW_TODO to Simple("New todo"),
-        StringKeys.TODO_UI_EDIT_TODO to Simple("Edit todo"),
-        StringKeys.TODO_UI_TITLE_LABEL to Simple("Title"),
-        StringKeys.TODO_UI_PRIORITY to Simple("Priority"),
-        StringKeys.TODO_UI_DUE_PREFIX to Simple("Due: "),
-        StringKeys.TODO_UI_SET to Simple("Set"),
-        StringKeys.TODO_UI_CHANGE to Simple("Change"),
-        StringKeys.TODO_UI_NOTES_OPTIONAL to Simple("Notes (optional)"),
-        StringKeys.TODO_UI_ADD to Simple("Add"),
-        StringKeys.TODO_UI_OK to Simple("OK"),
-        StringKeys.TODO_UI_CD_ADD to Simple("Add todo"),
-        StringKeys.TODO_UI_CD_EDIT to Simple("Edit"),
-        StringKeys.TODO_UI_CD_DELETE to Simple("Delete"),
+        StringKeys.MYLIST_UI_CLEAR_DONE to Simple("Clear done"),
+        StringKeys.MYLIST_UI_DELETE_TITLE to Simple("Delete item?"),
+        StringKeys.MYLIST_UI_DELETE_BODY to Simple("\"%1\$s\" will be permanently removed."),
+        StringKeys.MYLIST_UI_DELETE to Simple("Delete"),
+        StringKeys.MYLIST_UI_CANCEL to Simple("Cancel"),
+        StringKeys.MYLIST_UI_NEW_ITEM to Simple("New item"),
+        StringKeys.MYLIST_UI_EDIT_ITEM to Simple("Edit item"),
+        StringKeys.MYLIST_UI_TITLE_LABEL to Simple("Title"),
+        StringKeys.MYLIST_UI_PRIORITY to Simple("Priority"),
+        StringKeys.MYLIST_UI_DUE_PREFIX to Simple("Due: "),
+        StringKeys.MYLIST_UI_SET to Simple("Set"),
+        StringKeys.MYLIST_UI_CHANGE to Simple("Change"),
+        StringKeys.MYLIST_UI_NOTES_OPTIONAL to Simple("Notes (optional)"),
+        StringKeys.MYLIST_UI_ADD to Simple("Add"),
+        StringKeys.MYLIST_UI_OK to Simple("OK"),
+        StringKeys.MYLIST_UI_CD_ADD to Simple("Add item"),
+        StringKeys.MYLIST_UI_CD_EDIT to Simple("Edit"),
+        StringKeys.MYLIST_UI_CD_DELETE to Simple("Delete"),
 
         // ── History ──
         StringKeys.HISTORY_TITLE to Simple("Conversation history"),

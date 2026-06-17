@@ -2,9 +2,9 @@ package com.contextsolutions.localagent.agent
 
 import com.contextsolutions.localagent.inference.PendingToolCall
 import com.contextsolutions.localagent.inference.ToolDefinition
-import com.contextsolutions.localagent.todo.Todo
-import com.contextsolutions.localagent.todo.TodoPriority
-import com.contextsolutions.localagent.todo.TodoRepository
+import com.contextsolutions.localagent.mylist.MyListItem
+import com.contextsolutions.localagent.mylist.MyListItemPriority
+import com.contextsolutions.localagent.mylist.MyListRepository
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import kotlinx.datetime.Clock
@@ -19,25 +19,25 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * Tool handler that exposes the on-device TODO list to the agent layer. Six
+ * Tool handler that exposes the on-device My List to the agent layer. Six
  * tools:
  *
- *  - [ADD_TODO_NAME] — create a new TODO
- *  - [LIST_TODOS_NAME] — read the ordered list
- *  - [COMPLETE_TODO_NAME] — flip the completed flag
- *  - [DELETE_TODO_NAME] — hard-delete a TODO
- *  - [EDIT_TODO_NAME] — patch one or more fields
- *  - [CLEAR_COMPLETED_TODOS_NAME] — bulk-delete completed
+ *  - [ADD_ITEM_NAME] — create a new item
+ *  - [SHOW_LIST_NAME] — read the ordered list
+ *  - [COMPLETE_ITEM_NAME] — flip the completed flag
+ *  - [DELETE_ITEM_NAME] — hard-delete an item
+ *  - [EDIT_ITEM_NAME] — patch one or more fields
+ *  - [CLEAR_COMPLETED_NAME] — bulk-delete completed
  *
  * These tools are dispatched ONLY from the deterministic
- * [TodoCommandParser] path in [AgentLoop]; the model never invokes them
+ * [MyListCommandParser] path in [AgentLoop]; the model never invokes them
  * (the short-circuit fires upstream, and on partial parse we emit static
  * guidance rather than letting Gemma reach for the schemas). The
  * [ToolDefinition]s are still advertised for structural uniformity with
  * the clock surface — keeps the tool-handler registration path identical
  * between the two domains.
  *
- * **Index references**: after every `list_todos` call the handler caches
+ * **Index references**: after every `show_mylist` call the handler caches
  * the returned id order in [lastListedIds]. Subsequent chat references
  * like `complete #2` resolve through this cache. The cache invalidates
  * any time a mutation changes the list size, so a 1-based index from a
@@ -45,27 +45,27 @@ import kotlinx.serialization.json.put
  * a structured error instead.
  */
 @OptIn(ExperimentalUuidApi::class)
-class TodoToolHandler(
-    private val repository: TodoRepository,
+class MyListToolHandler(
+    private val repository: MyListRepository,
     private val clock: Clock = Clock.System,
 ) : ToolHandler {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Snapshot of the id order from the most recent [LIST_TODOS_NAME]
+     * Snapshot of the id order from the most recent [SHOW_LIST_NAME]
      * call. Updated atomically as part of each list response and cleared
      * whenever a mutation observably changes the list size.
      */
     @Volatile private var lastListedIds: List<String> = emptyList()
 
     override val definitions: List<ToolDefinition> = listOf(
-        ToolDefinition(ADD_TODO_NAME, ADD_TODO_SCHEMA),
-        ToolDefinition(LIST_TODOS_NAME, LIST_TODOS_SCHEMA),
-        ToolDefinition(COMPLETE_TODO_NAME, COMPLETE_TODO_SCHEMA),
-        ToolDefinition(DELETE_TODO_NAME, DELETE_TODO_SCHEMA),
-        ToolDefinition(EDIT_TODO_NAME, EDIT_TODO_SCHEMA),
-        ToolDefinition(CLEAR_COMPLETED_TODOS_NAME, CLEAR_COMPLETED_TODOS_SCHEMA),
+        ToolDefinition(ADD_ITEM_NAME, ADD_ITEM_SCHEMA),
+        ToolDefinition(SHOW_LIST_NAME, SHOW_LIST_SCHEMA),
+        ToolDefinition(COMPLETE_ITEM_NAME, COMPLETE_ITEM_SCHEMA),
+        ToolDefinition(DELETE_ITEM_NAME, DELETE_ITEM_SCHEMA),
+        ToolDefinition(EDIT_ITEM_NAME, EDIT_ITEM_SCHEMA),
+        ToolDefinition(CLEAR_COMPLETED_NAME, CLEAR_COMPLETED_SCHEMA),
     )
 
     private val toolNames: Set<String> = definitions.map { it.name }.toSet()
@@ -75,12 +75,12 @@ class TodoToolHandler(
     override suspend fun execute(call: PendingToolCall): String {
         val args = parseArgs(call.argumentsJson) ?: return errorPayload("could not parse arguments")
         return when (call.name) {
-            ADD_TODO_NAME -> handleAdd(args)
-            LIST_TODOS_NAME -> handleList(args)
-            COMPLETE_TODO_NAME -> handleComplete(args)
-            DELETE_TODO_NAME -> handleDelete(args)
-            EDIT_TODO_NAME -> handleEdit(args)
-            CLEAR_COMPLETED_TODOS_NAME -> handleClearCompleted()
+            ADD_ITEM_NAME -> handleAdd(args)
+            SHOW_LIST_NAME -> handleList(args)
+            COMPLETE_ITEM_NAME -> handleComplete(args)
+            DELETE_ITEM_NAME -> handleDelete(args)
+            EDIT_ITEM_NAME -> handleEdit(args)
+            CLEAR_COMPLETED_NAME -> handleClearCompleted()
             else -> errorPayload("unknown tool '${call.name}'")
         }
     }
@@ -89,12 +89,12 @@ class TodoToolHandler(
         val title = args["title"]?.asStringOrNull()?.trim()
             ?: return errorPayload("'title' is required")
         if (title.isBlank()) return errorPayload("'title' is required")
-        val priority = args["priority"]?.asStringOrNull()?.let(::parsePriority) ?: TodoPriority.MEDIUM
+        val priority = args["priority"]?.asStringOrNull()?.let(::parsePriority) ?: MyListItemPriority.MEDIUM
         val dueDate = args["due_date_epoch_ms"]?.asLong()
         val notes = args["notes"]?.asStringOrNull()
         val now = clock.now().toEpochMilliseconds()
-        val todo = repository.create(
-            id = newTodoId(),
+        val item = repository.create(
+            id = newItemId(),
             title = title,
             priority = priority,
             dueDateEpochMs = dueDate,
@@ -104,23 +104,23 @@ class TodoToolHandler(
         invalidateListCache()
         return resultJson {
             put("status", "ok")
-            put("id", todo.id)
-            put("title", todo.title)
-            put("priority", todo.priority.name)
-            todo.dueDateEpochMs?.let { put("due_date_epoch_ms", it) }
+            put("id", item.id)
+            put("title", item.title)
+            put("priority", item.priority.name)
+            item.dueDateEpochMs?.let { put("due_date_epoch_ms", it) }
         }
     }
 
     private suspend fun handleList(args: JsonObject): String {
         val includeCompleted = args["include_completed"]?.asBoolean() ?: false
-        val todos = if (includeCompleted) repository.snapshot() else repository.snapshotActive()
-        lastListedIds = todos.map { it.id }
+        val items = if (includeCompleted) repository.snapshot() else repository.snapshotActive()
+        lastListedIds = items.map { it.id }
         return resultJson {
             put("status", "ok")
-            put("count", todos.size)
+            put("count", items.size)
             put("include_completed", includeCompleted)
-            put("todos", buildJsonArray {
-                todos.forEachIndexed { i, t ->
+            put("items", buildJsonArray {
+                items.forEachIndexed { i, t ->
                     add(buildJsonObject {
                         put("index", (i + 1).toLong())
                         put("id", t.id)
@@ -136,10 +136,10 @@ class TodoToolHandler(
 
     private suspend fun handleComplete(args: JsonObject): String {
         val completed = args["completed"]?.asBoolean() ?: true
-        val target = resolveRef(args) ?: return errorPayload("could not find a matching todo")
+        val target = resolveRef(args) ?: return errorPayload("could not find a matching item")
         val now = clock.now().toEpochMilliseconds()
         val updated = repository.setCompleted(target.id, completed, now)
-            ?: return errorPayload("todo no longer exists")
+            ?: return errorPayload("item no longer exists")
         return resultJson {
             put("status", "ok")
             put("id", updated.id)
@@ -149,9 +149,9 @@ class TodoToolHandler(
     }
 
     private suspend fun handleDelete(args: JsonObject): String {
-        val target = resolveRef(args) ?: return errorPayload("could not find a matching todo")
+        val target = resolveRef(args) ?: return errorPayload("could not find a matching item")
         val deleted = repository.delete(target.id)
-        if (!deleted) return errorPayload("todo no longer exists")
+        if (!deleted) return errorPayload("item no longer exists")
         invalidateListCache()
         return resultJson {
             put("status", "ok")
@@ -161,7 +161,7 @@ class TodoToolHandler(
     }
 
     private suspend fun handleEdit(args: JsonObject): String {
-        val target = resolveRef(args) ?: return errorPayload("could not find a matching todo")
+        val target = resolveRef(args) ?: return errorPayload("could not find a matching item")
         val newTitle = args["title"]?.asStringOrNull()?.trim()?.takeIf { it.isNotBlank() } ?: target.title
         val priorityArg = args["priority"]?.asStringOrNull()
         val priority = priorityArg?.let(::parsePriority) ?: target.priority
@@ -187,7 +187,7 @@ class TodoToolHandler(
                 notes = notes,
             ),
             nowEpochMs = now,
-        ) ?: return errorPayload("todo no longer exists")
+        ) ?: return errorPayload("item no longer exists")
         return resultJson {
             put("status", "ok")
             put("id", updated.id)
@@ -208,10 +208,10 @@ class TodoToolHandler(
 
     /**
      * Resolve a ref-shaped args bundle (`id` / `index` / `title_substring`)
-     * to an actual [Todo]. Returns null when nothing matches; the caller
-     * formats that into an error response.
+     * to an actual [MyListItem]. Returns null when nothing matches; the
+     * caller formats that into an error response.
      */
-    private suspend fun resolveRef(args: JsonObject): Todo? {
+    private suspend fun resolveRef(args: JsonObject): MyListItem? {
         val id = args["id"]?.asStringOrNull()
         val index = args["index"]?.asInt()
         val needle = args["title_substring"]?.asStringOrNull()
@@ -228,12 +228,12 @@ class TodoToolHandler(
         }
     }
 
-    private suspend fun matchByTitle(needle: String): Todo? {
+    private suspend fun matchByTitle(needle: String): MyListItem? {
         val canon = needle.trim().lowercase()
         if (canon.isBlank()) return null
         val all = repository.snapshot()
         // Active rows preferred so "complete the milk" doesn't match an
-        // already-completed milk task. If no active match, fall through
+        // already-completed milk item. If no active match, fall through
         // to completed (so 'reopen the milk' still works).
         val active = all.filter { !it.completed && it.title.lowercase().contains(canon) }
         if (active.size == 1) return active.single()
@@ -244,7 +244,7 @@ class TodoToolHandler(
 
     private fun invalidateListCache() {
         // Mutations always desync the cached indices; clearing here forces
-        // a fresh `list_todos` before the next #N reference can resolve.
+        // a fresh `show_mylist` before the next #N reference can resolve.
         lastListedIds = emptyList()
     }
 
@@ -266,12 +266,12 @@ class TodoToolHandler(
         put("message", message)
     }
 
-    private fun newTodoId(): String = "todo-${Uuid.random()}"
+    private fun newItemId(): String = "mylist-${Uuid.random()}"
 
-    private fun parsePriority(raw: String): TodoPriority? = when (raw.trim().uppercase()) {
-        "LOW" -> TodoPriority.LOW
-        "MEDIUM", "MED", "NORMAL" -> TodoPriority.MEDIUM
-        "HIGH", "URGENT" -> TodoPriority.HIGH
+    private fun parsePriority(raw: String): MyListItemPriority? = when (raw.trim().uppercase()) {
+        "LOW" -> MyListItemPriority.LOW
+        "MEDIUM", "MED", "NORMAL" -> MyListItemPriority.MEDIUM
+        "HIGH", "URGENT" -> MyListItemPriority.HIGH
         else -> null
     }
 
@@ -304,22 +304,22 @@ class TodoToolHandler(
     }
 
     companion object {
-        const val ADD_TODO_NAME = "add_todo"
-        const val LIST_TODOS_NAME = "list_todos"
-        const val COMPLETE_TODO_NAME = "complete_todo"
-        const val DELETE_TODO_NAME = "delete_todo"
-        const val EDIT_TODO_NAME = "edit_todo"
-        const val CLEAR_COMPLETED_TODOS_NAME = "clear_completed_todos"
+        const val ADD_ITEM_NAME = "add_mylist_item"
+        const val SHOW_LIST_NAME = "show_mylist"
+        const val COMPLETE_ITEM_NAME = "complete_mylist_item"
+        const val DELETE_ITEM_NAME = "delete_mylist_item"
+        const val EDIT_ITEM_NAME = "edit_mylist_item"
+        const val CLEAR_COMPLETED_NAME = "clear_completed_mylist_items"
 
         // Schemas are intentionally terse. The deterministic parser is the
         // canonical entry point for these tools — the LLM rarely (in
-        // practice never) sees a TODO turn, since intent detection upstream
-        // short-circuits with either a deterministic dispatch or a
+        // practice never) sees a My List turn, since intent detection
+        // upstream short-circuits with either a deterministic dispatch or a
         // guidance reply. We still ship schemas so the ToolHandler contract
         // stays uniform across domains.
-        const val ADD_TODO_SCHEMA = """{
-  "name": "add_todo",
-  "description": "Create a TODO list item.",
+        const val ADD_ITEM_SCHEMA = """{
+  "name": "add_mylist_item",
+  "description": "Create a My List item.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -332,34 +332,34 @@ class TodoToolHandler(
   }
 }"""
 
-        const val LIST_TODOS_SCHEMA = """{
-  "name": "list_todos",
-  "description": "List TODO items. By default, active (not-completed) only.",
+        const val SHOW_LIST_SCHEMA = """{
+  "name": "show_mylist",
+  "description": "Show My List items. By default, active (not-completed) only.",
   "parameters": {
     "type": "object",
     "properties": {
-      "include_completed": {"type": "boolean", "description": "If true, completed TODOs are included."}
+      "include_completed": {"type": "boolean", "description": "If true, completed items are included."}
     }
   }
 }"""
 
-        const val COMPLETE_TODO_SCHEMA = """{
-  "name": "complete_todo",
-  "description": "Mark a TODO as completed (or reopen one). Reference the item by id, index (1-based from the most recent list_todos), or title substring.",
+        const val COMPLETE_ITEM_SCHEMA = """{
+  "name": "complete_mylist_item",
+  "description": "Mark a My List item as completed (or reopen one). Reference the item by id, index (1-based from the most recent show_mylist), or title substring.",
   "parameters": {
     "type": "object",
     "properties": {
-      "id": {"type": "string", "description": "Exact id from list_todos."},
-      "index": {"type": "integer", "description": "1-based index from the most recent list_todos."},
+      "id": {"type": "string", "description": "Exact id from show_mylist."},
+      "index": {"type": "integer", "description": "1-based index from the most recent show_mylist."},
       "title_substring": {"type": "string", "description": "Case-insensitive substring match on title."},
       "completed": {"type": "boolean", "description": "If false, reopen instead of completing. Defaults to true."}
     }
   }
 }"""
 
-        const val DELETE_TODO_SCHEMA = """{
-  "name": "delete_todo",
-  "description": "Hard-delete a TODO. Reference by id, index, or title substring.",
+        const val DELETE_ITEM_SCHEMA = """{
+  "name": "delete_mylist_item",
+  "description": "Hard-delete a My List item. Reference by id, index, or title substring.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -370,9 +370,9 @@ class TodoToolHandler(
   }
 }"""
 
-        const val EDIT_TODO_SCHEMA = """{
-  "name": "edit_todo",
-  "description": "Patch one or more fields on a TODO. Fields omitted from the call are left unchanged.",
+        const val EDIT_ITEM_SCHEMA = """{
+  "name": "edit_mylist_item",
+  "description": "Patch one or more fields on a My List item. Fields omitted from the call are left unchanged.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -387,9 +387,9 @@ class TodoToolHandler(
   }
 }"""
 
-        const val CLEAR_COMPLETED_TODOS_SCHEMA = """{
-  "name": "clear_completed_todos",
-  "description": "Hard-delete every completed TODO.",
+        const val CLEAR_COMPLETED_SCHEMA = """{
+  "name": "clear_completed_mylist_items",
+  "description": "Hard-delete every completed My List item.",
   "parameters": {"type": "object", "properties": {}}
 }"""
     }

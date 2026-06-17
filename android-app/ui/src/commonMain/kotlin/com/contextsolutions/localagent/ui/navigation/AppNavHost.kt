@@ -16,7 +16,7 @@ import com.contextsolutions.localagent.ui.memory.MemoryScreen
 import com.contextsolutions.localagent.ui.onboarding.OnboardingHost
 import com.contextsolutions.localagent.ui.settings.SearchSourcesScreen
 import com.contextsolutions.localagent.ui.settings.SettingsScreen
-import com.contextsolutions.localagent.ui.todo.TodoManagementScreen
+import com.contextsolutions.localagent.ui.mylist.MyListScreen
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -66,7 +66,7 @@ fun AppNavHost(
                 onOpenConversationMemory = { conversationId ->
                     route = MainRoute.ConversationMemory(conversationId)
                 },
-                onOpenTodos = { route = MainRoute.TodoManagement },
+                onOpenMyList = { route = MainRoute.MyListManagement },
                 onOpenTimers = { route = MainRoute.TimerManagement },
                 onOpenAlarms = { route = MainRoute.AlarmManagement },
                 onOpenJobs = { route = MainRoute.JobManagement },
@@ -84,9 +84,9 @@ fun AppNavHost(
                 },
             )
         }
-        MainRoute.TodoManagement -> {
+        MainRoute.MyListManagement -> {
             PlatformBackHandler { route = MainRoute.Chat }
-            TodoManagementScreen(onBack = { route = MainRoute.Chat })
+            MyListScreen(onBack = { route = MainRoute.Chat })
         }
         MainRoute.TimerManagement -> {
             PlatformBackHandler { route = MainRoute.Chat }

@@ -22,7 +22,7 @@ import com.contextsolutions.localagent.search.BraveSearchClient
 import com.contextsolutions.localagent.search.BraveSearchResult
 import com.contextsolutions.localagent.search.SearchCacheDao
 import com.contextsolutions.localagent.search.SearchService
-import com.contextsolutions.localagent.todo.SqlDelightTodoRepository
+import com.contextsolutions.localagent.mylist.SqlDelightMyListRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -44,7 +44,7 @@ import org.junit.Test
  *    about the image, not the web),
  *  - rides on the trailing user turn as `HistoryMessage.imageBytes`,
  *  - keeps the engine's warm default sampling (not the search-grounded GREEDY),
- *  - bypasses the deterministic clock/todo short-circuits even when the text
+ *  - bypasses the deterministic clock/my-list short-circuits even when the text
  *    would otherwise match them,
  *  - never leaks into future-turn history (ephemeral).
  */
@@ -122,17 +122,17 @@ class AgentLoopImageTest {
     @Test
     fun image_turn_bypasses_clock_short_circuit_and_reaches_engine() = runTest {
         val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
-        val todoRepo = SqlDelightTodoRepository(db.todosQueries, ioDispatcher = Dispatchers.Unconfined)
+        val myListRepo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
 
         // Control: clock-shaped text with NO image short-circuits (engine skipped).
         val controlSession = RecordingSession(FakeSession(emitText = "should not run"))
-        buildLoop(controlSession, service, RecordingClassifierEngine(floatArrayOf(0f, 5f, 0f)), listOf(TodoToolHandler(todoRepo)))
+        buildLoop(controlSession, service, RecordingClassifierEngine(floatArrayOf(0f, 5f, 0f)), listOf(MyListToolHandler(myListRepo)))
             .run(AgentTurnInput("set a timer for 5 minutes")).toList()
         assertTrue("control: clock turn must skip the engine", controlSession.requests.isEmpty())
 
         // With an image, the same text bypasses the clock short-circuit and runs.
         val imageSession = RecordingSession(FakeSession(emitText = "It's a kitchen timer."))
-        buildLoop(imageSession, service, RecordingClassifierEngine(floatArrayOf(0f, 5f, 0f)), listOf(TodoToolHandler(todoRepo)))
+        buildLoop(imageSession, service, RecordingClassifierEngine(floatArrayOf(0f, 5f, 0f)), listOf(MyListToolHandler(myListRepo)))
             .run(AgentTurnInput("set a timer for 5 minutes", imageBytes = byteArrayOf(7))).toList()
         assertTrue("image turn must reach the engine", imageSession.requests.isNotEmpty())
         assertTrue(imageSession.requests.single().history.last().imageBytes != null)

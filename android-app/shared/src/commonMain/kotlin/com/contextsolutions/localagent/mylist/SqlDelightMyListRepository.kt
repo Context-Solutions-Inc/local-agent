@@ -1,6 +1,6 @@
-package com.contextsolutions.localagent.todo
+package com.contextsolutions.localagent.mylist
 
-import com.contextsolutions.localagent.db.TodosQueries
+import com.contextsolutions.localagent.db.MyListQueries
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,46 +9,46 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * SQLDelight-backed [TodoRepository]. Every mutation runs on [ioDispatcher]
+ * SQLDelight-backed [MyListRepository]. Every mutation runs on [ioDispatcher]
  * (default `Dispatchers.IO`) and republishes the full ordered list through
  * [flow] so the management screen and chat handler see the change live.
  *
  * The StateFlow is seeded synchronously at construction. SQLDelight's
- * Android/JDBC drivers run queries on the calling thread, and the `todos`
+ * Android/JDBC drivers run queries on the calling thread, and the `mylist`
  * table stays small (the UX caps practical use well under a few hundred
  * rows), so this initial read is bounded; a lazy seed flickered the
  * management screen with an empty list before the first IO-thread refresh.
  */
-class SqlDelightTodoRepository(
-    private val queries: TodosQueries,
+class SqlDelightMyListRepository(
+    private val queries: MyListQueries,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : TodoRepository {
+) : MyListRepository {
 
-    private val state: MutableStateFlow<List<Todo>> = MutableStateFlow(readAllOrdered())
+    private val state: MutableStateFlow<List<MyListItem>> = MutableStateFlow(readAllOrdered())
 
-    override fun flow(): StateFlow<List<Todo>> = state.asStateFlow()
+    override fun flow(): StateFlow<List<MyListItem>> = state.asStateFlow()
 
-    override suspend fun snapshot(): List<Todo> = withContext(ioDispatcher) {
+    override suspend fun snapshot(): List<MyListItem> = withContext(ioDispatcher) {
         readAllOrdered()
     }
 
-    override suspend fun snapshotActive(): List<Todo> = withContext(ioDispatcher) {
-        queries.selectActive().executeAsList().map(::rowToTodo)
+    override suspend fun snapshotActive(): List<MyListItem> = withContext(ioDispatcher) {
+        queries.selectActive().executeAsList().map(::rowToItem)
     }
 
-    override suspend fun get(id: String): Todo? = withContext(ioDispatcher) {
-        queries.selectById(id).executeAsOneOrNull()?.let(::rowToTodo)
+    override suspend fun get(id: String): MyListItem? = withContext(ioDispatcher) {
+        queries.selectById(id).executeAsOneOrNull()?.let(::rowToItem)
     }
 
     override suspend fun create(
         id: String,
         title: String,
-        priority: TodoPriority,
+        priority: MyListItemPriority,
         dueDateEpochMs: Long?,
         notes: String?,
         nowEpochMs: Long,
-    ): Todo = withContext(ioDispatcher) {
-        queries.insertTodo(
+    ): MyListItem = withContext(ioDispatcher) {
+        queries.insertItem(
             id = id,
             title = title,
             priority = priority.name,
@@ -58,7 +58,7 @@ class SqlDelightTodoRepository(
             notes = notes,
         )
         state.value = readAllOrdered()
-        Todo(
+        MyListItem(
             id = id,
             title = title,
             priority = priority,
@@ -70,18 +70,18 @@ class SqlDelightTodoRepository(
         )
     }
 
-    override suspend fun update(todo: Todo, nowEpochMs: Long): Todo? = withContext(ioDispatcher) {
-        val existing = queries.selectById(todo.id).executeAsOneOrNull() ?: return@withContext null
+    override suspend fun update(item: MyListItem, nowEpochMs: Long): MyListItem? = withContext(ioDispatcher) {
+        val existing = queries.selectById(item.id).executeAsOneOrNull() ?: return@withContext null
         queries.update(
-            title = todo.title,
-            priority = todo.priority.name,
-            due_date_epoch_ms = todo.dueDateEpochMs,
-            notes = todo.notes,
+            title = item.title,
+            priority = item.priority.name,
+            due_date_epoch_ms = item.dueDateEpochMs,
+            notes = item.notes,
             updated_at_epoch_ms = nowEpochMs,
-            id = todo.id,
+            id = item.id,
         )
         state.value = readAllOrdered()
-        todo.copy(
+        item.copy(
             createdAtEpochMs = existing.created_at_epoch_ms,
             updatedAtEpochMs = nowEpochMs,
             completed = existing.completed == 1L,
@@ -92,7 +92,7 @@ class SqlDelightTodoRepository(
         id: String,
         completed: Boolean,
         nowEpochMs: Long,
-    ): Todo? = withContext(ioDispatcher) {
+    ): MyListItem? = withContext(ioDispatcher) {
         if (queries.selectById(id).executeAsOneOrNull() == null) return@withContext null
         queries.setCompleted(
             completed = if (completed) 1L else 0L,
@@ -100,7 +100,7 @@ class SqlDelightTodoRepository(
             id = id,
         )
         state.value = readAllOrdered()
-        queries.selectById(id).executeAsOneOrNull()?.let(::rowToTodo)
+        queries.selectById(id).executeAsOneOrNull()?.let(::rowToItem)
     }
 
     override suspend fun delete(id: String): Boolean = withContext(ioDispatcher) {
@@ -121,10 +121,10 @@ class SqlDelightTodoRepository(
         before
     }
 
-    private fun readAllOrdered(): List<Todo> =
-        queries.selectAll().executeAsList().map(::rowToTodo)
+    private fun readAllOrdered(): List<MyListItem> =
+        queries.selectAll().executeAsList().map(::rowToItem)
 
-    private fun rowToTodo(row: com.contextsolutions.localagent.db.Todos): Todo = Todo(
+    private fun rowToItem(row: com.contextsolutions.localagent.db.Mylist): MyListItem = MyListItem(
         id = row.id,
         title = row.title,
         priority = parsePriority(row.priority),
@@ -135,6 +135,6 @@ class SqlDelightTodoRepository(
         notes = row.notes,
     )
 
-    private fun parsePriority(raw: String): TodoPriority =
-        runCatching { TodoPriority.valueOf(raw.uppercase()) }.getOrDefault(TodoPriority.MEDIUM)
+    private fun parsePriority(raw: String): MyListItemPriority =
+        runCatching { MyListItemPriority.valueOf(raw.uppercase()) }.getOrDefault(MyListItemPriority.MEDIUM)
 }

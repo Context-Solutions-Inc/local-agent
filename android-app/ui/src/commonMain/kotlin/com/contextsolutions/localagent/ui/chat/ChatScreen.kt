@@ -102,7 +102,7 @@ import com.contextsolutions.localagent.ui.clock.ClockViewModel
 import com.contextsolutions.localagent.ui.icons.RuleSettingsIcon
 import com.contextsolutions.localagent.ui.platform.isDesktopPlatform
 import com.contextsolutions.localagent.ui.markdown.MarkdownMath
-import com.contextsolutions.localagent.ui.todo.TodoViewModel
+import com.contextsolutions.localagent.ui.mylist.MyListViewModel
 import com.contextsolutions.localagent.ui.util.AccessibilityAnnouncer
 import com.contextsolutions.localagent.ui.util.decodeImageBitmap
 import com.contextsolutions.localagent.ui.util.rememberAccessibilityAnnouncer
@@ -132,19 +132,19 @@ import org.koin.compose.viewmodel.koinViewModel
 fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenConversationMemory: (conversationId: String) -> Unit,
-    onOpenTodos: () -> Unit,
+    onOpenMyList: () -> Unit,
     onOpenTimers: () -> Unit,
     onOpenAlarms: () -> Unit,
     onOpenJobs: () -> Unit,
     viewModel: ChatViewModel = koinViewModel(),
     clockViewModel: ClockViewModel = koinViewModel(),
-    todoViewModel: TodoViewModel = koinViewModel(),
+    myListViewModel: MyListViewModel = koinViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val session by viewModel.sessionState.collectAsState()
     val timers by clockViewModel.timers.collectAsState()
     val alarms by clockViewModel.alarms.collectAsState()
-    val activeTodoCount by todoViewModel.activeCount.collectAsState()
+    val activeMyListCount by myListViewModel.activeCount.collectAsState()
     var input by remember { mutableStateOf("") }
     // PR #67 — `input` is what the box SHOWS (and the user can type into);
     // `committedInput` is the stable text minus any in-flight dictation partial.
@@ -488,16 +488,16 @@ fun ChatScreen(
                             contentDescription = tr(StringKeys.CHAT_CD_NEW_CHAT),
                         )
                     }
-                    // PR #15 — TODO entry point. Count is folded into the
+                    // PR #15 — My List entry point. Count is folded into the
                     // accessibility label only; the visual badge was
                     // removed in PR #26.
-                    // PR #57 — todos/timers/alarms are mobile-only for now, so
+                    // PR #57 — my-list/timers/alarms are mobile-only for now, so
                     // these entry points are hidden on the desktop app.
                     if (!isDesktopPlatform) {
                         ClockIconButton(
                             icon = Icons.Filled.Checklist,
-                            contentDescription = tr(StringKeys.CHAT_CD_TODOS, activeTodoCount),
-                            onClick = onOpenTodos,
+                            contentDescription = tr(StringKeys.CHAT_CD_MYLIST, activeMyListCount),
+                            onClick = onOpenMyList,
                         )
                         // PR #11 — clock entry points. Always shown so the user
                         // can create the first timer/alarm.
@@ -522,7 +522,7 @@ fun ChatScreen(
                     if (isDesktopPlatform || jobsLinkStatus != DesktopLinkStatus.DISABLED) {
                         // PR #85 — numbered bubble when synced job runs finished unseen
                         // (mobile-only: JobBadge is bound on Android, absent on desktop).
-                        // Same count-bubble style the alarm/timer/todo icons used pre-#26:
+                        // Same count-bubble style the alarm/timer/my-list icons used pre-#26:
                         // the bubble matches the icon's tint so it reads as part of the icon.
                         val jobBadge = getKoin().getOrNull<JobBadge>()
                         val unseenFlow = remember(jobBadge) { jobBadge?.unseenCount ?: MutableStateFlow(0) }

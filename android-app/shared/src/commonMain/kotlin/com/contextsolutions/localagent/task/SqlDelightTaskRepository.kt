@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 
 /**
  * SQLDelight-backed [TaskRepository] (docs/DESKTOP_PORT_PLAN.md, Phase 7).
- * Mirrors [com.contextsolutions.localagent.todo.SqlDelightTodoRepository]: a
+ * Mirrors [com.contextsolutions.localagent.mylist.SqlDelightMyListRepository]: a
  * [MutableStateFlow] seeded synchronously at construction, mutations on
  * [ioDispatcher], full ordered list republished on every change so the tray/UI
  * sees progress live.

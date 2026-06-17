@@ -38,7 +38,7 @@ sealed interface AgentEvent {
     /**
      * The LLM is about to start streaming tokens. Emitted only on the model
      * inference path — the deterministic short-circuits (weather/finance cards,
-     * clock/timer/alarm, todo, memory-ack, weather-location prompt) return
+     * clock/timer/alarm, my-list, memory-ack, weather-location prompt) return
      * before this point and never fire it. The UI uses it to play the spoken
      * "working on it" acknowledgement in speaker mode, so that cue is suppressed
      * on the fast deterministic renders.
@@ -89,7 +89,7 @@ data class AgentTurnInput(
     val history: List<ChatMessage> = emptyList(),
     /**
      * Optional photo (downscaled JPEG) attached to this turn (PR #48). When
-     * present the loop skips preflight/search and the deterministic clock/todo/
+     * present the loop skips preflight/search and the deterministic clock/my-list/
      * memory short-circuits, sending the image straight to the model for a
      * vision-grounded answer. Ephemeral: not persisted with the turn.
      */

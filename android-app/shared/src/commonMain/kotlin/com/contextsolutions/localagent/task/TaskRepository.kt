@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
  * [TaskQueue] drives it; the tray/UI observes [flow].
  *
  * In `commonMain` (with the SQLDelight impl) so a future Android task queue can
- * reuse it. Mirrors [com.contextsolutions.localagent.todo.TodoRepository]'s
+ * reuse it. Mirrors [com.contextsolutions.localagent.mylist.MyListRepository]'s
  * shape: a synchronously-seeded [StateFlow] republished on every mutation.
  */
 interface TaskRepository {

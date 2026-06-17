@@ -590,7 +590,7 @@ class ChatViewModel(
                 // silent gap before the full answer is read aloud (we wait for
                 // the complete response rather than speaking streaming tokens,
                 // which jitters). Fires only on real LLM turns — the
-                // deterministic weather/finance/clock/todo renders never emit
+                // deterministic weather/finance/clock/my-list renders never emit
                 // GenerationStarted, so the cue is suppressed there. The
                 // finished answer's QUEUE_FLUSH speak flushes this when Done
                 // arrives, so they never overlap.

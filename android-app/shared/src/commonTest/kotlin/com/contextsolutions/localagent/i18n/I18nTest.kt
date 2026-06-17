@@ -113,7 +113,7 @@ class I18nTest {
           "_meta": { "code": "es", "plurals": "english" },
           "${StringKeys.COMMON_DONE}": "Hecho.",
           "${StringKeys.WEATHER_HEADER}": "Tiempo en %1${d}s",
-          "${StringKeys.TODO_CLEARED}": { "one": "Se borró %1${d}d tarea.", "other": "Se borraron %1${d}d tareas." }
+          "${StringKeys.MYLIST_CLEARED}": { "one": "Se borró %1${d}d tarea.", "other": "Se borraron %1${d}d tareas." }
         }
     """.trimIndent()
 
@@ -132,8 +132,8 @@ class I18nTest {
     fun plural_uses_active_pack_forms_when_present() {
         val es = StringPack.parse(esPackJson, "es")
         val strings = Strings(active = es, fallback = EnglishStrings.pack)
-        assertEquals("Se borró 1 tarea.", strings.plural(StringKeys.TODO_CLEARED, 1, 1))
-        assertEquals("Se borraron 3 tareas.", strings.plural(StringKeys.TODO_CLEARED, 3, 3))
+        assertEquals("Se borró 1 tarea.", strings.plural(StringKeys.MYLIST_CLEARED, 1, 1))
+        assertEquals("Se borraron 3 tareas.", strings.plural(StringKeys.MYLIST_CLEARED, 3, 3))
     }
 
     @Test
@@ -155,13 +155,13 @@ class I18nTest {
         val ruJson = """
             {
               "_meta": { "code": "ru", "plurals": "russian" },
-              "${StringKeys.TODO_CLEARED}": { "one": "%1${d}d-one", "few": "%1${d}d-few", "many": "%1${d}d-many" }
+              "${StringKeys.MYLIST_CLEARED}": { "one": "%1${d}d-one", "few": "%1${d}d-few", "many": "%1${d}d-many" }
             }
         """.trimIndent()
         val ru = StringPack.parse(ruJson, "ru")
         val strings = Strings(active = ru, fallback = EnglishStrings.pack)
-        assertEquals("1-one", strings.plural(StringKeys.TODO_CLEARED, 1, 1))
-        assertEquals("3-few", strings.plural(StringKeys.TODO_CLEARED, 3, 3))
-        assertEquals("5-many", strings.plural(StringKeys.TODO_CLEARED, 5, 5))
+        assertEquals("1-one", strings.plural(StringKeys.MYLIST_CLEARED, 1, 1))
+        assertEquals("3-few", strings.plural(StringKeys.MYLIST_CLEARED, 3, 3))
+        assertEquals("5-many", strings.plural(StringKeys.MYLIST_CLEARED, 5, 5))
     }
 }

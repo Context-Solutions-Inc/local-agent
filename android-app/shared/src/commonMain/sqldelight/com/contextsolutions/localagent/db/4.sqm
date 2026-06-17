@@ -1,4 +1,4 @@
--- Migration v4 -> v5 (PR #15, TODO list feature).
+-- Migration v4 -> v5 (PR #15, My List feature; table named `todos` here, renamed to `mylist` in 10.sqm / PR #99).
 --
 -- Adds a fresh `todos` table for the on-device TODO list — no ALTERs to
 -- existing tables. Column order matches Todos.sq exactly so

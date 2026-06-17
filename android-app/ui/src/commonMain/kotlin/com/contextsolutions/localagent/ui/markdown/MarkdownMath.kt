@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
  * persisted `renderMarkdown` flag (invariant #41).
  *
  * The gate itself is common: when [renderMarkdown] is false (deterministic
- * weather/finance cards, clock/todo handlers, and every search-grounded LLM
+ * weather/finance cards, clock/my-list handlers, and every search-grounded LLM
  * turn) the text renders as plain `bodyMedium` — markdown reflow would mangle
  * verbatim figures/citations. When true (a freely-composed answer) it renders
  * markdown + LaTeX via the platform [PlatformMarkdownMath] actual: Markwon +
