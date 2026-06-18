@@ -113,6 +113,86 @@ class LlmContextPostProcessorTest {
     }
 
     @Test
+    fun `flattens a source whose snippets are all table-json to prose lines`() {
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://en.wikipedia.org/2026_in_sports",
+                    title = "2026 in sports",
+                    snippets = listOf(
+                        """
+                        {"title":"Major sporting events 2026","table":[
+                          {"Date":"1st - 5 June 2026","Place / Country":"Belgium","Competition":"Cycling - Ethias-Tour de Wallonie"},
+                          {"Date":"7 June 2026","Place / Country":"Belgium","Competition":"Cycling - Brussels Cycling Classic"}
+                        ]}
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+        val snippet = out.sources.single().snippet
+        // Source survives (would previously be dropped → whole search fails).
+        assertEquals(
+            "Major sporting events 2026 — 1st - 5 June 2026 — Belgium — Cycling - Ethias-Tour de Wallonie\n" +
+                "Major sporting events 2026 — 7 June 2026 — Belgium — Cycling - Brussels Cycling Classic",
+            snippet,
+        )
+        // No raw JSON braces/keys reach the model.
+        assertTrue("no json braces survive", snippet.none { it == '{' || it == '}' || it == '"' })
+    }
+
+    @Test
+    fun `still drops a non-table json blob`() {
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://a",
+                    title = "video only",
+                    snippets = listOf(
+                        "{\"@type\":\"VideoObject\",\"contentUrl\":\"https://x/097aa94d.mp4\",\"duration\":\"PT0M55S\"}",
+                    ),
+                ),
+                entry(url = "https://b", title = "kept", snippets = listOf("Pistons 111, Cavaliers 101")),
+            ),
+        )
+        assertEquals(listOf("https://b"), out.sources.map { it.url })
+    }
+
+    @Test
+    fun `merges prose and table snippets in one source`() {
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://a",
+                    title = "Events",
+                    snippets = listOf(
+                        "Upcoming events below.",
+                        "{\"caption\":\"Schedule\",\"table\":[{\"When\":\"June 7\",\"What\":\"Race\"}]}",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            "Upcoming events below.\nSchedule — June 7 — Race",
+            out.sources.single().snippet,
+        )
+    }
+
+    @Test
+    fun `flattens a captionless table without a leading separator`() {
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://a",
+                    title = "T",
+                    snippets = listOf("{\"table\":[{\"a\":\"x\",\"b\":\"y\"}]}"),
+                ),
+            ),
+        )
+        assertEquals("x — y", out.sources.single().snippet)
+    }
+
+    @Test
     fun `empty grounding yields no sources`() {
         val out = LlmContextPostProcessor.format(BraveLlmContextResponse())
         assertTrue(out.sources.isEmpty())

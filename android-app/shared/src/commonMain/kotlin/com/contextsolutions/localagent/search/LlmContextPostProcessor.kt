@@ -2,6 +2,11 @@ package com.contextsolutions.localagent.search
 
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Reduces a Brave **LLM Context** response ([BraveLlmContextResponse]) to the
@@ -66,16 +71,18 @@ object LlmContextPostProcessor {
         SearchSource(
             title = title.cleanForPayload(),
             url = url.trim(),
-            // Keep only prose chunks. Brave's LLM Context may return a snippet
-            // as JSON-serialized structured data (a VideoObject blob, a
-            // standings/schedule table) — those carry hex IDs, timestamps, and
-            // codes that bury the prose scores and that the 2B model
-            // mis-transcribes. Dropping them leaves the readable text only; if
-            // an entry was ALL JSON it ends up blank and is filtered out by the
-            // caller's isNotBlank() guard.
+            // Convert each chunk to prose. Plain text passes through; a
+            // JSON-serialized chunk is either flattened to readable lines (a
+            // table-shaped `{title/caption, table:[{col:val}…]}` payload — common
+            // for sports schedules/standings) or dropped (any other structured
+            // blob, e.g. a VideoObject, whose hex IDs/timestamps/codes bury prose
+            // and that the 2B model mis-transcribes). Flattening to prose keeps
+            // the model from ever seeing raw JSON braces while restoring the
+            // content; an entry that yields nothing ends up blank and is filtered
+            // out by the caller's isNotBlank() guard.
             snippet = snippets
-                .filterNot { it.isLikelyJson() }
-                .joinToString(separator = "\n") { it.cleanForPayload() }
+                .mapNotNull { it.toProseOrNull() }
+                .joinToString(separator = "\n")
                 .trim()
                 .truncate(snippetLimit),
             age = meta?.age?.pickFreshness(),
@@ -86,6 +93,34 @@ object LlmContextPostProcessor {
         val t = trimStart()
         return t.startsWith("{") || t.startsWith("[")
     }
+
+    /**
+     * Prose form of a snippet, or null to drop it. Plain text is cleaned and
+     * kept; a JSON chunk is rescued only when it is the table shape
+     * (`{ "title"|"caption": …, "table": [ {col: val}, … ] }`) — every row is
+     * flattened to one prose line so the model never sees JSON braces. Any other
+     * JSON (top-level array, table of arrays, VideoObject, scalar) returns null.
+     */
+    private fun String.toProseOrNull(): String? =
+        if (isLikelyJson()) flattenTableJson() else cleanForPayload().ifBlank { null }
+
+    private fun String.flattenTableJson(): String? {
+        val root = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject ?: return null
+        val rows = (root["table"] as? JsonArray)?.takeIf { it.isNotEmpty() } ?: return null
+        val caption = (root["title"] ?: root["caption"])?.asContentOrNull()?.cleanForPayload().orEmpty()
+        val lines = rows.mapNotNull { row ->
+            val values = (row as? JsonObject)?.values
+                ?.mapNotNull { it.asContentOrNull()?.cleanForPayload()?.ifBlank { null } }
+                ?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            val joined = values.joinToString(separator = " — ")
+            if (caption.isNotEmpty()) "$caption — $joined" else joined
+        }
+        return lines.takeIf { it.isNotEmpty() }?.joinToString(separator = "\n")
+    }
+
+    /** Content of a JSON primitive (string/number/bool), or null for objects, arrays and JSON null. */
+    private fun JsonElement.asContentOrNull(): String? = (this as? JsonPrimitive)?.contentOrNull
 
     /**
      * Brave returns `age` as multiple formats (absolute long, ISO, relative).
