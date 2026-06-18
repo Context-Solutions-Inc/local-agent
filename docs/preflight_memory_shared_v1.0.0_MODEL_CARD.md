@@ -3,7 +3,7 @@
 **Status:** v1.0 — frozen 2026-05-09 (M3 Phase H)
 **Format:** LiteRT (.tflite), INT8 weight-only quantized
 **Deployment:** on-device (Android), invoked via Play Services LiteRT
-**License:** Proprietary (Context Solutions internal)
+**License:** MIT (© 2026 Context Solutions Inc.)
 
 ---
 
@@ -297,4 +297,4 @@ In rough priority order:
 
 ## Contact
 
-Lawrence Ley — `lawrence.ley@contextsolutions.ca` — Phase 1 architect.
+Context Solutions Inc. — `info@contextsolutions.ca` — Phase 1 architect.

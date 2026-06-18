@@ -44,7 +44,8 @@ class PromptAssembler(
      *
      * [searchContext] — pre-flight search results rendered as a plain-text
      * block. When non-null it is appended to the *current* user message (the
-     * tail [HistoryMessage]), under `=== Search context ===`, followed by
+     * tail [HistoryMessage]), under [SEARCH_CONTEXT_HEADER]
+     * (`=== Search context for this turn ===`), followed by
      * [PREFLIGHT_NOTICE]. It deliberately does NOT go in the system
      * instruction: the system prompt sits at the far front of the context
      * window, but the prior assistant turn (e.g. a "no real-time data"

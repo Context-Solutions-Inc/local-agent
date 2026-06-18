@@ -1,9 +1,15 @@
 # System Prompt Template
 
-**Document version:** 1.1
-**Status:** Reconciled with code (PR #45)
-**Last updated:** May 23, 2026
+**Document version:** 1.2
+**Status:** Reconciled with code (`PromptAssembler.kt`)
+**Last updated:** June 18, 2026
 **Companion to:** PRD.md (sections 3.2.1, 3.2.3, 3.2.4)
+
+> **v1.2 (June 18, 2026):** corrected §11 to match the as-built reality — the
+> prompt blocks are hard-coded `const val` strings in `PromptAssembler.kt`
+> (a revision is a code change + rebuild, gated by `CanonicalEvalTest` /
+> `prompt-eval-gate.yml`), not a runtime-loaded JSON config. No prompt text
+> changed; §§1–10 were re-verified verbatim against the live constants.
 
 > **v1.1 (PR #45):** reconciled this spec with the live
 > `PromptAssembler` constants. The original v1.0 draft described an
@@ -473,6 +479,8 @@ generation.
 
 ## 11. Versioning and iteration
 
-The system prompt is a versioned configuration shipped with the app, in the same JSON config bundle as the classifier thresholds. Prompt revisions can be deployed via app updates without code changes. Each prompt version must be evaluated against a held-out set of canonical queries before shipping; regressions in the canonical set block the update.
+The prompt blocks are **hard-coded `const val` strings in `PromptAssembler.kt`** (the `companion object`), not a runtime-loaded config. A prompt revision is therefore a **code change**: edit the constants, rebuild, and ship in an app update. (Only the *classifier thresholds* live in a JSON asset, `preflight_config.json` — the prompt text does not.) This document is the human-readable spec that those constants are kept in sync with; its header version (§ top) is the prompt's version of record.
 
-A/B testing of prompt variants is out of scope for v1 (would require server-side coordination that conflicts with the on-device-only architecture), but the versioning infrastructure is built so it could be added later via on-device randomization.
+Each prompt change must be evaluated against a held-out set of canonical queries before shipping: `CanonicalEvalTest` runs the 15-query routing/prompt suite, and the hosted `prompt-eval-gate.yml` CI runs it on any PR that touches `SYSTEM_PROMPT.md`, the prompt assembler, or routing-layer code — regressions block the merge.
+
+A/B testing of prompt variants is out of scope for v1 (it would require server-side coordination that conflicts with the on-device-only architecture). There is no runtime prompt-config or on-device randomization infrastructure today; adding it would be net-new work, not a flip of an existing switch.

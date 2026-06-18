@@ -144,8 +144,8 @@ compose.desktop {
             // release reaches 1.x.
             packageVersion = "1.0.0"
             description = "On-device AI assistant — private, offline-capable chat, search, and memory."
-            vendor = "Context Solutions"
-            copyright = "© 2026 Context Solutions"
+            vendor = "Context Solutions Inc."
+            copyright = "© 2026 Context Solutions Inc."
 
             // Ship the full JDK runtime image rather than a jlink-minimised one. The app pulls
             // in modules that are easy to miss when probing (java.sql for the SQLite JDBC driver,
@@ -160,11 +160,11 @@ compose.desktop {
             linux {
                 iconFile.set(iconsDir.resolve("icon.png"))
                 packageName = "local-agent"        // dpkg/rpm package names are lowercase
-                debMaintainer = "lawrence.ley@contextsolutions.ca"
+                debMaintainer = "info@contextsolutions.ca"
                 menuGroup = "Utility"
                 appCategory = "Utility"
                 appRelease = "1"
-                rpmLicenseType = "Proprietary"
+                rpmLicenseType = "MIT"
             }
             macOS {
                 iconFile.set(iconsDir.resolve("icon.icns"))

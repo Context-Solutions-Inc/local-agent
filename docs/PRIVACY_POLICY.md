@@ -131,7 +131,7 @@ revised version of this document.
 
 ## Contact
 
-Lawrence Ley — `lawrence.ley@contextsolutions.ca`
+Context Solutions Inc. — `info@contextsolutions.ca`
 
 ---
 

@@ -1,7 +1,7 @@
 # Google Play Data Safety Notes
 
 **Purpose:** internal cheat-sheet for completing the Play Console Data
-Safety form. Phase G owner: lawrence.ley@contextsolutions.ca.
+Safety form. Phase G owner: info@contextsolutions.ca.
 
 The Play Data Safety form asks (1) what data the app collects, (2) what
 data the app shares with third parties, (3) security practices. Use this
