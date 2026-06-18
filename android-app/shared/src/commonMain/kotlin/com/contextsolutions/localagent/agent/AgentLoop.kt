@@ -903,17 +903,20 @@ class AgentLoop(
             finalText.append(descaffolded)
         }
 
-        // Markdown/LaTeX rendering is reserved for answers the model composes
-        // freely (math, prose). Search-grounded turns — the preflight
-        // [SEARCH CONTEXT] path (GENERAL/NEWS/SPORTS, FINANCE snippet fallback)
-        // or a web_search tool round-trip — render plain: their value is the
-        // verbatim figures/citations, and markdown reflow mangles them (news
-        // line breaks collapse, finance `$` is read as a math delimiter).
-        val searchGrounded = searchContextBlock != null || citationsForTurn.isNotEmpty()
+        // Every turn that reaches here is LLM-composed (free prose/math OR a
+        // search-grounded answer synthesized from [SEARCH CONTEXT]) and renders
+        // markdown (#41, PR #103): search answers routinely emit lists, bold,
+        // and source links that look like raw `*`/`**` when rendered plain.
+        // The deterministic cards that must stay plain — WEATHER/FINANCE/clock/
+        // my-list/memory — early-return with their own renderMarkdown=false and
+        // never reach this point. Markdown's two hazards over search text are
+        // both handled: single-newline collapse by SoftBreakAddsNewLinePlugin,
+        // and currency `$` (e.g. "$5 to $8") by LatexNormalizer's
+        // digit-after-`$` guard.
         val finalMessage = ChatMessage.Assistant(
             text = finalText.toString(),
             citations = citationsForTurn.toList(),
-            renderMarkdown = !searchGrounded,
+            renderMarkdown = true,
         )
         turnAppendix.add(finalMessage)
         logger(

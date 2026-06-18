@@ -41,6 +41,35 @@ class LatexNormalizerTest {
     }
 
     @Test
+    fun leaves_financial_currency_with_operators_alone() {
+        // Inner "5 (a 10% gain) to " has both a letter and an operator '(',
+        // which would trip the old heuristic — the digit-after-`$` guard keeps
+        // it literal currency.
+        val input = "Shares rose from \$5 (a 10% gain) to \$8 today."
+        assertEquals(input, LatexNormalizer.normalize(input))
+    }
+
+    @Test
+    fun leaves_currency_range_alone() {
+        val input = "Guidance is \$100 to \$200 per share."
+        assertEquals(input, LatexNormalizer.normalize(input))
+    }
+
+    @Test
+    fun leaves_market_cap_currency_alone() {
+        val input = "Apple's market cap is \$3.5T and revenue \$394B last year."
+        assertEquals(input, LatexNormalizer.normalize(input))
+    }
+
+    @Test
+    fun keeps_coefficient_led_math() {
+        // Currency guard must NOT swallow math that opens with a coefficient —
+        // the structural LaTeX-token check (`^`, `=`) wins.
+        val input = "The polynomial \$4k^2 = 8\$ holds."
+        assertEquals("The polynomial \$\$4k^2 = 8\$\$ holds.", LatexNormalizer.normalize(input))
+    }
+
+    @Test
     fun leaves_plain_text_without_delimiters_unchanged() {
         val input = "Just a normal answer with no math."
         assertEquals(input, LatexNormalizer.normalize(input))

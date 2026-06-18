@@ -135,8 +135,9 @@ class AgentLoopPreflightTest {
         assertEquals(1, done.message.citations.size)
         assertEquals("https://espn.com/x", done.message.citations.single().url)
         assertTrue(done.message.text.contains("Eagles won"))
-        // Search-grounded answers render plain — no markdown/LaTeX rewrite (PR #50).
-        assertFalse("search-grounded turn must not render markdown", done.message.renderMarkdown)
+        // PR #103 — search-grounded LLM turns now render markdown (lists/bold/
+        // links). Only deterministic WEATHER/FINANCE cards stay plain.
+        assertTrue("search-grounded turn should render markdown", done.message.renderMarkdown)
 
         // The [SEARCH CONTEXT] block + pre-flight notice ride on the current
         // user turn (recency), NOT the system instruction.
@@ -174,6 +175,57 @@ class AgentLoopPreflightTest {
             "no synthetic MODEL or TOOL entries in history",
             historyRoles.any { it == HistoryRole.MODEL || it == HistoryRole.TOOL },
         )
+    }
+
+    @Test
+    fun sports_search_grounded_turn_renders_markdown() = runTest {
+        // PR #103 — search-grounded LLM turns render markdown regardless of
+        // subtype (lists/bold/links). Covers a SPORTS-routed query.
+        val payload = FormattedSearchPayload(
+            json = """[{"title":"NBA scores","url":"https://espn.com/nba","snippet":"..."}]""",
+            sources = listOf(SearchSource("NBA scores", "https://espn.com/nba", "...")),
+        )
+        val client = FakeBraveSearchClient().apply { next = BraveSearchResult.Success(payload) }
+        val service = SearchService(StubKeyProvider, client, dao)
+        val session = RecordingSession(FakeSession(emitText = "**Lakers** beat the Celtics."))
+        val loop = buildLoop(
+            session = session,
+            searchService = service,
+            preflightLogits = floatArrayOf(5f, 0f, 0f),
+        )
+
+        val events = loop.run(
+            AgentTurnInput(userMessage = "nba scores tonight", history = emptyList()),
+        ).toList()
+
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertEquals(1, done.message.citations.size)
+        assertTrue("SPORTS turn should render markdown", done.message.renderMarkdown)
+    }
+
+    @Test
+    fun news_search_grounded_turn_renders_markdown() = runTest {
+        // PR #103 — covers a NEWS-routed query.
+        val payload = FormattedSearchPayload(
+            json = """[{"title":"Headline","url":"https://apnews.com/x","snippet":"..."}]""",
+            sources = listOf(SearchSource("Headline", "https://apnews.com/x", "...")),
+        )
+        val client = FakeBraveSearchClient().apply { next = BraveSearchResult.Success(payload) }
+        val service = SearchService(StubKeyProvider, client, dao)
+        val session = RecordingSession(FakeSession(emitText = "Here's the latest."))
+        val loop = buildLoop(
+            session = session,
+            searchService = service,
+            preflightLogits = floatArrayOf(5f, 0f, 0f),
+        )
+
+        val events = loop.run(
+            AgentTurnInput(userMessage = "latest news on the election", history = emptyList()),
+        ).toList()
+
+        val done = events.filterIsInstance<AgentEvent.Done>().single()
+        assertEquals(1, done.message.citations.size)
+        assertTrue("NEWS turn should render markdown", done.message.renderMarkdown)
     }
 
     @Test

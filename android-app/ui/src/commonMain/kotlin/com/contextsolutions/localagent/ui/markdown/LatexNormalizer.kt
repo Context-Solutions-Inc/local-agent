@@ -44,9 +44,16 @@ object LatexNormalizer {
      * LaTeX/structural token (`\ ^ _ { } =`), or a variable next to an operator
      * (`x+1`, `a < b`), or is a short bare symbol (`x`, `n`). Currency amounts
      * ("5", "1,000", "5 and ") have no letters+operators, so they stay literal.
+     *
+     * Currency guard (#41): a `$` glued to a digit is currency — financial prose
+     * like "$5 (a 10% gain) to $8" or "$100 to $200" has both a letter and an
+     * operator and would otherwise trip the heuristics below. The structural
+     * LaTeX-token check stays FIRST so coefficient-led math ("$4k^2 = ...$")
+     * still renders.
      */
     private fun looksLikeMath(s: String): Boolean {
         if (s.any { it in "\\^_{}=" }) return true
+        if (s.firstOrNull()?.isDigit() == true) return false
         val hasLetter = s.any { it.isLetter() }
         val hasOperator = s.any { it in "+-*/<>()" }
         if (hasLetter && hasOperator) return true
