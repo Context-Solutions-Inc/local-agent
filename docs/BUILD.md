@@ -198,9 +198,18 @@ adb shell "run-as com.contextsolutions.localagent.debug \
 The classifier (`preflight_memory_shared_v1.0.0_int8.tflite`, ~67 MB) and embedder
 (`all-MiniLM-L6-v2_int8.tflite`, ~23 MB) are **not** bundled (PR #3) — they download from the CDN on
 first run, folded into the same `DownloadScreen` gate as the Gemma LLM, into `filesDir/models/`. The
-engines load from there only. To skip the download during dev, pre-stage them once:
+engines load from there only. To skip the download during dev, fetch them from the CDN once and
+pre-stage them onto the device:
 
 ```bash
+# Fetch into a repo-root models/ dir (gitignored).
+mkdir -p models
+base=https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev
+for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
+  curl -L --output-dir models -O --progress-bar "$base/$f"
+done
+
+# Push them into app-internal storage.
 cd android-app
 PKG=com.contextsolutions.localagent.debug
 for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do

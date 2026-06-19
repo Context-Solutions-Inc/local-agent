@@ -114,14 +114,13 @@ build needs only JDK 17.
 
 ```bash
 git clone --recurse-submodules <repo-url>      # agent-jobs is a submodule
-cd local-agent
-mkdir models
-curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/all-MiniLM-L6-v2.onnx
-curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/all-MiniLM-L6-v2_int8.tflite
-curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0.onnx
-curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0_int8.tflite
-cd android-app                      # the Gradle project lives here
+cd local-agent/android-app          # the Gradle project lives here
 ```
+
+**Models download automatically on first run** — the small pre-flight classifier + MiniLM embedder
+from the CDN, and the Gemma LLM from Hugging Face — so a fresh checkout needs nothing extra. To
+pre-stage them and skip the first-run downloads (e.g. for offline dev or fast device installs), see
+[docs/BUILD.md](docs/BUILD.md) "Sideloading models".
 
 **Android** (needs `android-app/secrets.properties` — copy `secrets.properties.example` and fill in a
 [Brave key](https://brave.com/search/api/) + [HF token](https://huggingface.co/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
@@ -149,9 +148,11 @@ LOCALAGENT_RELAY_WS_URL=ws://192.168.1.103:8443/v1/connect \
 ./gradlew :desktopApp:run                           # opens the chat window + system tray
 ```
 
-On first run the desktop fetches the Gemma GGUF and the `llama-server` binary; both platforms run
-fully offline once models are present (search just stays off until a Brave key is set). See
-[docs/BUILD.md](docs/BUILD.md) for sideloading models to skip downloads.
+On first run each platform fetches its models from the CDN / Hugging Face: the pre-flight classifier
++ MiniLM embedder on both, plus the Gemma LLM (`.litertlm` on Android via the in-app download gate;
+GGUF + `llama-server` binary on desktop). Both platforms then run fully offline once the models are
+present (search just stays off until a Brave key is set). See [docs/BUILD.md](docs/BUILD.md) for
+sideloading models to skip downloads.
 
 ## Status
 
