@@ -77,11 +77,12 @@ Confirm the two versions in `android-app/desktopApp/build.gradle.kts`:
   jpackage requires MAJOR > 0, so it's deliberately decoupled from `0.1.0`. Bump both in
   lockstep once the release reaches 1.x.
 
-### 2c. Decide the aux-model hosting strategy (see §6)
+### 2c. Aux-model hosting (optional — see §6)
 
-The ONNX classifier + embedder download from a URL baked in at **build time** via
-`-PauxModelBaseUrl`. Decide now whether you're (a) hosting them and passing the URL, or
-(b) provisioning them per-machine at runtime. This changes the build command in §3–§5.
+The ONNX classifier + embedder **auto-download from the CDN on first run** (PR #3), so a
+stock build needs no decision here. Only if you want to serve them from your own host
+(`-PauxModelBaseUrl`) or provision them per-machine (air-gapped) does the build command in
+§3–§5 change. Otherwise skip ahead.
 
 ---
 
@@ -99,7 +100,7 @@ cd <repo>/android-app
 
 # production installers for this host OS:
 ./gradlew :desktopApp:packageDistributionForCurrentOS
-#   add  -PauxModelBaseUrl=https://your.cdn/localagent/aux-models/v1.0.0   if hosting (see §6)
+#   add  -PauxModelBaseUrl=https://your.cdn/localagent/aux-models/v1.0.0   only to override the default CDN (see §6)
 #   add  -PonnxGpu=true   only for a CUDA build (niche; CPU is the default, always-works)
 ```
 
@@ -148,7 +149,7 @@ export NOTARIZATION_TEAM_ID="TEAMID"
 
 cd <repo>/android-app
 ./gradlew :desktopApp:notarizeDmg :desktopApp:notarizePkg
-#   add  -PauxModelBaseUrl=...  if hosting (see §6)
+#   add  -PauxModelBaseUrl=...  only to override the default CDN (see §6)
 ```
 
 `notarizeDmg`/`notarizePkg` build the app-image, codesign it with `MAC_SIGN_IDENTITY`,
@@ -195,7 +196,7 @@ signing is a **post-build `signtool`** step.
 ```bash
 cd <repo>/android-app
 ./gradlew :desktopApp:packageMsi :desktopApp:packageExe
-#   add  -PauxModelBaseUrl=...  if hosting (see §6)
+#   add  -PauxModelBaseUrl=...  only to override the default CDN (see §6)
 ```
 
 Outputs:
@@ -247,34 +248,32 @@ App-data dir per OS:
 | **Vosk STT model** (~41 MB) | `alphacephei.com` | optional; dictation no-ops without it |
 | **Piper voice + binary** | `rhasspy/piper` + HF `rhasspy/piper-voices` | optional; only if the user picks the "piper" neural read-aloud engine |
 
-### ONNX classifier + embedder — the one **build-time** decision
+### ONNX classifier + embedder
 
 The pre-flight classifier (`preflight_memory_shared_v1.0.0.onnx`, ~266 MB) and MiniLM
-embedder (`all-MiniLM-L6-v2.onnx`, ~91 MB) download from a base URL **baked in at build
-time**. Their sha256/size are pinned in code (`DesktopAuxModels`); you supply only the
-host. **Two options — pick one:**
+embedder (`all-MiniLM-L6-v2.onnx`, ~91 MB) **auto-download from the CDN on first run**
+(default `DesktopAuxModels.DEFAULT_BASE_URL`, PR #3) and are verified against the
+sha256/size pinned in code (`DesktopAuxModels`). A stock build needs nothing extra.
 
-**Option A — host them, bake the URL (recommended for a real launch).** Put the two
-`.onnx` files under one base URL and pass it at build time:
+**Option A — use your own host (optional).** To serve the two `.onnx` from a different
+base URL, override it at build time:
 ```bash
 ./gradlew :desktopApp:packageDistributionForCurrentOS \
   -PauxModelBaseUrl=https://your.cdn/localagent/aux-models/v1.0.0
 ```
-The app then fetches `…/v1.0.0/preflight_memory_shared_v1.0.0.onnx` and
-`…/v1.0.0/all-MiniLM-L6-v2.onnx` at first run and verifies the pinned checksums.
+The app then fetches `…/<base>/preflight_memory_shared_v1.0.0.onnx` and
+`…/<base>/all-MiniLM-L6-v2.onnx` at first run and verifies the pinned checksums.
 
-**Option B — no URL, provision per machine.** Build without `-PauxModelBaseUrl` (the
-default is a placeholder ⇒ "unconfigured" ⇒ the download is **skipped**). Then on each
-target machine either drop the files into `<app-data>/models/` or point env overrides at
-them:
+**Option B — provision per machine (air-gapped / offline).** Drop the files into
+`<app-data>/models/` or point env overrides at them:
 ```bash
 export LOCALAGENT_CLASSIFIER_ONNX=/abs/path/preflight_memory_shared_v1.0.0.onnx
 export LOCALAGENT_EMBEDDER_ONNX=/abs/path/all-MiniLM-L6-v2.onnx
 ```
 
-> **If the aux models are absent, search silently under-fires.** The pre-flight
-> classifier no-ops → most queries won't trigger a web search (an explicit
-> `web search …` command still works). For a launch build, prefer Option A.
+> **If the aux models are absent (e.g. CDN unreachable and no override), search
+> silently under-fires.** The pre-flight classifier no-ops → most queries won't trigger
+> a web search (an explicit `web search …` command still works).
 
 ### Runtime env vars (provisioning / deployment, not build)
 

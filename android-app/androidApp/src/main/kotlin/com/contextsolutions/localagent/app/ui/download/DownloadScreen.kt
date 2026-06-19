@@ -50,7 +50,7 @@ fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
     val scrollState = rememberScrollState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Set up the on-device model") }) },
+        topBar = { TopAppBar(title = { Text("Set up the on-device models") }) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -61,23 +61,34 @@ fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
         ) {
             Text(
                 text = "Local Agent runs Gemma 4 entirely on your device. The first " +
-                    "step is a one-time download of the model weights.",
+                    "step is a one-time download of the model weights plus the " +
+                    "on-device search + memory models.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))
 
-            Text("File: ${spec.filename}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-            if (spec.sizeBytes > 0L) {
+            Text("Models to download:", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(4.dp))
+            for (model in viewModel.specs()) {
+                val size = if (model.sizeBytes > 0L) {
+                    " — ${Formatter.formatShortFileSize(context, model.sizeBytes)}"
+                } else {
+                    ""
+                }
                 Text(
-                    "Size: ${Formatter.formatShortFileSize(context, spec.sizeBytes)}",
+                    "• ${model.filename}$size",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            val totalBytes = viewModel.totalDownloadBytes()
+            if (totalBytes > 0L) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Total download: ${Formatter.formatShortFileSize(context, totalBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text(
-                "URL: ${spec.downloadUrl}",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-            )
             Spacer(Modifier.height(16.dp))
 
             DownloadStateBlock(state, context)

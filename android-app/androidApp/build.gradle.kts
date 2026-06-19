@@ -1,5 +1,4 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -114,15 +113,6 @@ val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
 // LiteRT-LM-backed implementation (see InferenceModule). Override from the
 // command line: `./gradlew :androidApp:assembleDebug -PuseStubEngine=true`.
 val useStubEngine: String = (project.findProperty("useStubEngine") as String? ?: "false")
-
-// PR #58 — dev escape hatch: when set, the 88 MB classifier + embedder .tflite are
-// NOT bundled into the APK, so installs over adb stay small. Push the two models to
-// the device once (filesDir/models/, exactly like the Gemma LLM) and the engines
-// load them from there (LiteRtClassifierEngine/LiteRtEmbedderEngine prefer filesDir,
-// else assets). Production / release builds must NOT set this — the shipped APK
-// bundles the models for an offline first run.
-//   ./gradlew :androidApp:installDebug -PexternalModels=true
-val externalModels: Boolean = (project.findProperty("externalModels") as String? ?: "false") == "true"
 
 // Build number == HEAD's committer-date epoch seconds, computed at configuration
 // time. This is monotonic AND deterministic per commit: every commit — including
@@ -311,92 +301,11 @@ val collectClassifierTestResources = tasks.register<Copy>("collectClassifierTest
 tasks.matching { it.name.endsWith("UnitTestJavaRes") || it.name.endsWith("UnitTestSources") }
     .configureEach { dependsOn(collectClassifierTestResources) }
 
-// M4 / WS-8 asset bundling. The INT8 .tflite is gitignored (`models/`) so it's
-// not in the source tree by default; this task copies it into the assets dir
-// at build time and verifies SHA-256 against the v1.0 ship hash. Failure
-// surfaces a pointer to docs/M3_M4_HANDOFF.md so a fresh checkout knows where
-// to fetch the artifact from.
-val copyClassifierTflite = tasks.register("copyClassifierTflite") {
-    description = "Copy + verify the pre-flight classifier .tflite into androidApp assets."
-    group = "build"
-    val srcFile = rootDir.resolve("../models/preflight_memory_shared_v1.0.0_int8.tflite")
-    val dstFile = rootDir.resolve("androidApp/src/main/assets/preflight_memory_shared_v1.0.0_int8.tflite")
-    val expectedSha = "5920733f96bfc2f193fdebc7ef5585cd37ecc3b9f23b21259e448410679ea83d"
-    inputs.file(srcFile)
-    outputs.file(dstFile)
-    doLast {
-        if (!srcFile.exists()) {
-            throw GradleException(
-                "Pre-flight classifier artifact missing: ${srcFile.absolutePath}\n" +
-                    "Fetch it via the steps in docs/M3_M4_HANDOFF.md §1 (or rebuild from " +
-                    "`ct-export-litert` per the same doc) before running this build."
-            )
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-        srcFile.inputStream().use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf); if (n <= 0) break
-                digest.update(buf, 0, n)
-            }
-        }
-        val actual = digest.digest().joinToString("") { byte: Byte -> "%02x".format(byte) }
-        if (actual != expectedSha) {
-            throw GradleException(
-                "Pre-flight classifier SHA-256 mismatch.\n" +
-                    "  expected: $expectedSha (v1.0 ship)\n" +
-                    "  actual:   $actual\n" +
-                    "Update build.gradle.kts after a deliberate classifier re-export."
-            )
-        }
-        dstFile.parentFile.mkdirs()
-        srcFile.copyTo(dstFile, overwrite = true)
-    }
-}
-
-// M5 / WS-9 asset bundling. Mirror of copyClassifierTflite for the embedder
-// (`all-MiniLM-L6-v2` INT8). Same gitignored-source-of-truth + SHA-verify
-// pattern. Note the vocab is NOT bundled separately — MiniLM ships the
-// bert-base-uncased WordPiece vocab which is byte-identical to the
-// distilbert-base-uncased vocab we already ship at assets/vocab.txt
-// (verified via classifier-training/scripts/export_minilm_litert.py).
-val copyEmbedderTflite = tasks.register("copyEmbedderTflite") {
-    description = "Copy + verify the all-MiniLM-L6-v2 embedder .tflite into androidApp assets."
-    group = "build"
-    val srcFile = rootDir.resolve("../models/all-MiniLM-L6-v2_int8.tflite")
-    val dstFile = rootDir.resolve("androidApp/src/main/assets/all-MiniLM-L6-v2_int8.tflite")
-    val expectedSha = "d4320c6f082450d542949ca1067cbc82de4c0c4c4f2ff8915752ff0885c55dcb"
-    inputs.file(srcFile)
-    outputs.file(dstFile)
-    doLast {
-        if (!srcFile.exists()) {
-            throw GradleException(
-                "Embedder artifact missing: ${srcFile.absolutePath}\n" +
-                    "Build it via classifier-training/scripts/export_minilm_litert.py " +
-                    "(see docs/M5_PLAN.md §9) before running this build."
-            )
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-        srcFile.inputStream().use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf); if (n <= 0) break
-                digest.update(buf, 0, n)
-            }
-        }
-        val actual = digest.digest().joinToString("") { byte: Byte -> "%02x".format(byte) }
-        if (actual != expectedSha) {
-            throw GradleException(
-                "Embedder SHA-256 mismatch.\n" +
-                    "  expected: $expectedSha (v1.0 ship)\n" +
-                    "  actual:   $actual\n" +
-                    "Update build.gradle.kts after a deliberate embedder re-export."
-            )
-        }
-        dstFile.parentFile.mkdirs()
-        srcFile.copyTo(dstFile, overwrite = true)
-    }
-}
+// PR #3 — the classifier + embedder .tflite are no longer bundled into the APK.
+// They download from the CDN on first run into filesDir/models/ (folded into the
+// same first-run download gate as the Gemma LLM); see AndroidAuxModels +
+// ModelDownloadWorker. The old copyClassifierTflite/copyEmbedderTflite SHA-verify
+// copy tasks and the -PexternalModels strip path were removed with this change.
 
 // --- invariant #40/#18: deterministically resolve the libLiteRt.so collision ---
 // litertlm-android (LLM runtime) and com.google.ai.edge.litert (classifier +
@@ -441,60 +350,6 @@ tasks.matching {
     it.name.startsWith("merge") &&
         (it.name.endsWith("JniLibFolders") || it.name.endsWith("NativeLibs"))
 }.configureEach { dependsOn(extractLitertJni) }
-
-// PR #58 — when building with -PexternalModels, strip any previously-copied aux
-// models out of the assets dir before merge (a prior normal build leaves them on
-// disk; they're gitignored). A later normal build re-runs the SHA-verified copy
-// tasks and restores them, so toggling the flag is reversible.
-val removeExternalizedModels = tasks.register<Delete>("removeExternalizedModels") {
-    description = "Remove the classifier + embedder .tflite from assets (dev -PexternalModels build)."
-    group = "build"
-    delete(
-        rootDir.resolve("androidApp/src/main/assets/preflight_memory_shared_v1.0.0_int8.tflite"),
-        rootDir.resolve("androidApp/src/main/assets/all-MiniLM-L6-v2_int8.tflite"),
-    )
-}
-
-androidComponents.onVariants { variant ->
-    val variantName = variant.name.replaceFirstChar { c -> c.titlecase() }
-    if (externalModels) {
-        // Keep the 88 MB of models out of the dev APK; load from filesDir.
-        project.tasks
-            .matching { it.name == "merge${variantName}Assets" }
-            .configureEach { dependsOn(removeExternalizedModels) }
-
-        // Force a COMPACT repackage. AGP's incremental APK packager edits the
-        // existing .apk in place, so removing the ~88 MB of models leaves their
-        // bytes behind as dead free space — the .apk file stays ~200 MB and
-        // `adb install` still pushes all of it over the wire (the bytes just
-        // aren't in the zip's central directory, so they're never installed). The
-        // win is wasted. Deleting the prior apk + the packager's incremental state
-        // before packaging makes it rebuild the archive from scratch (no holes):
-        // toggling into -PexternalModels then drops the install from ~203 MB to
-        // ~112 MB. Full repackage costs ~1 s locally; the apk is dev-only.
-        val compact = tasks.register<Delete>("compact${variantName}ExternalModelsApk") {
-            description = "Force a hole-free apk repackage for the -PexternalModels dev build."
-            delete(
-                layout.buildDirectory.dir("outputs/apk/${variant.name}"),
-                layout.buildDirectory.dir("intermediates/apk/${variant.name}"),
-                layout.buildDirectory.dir("intermediates/incremental/package$variantName"),
-            )
-        }
-        project.tasks
-            .matching { it.name == "package$variantName" }
-            .configureEach {
-                dependsOn(compact)
-                mustRunAfter(removeExternalizedModels)
-            }
-    } else {
-        project.tasks
-            .matching { it.name == "merge${variantName}Assets" }
-            .configureEach {
-                dependsOn(copyClassifierTflite)
-                dependsOn(copyEmbedderTflite)
-            }
-    }
-}
 
 dependencies {
     implementation(project(":shared"))

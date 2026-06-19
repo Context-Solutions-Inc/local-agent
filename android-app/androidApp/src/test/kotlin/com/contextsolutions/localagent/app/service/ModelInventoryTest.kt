@@ -64,4 +64,41 @@ class ModelInventoryTest {
             ModelSpec("f", "https://x/y", "abc", 1L).isConfigured,
         )
     }
+
+    @Test
+    fun `ModelSpec requiresHfAuth defaults to false`() {
+        assertFalse(ModelSpec("f", "https://x/y", "abc", 1L).requiresHfAuth)
+    }
+
+    @Test
+    fun `Gemma spec requires HF auth`() {
+        // The HF-hosted Gemma artifact carries the bearer token; the CDN aux
+        // models must not (PR #3).
+        assertTrue(ModelInventory.SPEC.requiresHfAuth)
+    }
+
+    @Test
+    fun `aux specs are CDN-hosted, configured, and never carry HF auth`() {
+        for (spec in AndroidAuxModels.SPECS) {
+            assertTrue(spec.isConfigured)
+            assertFalse(spec.requiresHfAuth)
+            assertEquals("${AndroidAuxModels.BASE_URL}/${spec.filename}", spec.downloadUrl)
+            assertEquals(64, spec.sha256.length)
+            assertTrue(spec.sizeBytes > 0L)
+        }
+    }
+
+    @Test
+    fun `aux spec coordinates are pinned to the shipped artifacts`() {
+        assertEquals(67_688_256L, AndroidAuxModels.CLASSIFIER_SPEC.sizeBytes)
+        assertEquals(
+            "5920733f96bfc2f193fdebc7ef5585cd37ecc3b9f23b21259e448410679ea83d",
+            AndroidAuxModels.CLASSIFIER_SPEC.sha256,
+        )
+        assertEquals(23_536_088L, AndroidAuxModels.EMBEDDER_SPEC.sizeBytes)
+        assertEquals(
+            "d4320c6f082450d542949ca1067cbc82de4c0c4c4f2ff8915752ff0885c55dcb",
+            AndroidAuxModels.EMBEDDER_SPEC.sha256,
+        )
+    }
 }

@@ -77,4 +77,16 @@ class DesktopAuxModelStoreTest {
         assertNull(result)
         assertFalse(DesktopModelInventory(spec("https://host/m.onnx"), tmp).isPresent())
     }
+
+    @Test
+    fun default_endpoint_is_configured_and_specs_point_at_cdn() {
+        // PR #3 — a normal build (no -PauxModelBaseUrl) now defaults to the R2 CDN,
+        // so the aux models auto-download on first run instead of being skipped.
+        assertTrue(DesktopAuxModels.isEndpointConfigured(), "default endpoint must be configured")
+        val classifier = DesktopAuxModels.classifierSpec()
+        val embedder = DesktopAuxModels.embedderSpec()
+        assertEquals("${DesktopAuxModels.DEFAULT_BASE_URL}/${DesktopAuxModels.CLASSIFIER_FILENAME}", classifier.downloadUrl)
+        assertEquals("${DesktopAuxModels.DEFAULT_BASE_URL}/${DesktopAuxModels.EMBEDDER_FILENAME}", embedder.downloadUrl)
+        assertTrue(classifier.isConfigured && embedder.isConfigured)
+    }
 }

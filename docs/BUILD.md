@@ -98,9 +98,6 @@ cd android-app
 
 # Dev iteration without loading the real Gemma model (StubInferenceEngine):
 ./gradlew :androidApp:installDebug -PuseStubEngine=true
-
-# Fast installs: keep the 88 MB classifier + embedder OUT of the APK (see "Sideloading models"):
-./gradlew :androidApp:installDebug -PexternalModels=true
 ```
 
 Launch:
@@ -145,7 +142,7 @@ in the per-OS app-data dir:
 |---|---|
 | **Gemma 4 E2B GGUF** (Q4_K_M) | Fetched via the tray's download (fill URL + SHA-256 + size in `DesktopModelSpec`), or set `GEMMA_GGUF_PATH=/abs/path.gguf`. Loaded lazily on the first chat turn. |
 | **`llama-server` binary** | Auto-downloaded on first run (pinned tag `b9478`); CPU + GPU (Vulkan/Metal) variants. Override with `LOCALAGENT_LLAMA_SERVER_VARIANT` or point `LOCALAGENT_LLAMA_SERVER` at your own build. |
-| **ONNX classifier + embedder** | Auto-downloaded when a hosting endpoint is set at build time (`-PauxModelBaseUrl`); else drop them in app-data `models/`, or set `LOCALAGENT_CLASSIFIER_ONNX` / `LOCALAGENT_EMBEDDER_ONNX`. sha256 + size are pinned in `DesktopAuxModels`. Without them the classifier no-ops → pre-flight under-fires (the explicit `web search …` command still works). |
+| **ONNX classifier + embedder** | Auto-downloaded on first run from the CDN (default `DesktopAuxModels.DEFAULT_BASE_URL`; override the host with `-PauxModelBaseUrl`). Or drop them in app-data `models/`, or set `LOCALAGENT_CLASSIFIER_ONNX` / `LOCALAGENT_EMBEDDER_ONNX`. sha256 + size are pinned in `DesktopAuxModels`. Without them the classifier no-ops → pre-flight under-fires (the explicit `web search …` command still works). |
 | **Brave Search key** | `BRAVE_API_KEY` env var, or store it via the app's SecureStorage. Without it, search is disabled (the model answers offline). |
 | **Vosk acoustic model** (optional) | app-data `models/vosk`, or `LOCALAGENT_VOSK_MODEL`. Enables dictation; STT silently no-ops without it. |
 
@@ -175,9 +172,8 @@ Gradle properties (`-Pname=value`):
 | Flag | Module | Effect |
 |---|---|---|
 | `-PuseStubEngine=true` | `:androidApp` | Swap the LLM for `StubInferenceEngine` (canned tokens) — dev without loading Gemma. Default false. |
-| `-PexternalModels=true` | `:androidApp` | Strip the 88 MB classifier + embedder from the APK; load them from `filesDir/models/` instead. Dev only — release always bundles them. |
 | `-PonnxGpu=true` | `:shared` (desktop) | Swap ONNX CPU natives for the CUDA EP build for the desktop classifier/embedder. Default CPU. |
-| `-PauxModelBaseUrl=https://host/path` | `:desktopApp` | Compile-time hosting endpoint for the ONNX aux models (baked into `desktop_build_info.properties`). Blank ⇒ operator places `.onnx` manually. |
+| `-PauxModelBaseUrl=https://host/path` | `:desktopApp` | Override the compile-time hosting endpoint for the ONNX aux models (baked into `desktop_build_info.properties`). Default is the CDN (`DesktopAuxModels.DEFAULT_BASE_URL`). |
 
 Runtime env vars (desktop): `LOCALAGENT_GATEWAY_URL`, `LOCALAGENT_RELAY_WS_URL` (relay/subscription),
 `LOCALAGENT_LLAMA_SERVER_VARIANT` / `LOCALAGENT_LLAMA_SERVER`, `GEMMA_GGUF_PATH`,
@@ -197,14 +193,23 @@ adb shell "run-as com.contextsolutions.localagent.debug \
   sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'"
 ```
 
-### Classifier + embedder (Android, with `-PexternalModels`)
+### Classifier + embedder (Android)
 
-By default the classifier (`preflight_memory_shared_v1.0.0_int8.tflite`, ~67 MB) and embedder
-(`all-MiniLM-L6-v2_int8.tflite`, ~23 MB) are bundled, so ~88 MB is re-pushed on **every**
-`installDebug` — slow over wireless adb. `-PexternalModels=true` strips both; the engines then load
-them from `filesDir/models/` if present (falling back to the bundled asset). Push once:
+The classifier (`preflight_memory_shared_v1.0.0_int8.tflite`, ~67 MB) and embedder
+(`all-MiniLM-L6-v2_int8.tflite`, ~23 MB) are **not** bundled (PR #3) — they download from the CDN on
+first run, folded into the same `DownloadScreen` gate as the Gemma LLM, into `filesDir/models/`. The
+engines load from there only. To skip the download during dev, fetch them from the CDN once and
+pre-stage them onto the device:
 
 ```bash
+# Fetch into a repo-root models/ dir (gitignored).
+mkdir -p models
+base=https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev
+for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
+  curl -L --output-dir models -O --progress-bar "$base/$f"
+done
+
+# Push them into app-internal storage.
 cd android-app
 PKG=com.contextsolutions.localagent.debug
 for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
@@ -212,7 +217,6 @@ for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite
   adb shell run-as $PKG cp /data/local/tmp/$f /data/data/$PKG/files/models/$f
   adb shell rm -f /data/local/tmp/$f
 done
-./gradlew :androidApp:installDebug -PexternalModels=true
 ```
 
 > Copy **one file per `run-as cp`** as shown — a multi-file `cp a b dest/` mis-parses through the

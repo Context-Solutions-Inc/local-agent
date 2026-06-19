@@ -59,8 +59,18 @@ class ModelDownloader(
      */
     suspend fun download(
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
+    ): DownloadOutcome = download(inventory.spec(), onProgress)
+
+    /**
+     * Downloads a specific [spec] (Gemma LLM or an aux model — PR #3). Resolves
+     * the partial/final files from [inventory] per spec, and only sends the HF
+     * `Authorization` header when [ModelSpec.requiresHfAuth] is set (the CDN aux
+     * models are public, so the token never leaves the device for them).
+     */
+    suspend fun download(
+        spec: ModelSpec,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): DownloadOutcome = withContext(ioDispatcher) {
-        val spec = inventory.spec()
         if (!spec.isConfigured) {
             return@withContext DownloadOutcome.Failure(
                 DownloadError.Misconfigured(
@@ -71,8 +81,8 @@ class ModelDownloader(
             )
         }
 
-        val partial = inventory.partialFile()
-        val final = inventory.localFile()
+        val partial = inventory.partialFile(spec)
+        val final = inventory.localFile(spec)
         inventory.modelsDir() // ensure dir exists
 
         // Storage pre-check: free space must cover the *remaining* download
@@ -105,7 +115,9 @@ class ModelDownloader(
         }
 
         val attemptResumeAt = if (partial.exists()) partial.length() else 0L
-        val hfToken = hfAuthTokenProvider.currentToken()
+        // Only HF-hosted artifacts (Gemma) carry the bearer token; the CDN aux
+        // models are public, so we never leak the token to the CDN (PR #3).
+        val hfToken = if (spec.requiresHfAuth) hfAuthTokenProvider.currentToken() else null
         val request = Request.Builder()
             .url(spec.downloadUrl)
             .apply {

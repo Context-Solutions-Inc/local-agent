@@ -31,9 +31,12 @@ class MainViewModel(
     controller: ModelDownloadController,
 ) : ViewModel() {
 
+    // PR #3 — gate on ALL required models (Gemma LLM + classifier + embedder, now
+    // CDN-downloaded rather than bundled), so chat unlocks fully-capable: search
+    // + memory need the aux models, which used to ship in the APK.
     val modelPresent: StateFlow<Boolean> = controller.state
-        .map { inventory.isPresent() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, inventory.isPresent())
+        .map { inventory.allRequiredPresent() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, inventory.allRequiredPresent())
 
     /**
      * True once the user has completed every onboarding step (disclosure
@@ -75,13 +78,13 @@ class MainViewModel(
      * method is a pure side-effect: "if you can, warm the aux engines now".
      */
     suspend fun warmUpAuxEngines() {
-        // Defensive: routes flip to Chat only when modelPresent is true (see
+        // Defensive: routes flip to Chat only when all models are present (see
         // MainScreen), but a race between WorkManager completion and the user
-        // navigating into Chat could in theory call this before the file lands.
-        // Aux engines don't depend on the Gemma artifact, but we keep the
-        // gate so the chat surface is the only entry point that warms them.
-        if (!inventory.isPresent()) {
-            Log.i(TAG, "aux warm-up skipped: model not present")
+        // navigating into Chat could in theory call this before the aux files
+        // land. Gate on the aux models specifically — they're what warmUpAll
+        // loads (Gemma is warmed lazily on first generate(), PR #25).
+        if (!inventory.auxModelsPresent()) {
+            Log.i(TAG, "aux warm-up skipped: aux models not present")
             return
         }
         runCatching { auxModelCoordinator.warmUpAll() }

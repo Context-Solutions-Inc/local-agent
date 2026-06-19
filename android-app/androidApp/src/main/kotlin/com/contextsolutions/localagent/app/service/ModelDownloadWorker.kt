@@ -41,46 +41,66 @@ class ModelDownloadWorker(
     // Phase 3: resolved from the global Koin graph (Hilt's @EntryPoint is gone). A Worker is
     // framework-instantiated, so it pulls its dependency rather than getting it injected.
     private val downloader: ModelDownloader by lazy { getKoin().get() }
+    private val inventory: ModelInventory by lazy { getKoin().get() }
 
     override suspend fun getForegroundInfo(): ForegroundInfo = createForegroundInfo(0L, 0L)
 
+    /**
+     * Downloads every required model (Gemma LLM + the two aux models, PR #3) in
+     * one job, skipping any already present, and reports a single aggregate
+     * progress bar (sum of all required sizes). Chat unlocks only once they're
+     * all on disk (see [ModelInventory.allRequiredPresent]).
+     */
     override suspend fun doWork(): Result {
         setForeground(createForegroundInfo(0L, 0L))
 
-        val outcome = try {
-            downloader.download { written, total ->
-                setProgressAsync(
-                    workDataOf(
-                        KEY_BYTES_DOWNLOADED to written,
-                        KEY_BYTES_TOTAL to total,
-                    ),
-                )
-                // Best-effort notification refresh — throttle to avoid hammering
-                // the notification manager on every 64 KB chunk. setForegroundAsync
-                // (non-suspending) is used because `onProgress` is a regular
-                // (non-suspend) lambda.
-                if (shouldRefreshNotification(written, total)) {
-                    setForegroundAsync(createForegroundInfo(written, total))
+        val specs = inventory.requiredSpecs()
+        val grandTotal = specs.sumOf { it.sizeBytes }
+        // Bytes already on disk from previously-completed specs (resumed jobs).
+        var completedBytes = specs.filter { inventory.isPresent(it) }.sumOf { it.sizeBytes }
+
+        for (spec in specs) {
+            if (inventory.isPresent(spec)) continue
+
+            val baseBytes = completedBytes
+            val outcome = try {
+                downloader.download(spec) { written, _ ->
+                    val global = baseBytes + written
+                    setProgressAsync(
+                        workDataOf(
+                            KEY_BYTES_DOWNLOADED to global,
+                            KEY_BYTES_TOTAL to grandTotal,
+                        ),
+                    )
+                    // Best-effort notification refresh — throttle to avoid hammering
+                    // the notification manager on every 64 KB chunk. setForegroundAsync
+                    // (non-suspending) is used because `onProgress` is a regular
+                    // (non-suspend) lambda.
+                    if (shouldRefreshNotification(global, grandTotal)) {
+                        setForegroundAsync(createForegroundInfo(global, grandTotal))
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Unexpected exception during download of ${spec.filename}", t)
+                return Result.failure(errorData(DownloadError.Network(t)))
+            }
+
+            when (outcome) {
+                is DownloadOutcome.Success -> completedBytes += spec.sizeBytes
+                is DownloadOutcome.Failure -> {
+                    Log.w(TAG, "Download failed for ${spec.filename}: ${outcome.error.message}")
+                    return if (outcome.error.isRetryable) Result.retry()
+                    else Result.failure(errorData(outcome.error))
                 }
             }
-        } catch (t: Throwable) {
-            Log.e(TAG, "Unexpected exception during download", t)
-            return Result.failure(errorData(DownloadError.Network(t)))
         }
 
-        return when (outcome) {
-            is DownloadOutcome.Success -> Result.success(
-                workDataOf(
-                    KEY_BYTES_DOWNLOADED to outcome.totalBytes,
-                    KEY_BYTES_TOTAL to outcome.totalBytes,
-                ),
-            )
-            is DownloadOutcome.Failure -> {
-                Log.w(TAG, "Download failed: ${outcome.error.message}")
-                if (outcome.error.isRetryable) Result.retry()
-                else Result.failure(errorData(outcome.error))
-            }
-        }
+        return Result.success(
+            workDataOf(
+                KEY_BYTES_DOWNLOADED to grandTotal,
+                KEY_BYTES_TOTAL to grandTotal,
+            ),
+        )
     }
 
     private fun shouldRefreshNotification(written: Long, total: Long): Boolean {

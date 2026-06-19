@@ -114,19 +114,15 @@ class LiteRtEmbedderEngine(
     }
 
     private fun createModel(env: Environment): Pair<CompiledModel, EmbedderAccelerator> {
-        // PR #58 — prefer a copy pushed to filesDir/models/ (dev builds with
-        // `-PexternalModels` skip bundling the .tflite in the APK so installs stay
-        // small); fall back to the bundled asset (the production path).
-        val externalFile = File(context.filesDir, "models/$modelAssetPath").takeIf { it.isFile }
-        if (externalFile != null) {
-            Log.i(TAG, "loading embedder from filesDir (${externalFile.absolutePath})")
-        }
+        // PR #3 — the .tflite is no longer bundled in the APK; it's downloaded
+        // from the CDN on first run into filesDir/models/ (the first-run gate
+        // ensures it's present before chat). If it's somehow absent, throw so
+        // warmUp() catches it and degrades the memory subsystem to no-op.
+        val file = File(context.filesDir, "models/$modelAssetPath")
+        require(file.isFile) { "embedder model not found at ${file.absolutePath}" }
+        Log.i(TAG, "loading embedder from filesDir (${file.absolutePath})")
         fun compile(options: CompiledModel.Options): CompiledModel =
-            if (externalFile != null) {
-                CompiledModel.create(externalFile.absolutePath, options, env)
-            } else {
-                CompiledModel.create(context.assets, modelAssetPath, options, env)
-            }
+            CompiledModel.create(file.absolutePath, options, env)
         try {
             return compile(CompiledModel.Options(Accelerator.GPU)) to EmbedderAccelerator.GPU
         } catch (t: Throwable) {

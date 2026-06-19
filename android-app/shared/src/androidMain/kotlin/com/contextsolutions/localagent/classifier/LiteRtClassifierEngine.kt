@@ -144,19 +144,15 @@ class LiteRtClassifierEngine(
      * `docs/M3_M4_HANDOFF.md` §5 and still hits the 80 ms target.
      */
     private fun createModel(env: Environment): Pair<CompiledModel, ClassifierAccelerator> {
-        // PR #58 — prefer a copy pushed to filesDir/models/ (dev builds with
-        // `-PexternalModels` skip bundling the .tflite in the APK so installs stay
-        // small); fall back to the bundled asset (the production path).
-        val externalFile = File(context.filesDir, "models/$modelAssetPath").takeIf { it.isFile }
-        if (externalFile != null) {
-            Log.i(TAG, "loading classifier from filesDir (${externalFile.absolutePath})")
-        }
+        // PR #3 — the .tflite is no longer bundled in the APK; it's downloaded
+        // from the CDN on first run into filesDir/models/ (the first-run gate
+        // ensures it's present before chat). If it's somehow absent, throw so
+        // warmUp() catches it and degrades to Gemma-only (no search/memory).
+        val file = File(context.filesDir, "models/$modelAssetPath")
+        require(file.isFile) { "classifier model not found at ${file.absolutePath}" }
+        Log.i(TAG, "loading classifier from filesDir (${file.absolutePath})")
         fun compile(options: CompiledModel.Options): CompiledModel =
-            if (externalFile != null) {
-                CompiledModel.create(externalFile.absolutePath, options, env)
-            } else {
-                CompiledModel.create(context.assets, modelAssetPath, options, env)
-            }
+            CompiledModel.create(file.absolutePath, options, env)
         try {
             return compile(CompiledModel.Options(Accelerator.GPU)) to ClassifierAccelerator.GPU
         } catch (t: Throwable) {

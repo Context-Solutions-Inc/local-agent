@@ -32,8 +32,8 @@ On-device AI assistant. **Pixel 7 + Android 16 only** for Phase 1; desktop (Linu
 - **LLM runtime (Desktop):** llama.cpp's `llama-server` as a localhost-HTTP subprocess (`LlamaServerInferenceEngine`, NOT a JNI binding). Gemma 4 E2B GGUF (`unsloth/gemma-4-E2B-it-GGUF` Q4_K_M) + mmproj-F16; text + image via `/v1/chat/completions` → `mtmd`. Prebuilt server pinned (`LlamaServerRelease.TAG`), downloaded first-run, CPU or **Vulkan** variant.
 - **Remote LLM (both platforms, optional):** point the *chat LLM* at a remote server (Settings → **Remote LLM Connection**): **Ollama** (default, `host:port`, plain HTTP, optional SSL) **or generic OpenAI-compatible** (PR #73 — OpenAI/OpenRouter/LM Studio/vLLM/llama-server/LocalAI; full base URL incl. path, always HTTPS, API key required). `RoutingInferenceEngine` (commonMain) wraps the local engine, routes to `OllamaInferenceEngine` (pure-Ktor, OpenAI-compatible `/v1/chat/completions`, text + image) when **active** (configured + on/off switch on) + reachable, else local. Classifier/embedder/search/memory always stay on-device. See #44.
 - **Classifier + embedder runtime:** `com.google.ai.edge.litert:litert:2.1.5` — a *different* runtime from LiteRT-LM (#18, #40).
-- **Classifier:** shared DistilBERT-base encoder + 3 task heads, INT8 → `models/preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB), bundled in `:androidApp/src/main/assets/`. 3 outputs/pass.
-- **Embedder:** all-MiniLM-L6-v2 INT8 (23.5 MB), bundled. Mean-pool + L2-norm baked in; one 384-dim vector out.
+- **Classifier:** shared DistilBERT-base encoder + 3 task heads, INT8 → `preflight_memory_shared_v1.0.0_int8.tflite` (67.7 MB), **CDN-downloaded on first run** into `filesDir/models/` (PR #3 — no longer bundled in the APK; see #61). 3 outputs/pass.
+- **Embedder:** all-MiniLM-L6-v2 INT8 (23.5 MB), **CDN-downloaded on first run** (PR #3). Mean-pool + L2-norm baked in; one 384-dim vector out.
 - **Status:** M0–M6 complete (`PHASE1_PLAN.md` §5). M7 (closed beta → Play Store) not started. Desktop port + llama-server rework + remote-Ollama all merged to `main`. Detailed PR history lives in auto-memory (`MEMORY.md`), not here.
 
 ## Hard invariants
@@ -167,7 +167,9 @@ Time-triggered work that runs **only on the desktop agent** (cron or one-shot), 
 
 PR #94 renamed the Kotlin/Java namespace + `applicationId` + desktop data-dir + `LOCALAGENT_*` env vars `mobileagent`→`localagent` (a full rebrand; a **fresh install on both platforms** — no data/pairing/subscription/aux-model carries over) and added three robustness guards.
 
-61. **Desktop aux models (ONNX classifier + embedder) auto-download on first run, mirroring the GGUF/Vosk path.** `DesktopAuxModelStore` (`inference/`) ensures `preflight_memory_shared_v1.0.0.onnx` + `all-MiniLM-L6-v2.onnx` into `<app-data>/models/` via `DesktopModelDownloader` (sha256 + byte size **pinned in `DesktopAuxModels`**), then `Main.kt` warms the engines. Precedence per model: `LOCALAGENT_{CLASSIFIER,EMBEDDER}_ONNX` env override → already-present (size match) → download → skip. **The hosting endpoint is compile-time-only:** `-PauxModelBaseUrl=https://host/path` (or `gradle.properties`) is baked into `desktop_build_info.properties` by `:desktopApp` and read by `DesktopAuxModels.baseUrl()`; the default is `PLACEHOLDER_BASE_URL` ⇒ `isEndpointConfigured()` false ⇒ blank spec URL ⇒ `DesktopModelSpec.isConfigured` false ⇒ the store **skips the fetch** (no doomed network call) and logs to place the `.onnx` manually. Absent model ⇒ `warmUp` returns null ⇒ pre-flight `FallThrough(ClassifierUnavailable)` ⇒ **search never fires** (the "no classifier on desktop, no classifier logs" failure). `DesktopAuxModelStoreTest` covers the decision paths.
+61. **Aux models (classifier + embedder) auto-download from the CDN on first run on BOTH platforms (PR #3); never bundled.** Hosting is the R2 CDN `https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev` (flat `/<filename>`), sha256+size-verified by the resumable downloaders.
+    - **Desktop** (`.onnx`): `DesktopAuxModelStore` (`inference/`) ensures `preflight_memory_shared_v1.0.0.onnx` + `all-MiniLM-L6-v2.onnx` into `<app-data>/models/` via `DesktopModelDownloader` (sha256 + byte size **pinned in `DesktopAuxModels`**), then `Main.kt` warms the engines. Precedence per model: `LOCALAGENT_{CLASSIFIER,EMBEDDER}_ONNX` env override → already-present (size match) → download → skip. **The base URL defaults to the CDN** (`DesktopAuxModels.DEFAULT_BASE_URL`) so a normal build auto-downloads; **`-PauxModelBaseUrl=https://host/path`** (baked into `desktop_build_info.properties` by `:desktopApp`, read by `DesktopAuxModels.baseUrl()`) overrides the host. (PR #3 fixed the prior bug where the default was an unconfigured placeholder ⇒ `isConfigured` false ⇒ the store skipped the fetch ⇒ pre-flight `FallThrough(ClassifierUnavailable)` ⇒ search never fired.) `DesktopAuxModelStoreTest` covers the decision paths.
+    - **Android** (`.tflite`): `AndroidAuxModels` defines the two `ModelSpec`s (R2 URL + pinned sha256/size, `requiresHfAuth=false`). `ModelInventory.requiredSpecs()` = Gemma + both aux; the first-run `DownloadScreen` gate fetches them all via `ModelDownloadWorker` (one job, aggregate progress) and chat unlocks only when `allRequiredPresent()`. `ModelDownloader.download(spec, …)` is spec-parameterized and sends the HF bearer **only** for `requiresHfAuth` specs (Gemma), never to the CDN. The engines load from `filesDir/models/` **only** (bundled-asset fallback removed); absent ⇒ `warmUp()` null ⇒ degrade to Gemma-only.
 
 62. **Android crash-reporter + analytics gate on Firebase being initialized — a missing `google-services.json` degrades to no-op, never crashes launch.** `google-services.json` is gitignored (absent in CI / fresh checkouts, and after the rename its `package_name` no longer matched the new `applicationId`), so the google-services plugin isn't applied and `FirebaseApp` never auto-inits. `AndroidKoinModule` binds `FirebaseSafeCrashReporter` only when `FirebaseApp.getApps(ctx).isNotEmpty()`, else `NoOpSafeCrashReporter`; `LocalAgentApplication.onCreate` likewise guards `FirebaseAnalytics.getInstance(this)` + the consent binding. Without the guard both threw `Default FirebaseApp is not initialized` on launch. Firebase telemetry still works unchanged when a matching json is present (add the new package in the Firebase console + drop in `androidApp/google-services.json`).
 
@@ -198,7 +200,6 @@ cd android-app
 ./gradlew :androidApp:assembleDebug
 ./gradlew :androidApp:installDebug
 ./gradlew :androidApp:installDebug -PuseStubEngine=true     # dev without real Gemma (StubInferenceEngine)
-./gradlew :androidApp:installDebug -PexternalModels=true    # strip 88 MB classifier+embedder from APK (see below)
 
 # Launch / M0 spike harness
 adb shell am start -n com.contextsolutions.localagent.debug/com.contextsolutions.localagent.app.MainActivity
@@ -213,7 +214,7 @@ adb shell run-as com.contextsolutions.localagent.debug \
   sh -c 'mkdir -p files/models && cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/'
 ```
 
-**Skip bundling classifier + embedder (`-PexternalModels`):** push the two aux models to `filesDir/models/` once; the engines (`LiteRtClassifierEngine`/`LiteRtEmbedderEngine`) prefer filesDir, else the bundled asset. Release builds always bundle them (don't set the flag). Copy ONE file per `run-as cp` (multi-file `cp` mis-parses through the nested shell quoting):
+**Classifier + embedder are NOT bundled (PR #3).** The two aux `.tflite` download from the CDN (`AndroidAuxModels`) on first run into `filesDir/models/`, folded into the same first-run `DownloadScreen` gate as the Gemma LLM — chat unlocks only when `ModelInventory.allRequiredPresent()` (Gemma + classifier + embedder). The engines (`LiteRtClassifierEngine`/`LiteRtEmbedderEngine`) load from `filesDir/models/` **only** (no bundled-asset fallback); if absent, `warmUp()` returns null and the agent degrades to Gemma-only. To pre-stage the aux models during dev and skip the download, push them once (copy ONE file per `run-as cp` — multi-file `cp` mis-parses through the nested shell quoting):
 
 ```bash
 PKG=com.contextsolutions.localagent.debug
@@ -224,7 +225,7 @@ for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite
 done
 ```
 
-If the models are absent on an `-PexternalModels` install, warm-up fails (`ClassifierEngine: classifier warmUp failed`) and the agent silently falls through to Gemma. On success: `loading classifier from filesDir (…)` then `classifier loaded on CPU` (the `GPU init failed; falling back to CPU XNNPACK` line is normal — #18's GPU refusal).
+On a successful load: `loading classifier from filesDir (…)` then `classifier loaded on CPU` (the `GPU init failed; falling back to CPU XNNPACK` line is normal — #18's GPU refusal).
 
 **Wireless adb** (Pixel 7's USB is unstable — pair once, re-`connect` after each reboot; port changes, pairing persists):
 

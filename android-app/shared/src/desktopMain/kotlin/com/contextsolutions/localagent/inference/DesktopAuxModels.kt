@@ -17,13 +17,13 @@ import java.util.Properties
  * [DesktopAuxModelStore] fetches the file from [classifierSpec]/[embedderSpec] —
  * mirroring the GGUF/Vosk first-run download.
  *
- * **Hosting endpoint is compile-time configurable.** The sha256 + byte size below
- * pin the EXACT artifacts (the downloader verifies both), but the hosting URL is
- * supplied by the operator via the `auxModelBaseUrl` Gradle property
- * (`-PauxModelBaseUrl=https://host/path`, or gradle.properties), baked into
- * `desktop_build_info.properties` by :desktopApp and read back by [baseUrl]. Until a
- * real endpoint is set the URL is treated as unconfigured (blank), so the store
- * skips the download and the operator places the `.onnx` manually instead.
+ * **Hosting endpoint defaults to the CDN, overridable at compile time.** The sha256
+ * + byte size below pin the EXACT artifacts (the downloader verifies both). The
+ * hosting URL defaults to [DEFAULT_BASE_URL] (the R2 CDN, so a normal build
+ * auto-downloads on first run); an operator can still point at a different host via
+ * the `auxModelBaseUrl` Gradle property (`-PauxModelBaseUrl=https://host/path`, or
+ * gradle.properties), baked into `desktop_build_info.properties` by :desktopApp and
+ * read back by [baseUrl] (PR #3).
  */
 object DesktopAuxModels {
     /** Default FP32 export name from `ct-export-onnx --output …v1.0.0.onnx`. */
@@ -44,12 +44,12 @@ object DesktopAuxModels {
     const val EMBEDDER_SIZE_BYTES: Long = 91_078_619L
 
     /**
-     * Placeholder hosting base URL — the value baked in when `auxModelBaseUrl` isn't
-     * supplied at build time. Treated as "unconfigured" by [isEndpointConfigured] so
-     * the store never attempts a doomed fetch; set a real endpoint via
-     * `-PauxModelBaseUrl=https://your-host/path` to activate auto-download.
+     * Default hosting base URL — the R2 CDN that serves the aux models, used when
+     * `auxModelBaseUrl` isn't supplied at build time (PR #3). A normal build is
+     * therefore "configured" ([isEndpointConfigured]) and auto-downloads on first
+     * run; override with `-PauxModelBaseUrl=https://your-host/path` to point elsewhere.
      */
-    const val PLACEHOLDER_BASE_URL: String = "https://REPLACE-WITH-HOSTING.invalid/localagent/aux-models/v1.0.0"
+    const val DEFAULT_BASE_URL: String = "https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev"
 
     fun classifierModel(baseDir: File = DesktopAppDirs.dataDir()): File =
         resolve(CLASSIFIER_ENV, baseDir, CLASSIFIER_FILENAME)
@@ -65,15 +65,15 @@ object DesktopAuxModels {
     fun embedderSpec(): DesktopModelSpec =
         DesktopModelSpec(EMBEDDER_FILENAME, urlFor(EMBEDDER_FILENAME), EMBEDDER_SHA256, EMBEDDER_SIZE_BYTES)
 
-    /** True when a real hosting endpoint was baked in at compile time (not the placeholder). */
-    fun isEndpointConfigured(): Boolean = baseUrl().let { it.isNotBlank() && it != PLACEHOLDER_BASE_URL }
+    /** True when a non-blank hosting endpoint is configured (default CDN or a build override). */
+    fun isEndpointConfigured(): Boolean = baseUrl().isNotBlank()
 
     private fun urlFor(filename: String): String =
         if (isEndpointConfigured()) "${baseUrl().trimEnd('/')}/$filename" else ""
 
-    /** Compile-time `auxModelBaseUrl` (from `desktop_build_info.properties`), else the placeholder. */
+    /** Compile-time `auxModelBaseUrl` (from `desktop_build_info.properties`), else [DEFAULT_BASE_URL]. */
     private fun baseUrl(): String =
-        buildProps.getProperty("auxModelBaseUrl")?.takeIf { it.isNotBlank() } ?: PLACEHOLDER_BASE_URL
+        buildProps.getProperty("auxModelBaseUrl")?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL
 
     private val buildProps: Properties by lazy {
         Properties().apply {
