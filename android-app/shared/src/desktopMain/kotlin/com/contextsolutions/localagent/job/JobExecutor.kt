@@ -216,7 +216,7 @@ class JobExecutor(
 
     private data class ProcessResult(val exitCode: Int?, val output: String, val failedToStart: Boolean = false)
 
-    private companion object {
+    internal companion object {
         const val DEFAULT_TIMEOUT_SECONDS = 300L
         const val MAX_OUTPUT_CHARS = 8 * 1024
         const val SUMMARY_CHARS = 280
@@ -233,14 +233,35 @@ class JobExecutor(
          * (no shell injection): each rides a distinct positional shell parameter
          * rather than being concatenated into the script. Order is
          * `<command> [args…] <prompt>`.
-         * POSIX: `sh -c '<command> "$@"' sh <arg…> <prompt>`. Windows: PowerShell,
-         * args + prompt appended as quoted arguments (best-effort).
+         *
+         * [command] is desktop-trusted (a paired peer cannot define or edit it —
+         * `DesktopJobSyncPolicy` drops remote inserts/edits), so it is interpolated
+         * directly on both platforms. [prompt] and [args] are attacker-influenceable
+         * (the peer/LLM keyword reaches [prompt] via `RUN_JOB_INLINE`) and MUST NOT be
+         * interpolated into the shell script.
+         *
+         * POSIX: `sh -c '<command> "$@"' sh <arg…> <prompt>` — each value rides a
+         * distinct positional `$@` parameter, never re-tokenized.
+         * Windows: PowerShell, with [args]/[prompt] emitted as single-quoted literals.
+         * Single-quoted PowerShell strings are literal — no `$()`/`$var`/backtick
+         * interpolation — and doubling any embedded `'` is the complete escape (same
+         * approach as `DesktopTtsSpeaker.escapePowerShell`), so a value like
+         * `$(calc)` or `'; calc; '` cannot break out of its argument.
          */
-        fun buildArgv(command: String, args: List<String>, prompt: String): List<String> = if (isWindows) {
-            val rendered = args.joinToString(" ") { "\"$it\"" }
-            listOf("powershell", "-NoProfile", "-Command", "$command $rendered \"$prompt\"")
-        } else {
+        fun buildArgv(command: String, args: List<String>, prompt: String): List<String> =
+            if (isWindows) buildWindowsArgv(command, args, prompt) else buildPosixArgv(command, args, prompt)
+
+        /** POSIX form — `args`/`prompt` ride distinct positional `$@` parameters. */
+        internal fun buildPosixArgv(command: String, args: List<String>, prompt: String): List<String> =
             listOf("sh", "-c", "$command \"\$@\"", "sh") + args + prompt
+
+        /** Windows form — `args`/`prompt` emitted as PowerShell single-quoted literals. */
+        internal fun buildWindowsArgv(command: String, args: List<String>, prompt: String): List<String> {
+            val rendered = args.joinToString(" ") { psSingleQuote(it) }
+            return listOf("powershell", "-NoProfile", "-Command", "$command $rendered ${psSingleQuote(prompt)}")
         }
+
+        /** Wrap [s] as a PowerShell single-quoted literal (doubling embedded `'`). */
+        private fun psSingleQuote(s: String): String = "'" + s.replace("'", "''") + "'"
     }
 }

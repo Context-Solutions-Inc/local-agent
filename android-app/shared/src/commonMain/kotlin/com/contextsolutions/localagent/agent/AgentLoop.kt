@@ -767,6 +767,15 @@ class AgentLoop(
         }
 
         var errored = false
+        // M1 (security) — the text-marker fallback below only *executes* a
+        // model-emitted clock/My-List tool when THIS turn is genuinely such an
+        // intent (from the raw user message, same detectors used at ~:312). On any
+        // other turn — notably search-grounded turns whose prompt carries
+        // attacker-controlled web/RSS text — a marker the model was coaxed into
+        // emitting is stripped, never dispatched, so indirect prompt injection
+        // cannot mutate local clock/My-List state.
+        val markerDispatchAllowed = clockIntentDetector.isClockIntent(input.userMessage) ||
+            myListIntentDetector.isMyListIntent(input.userMessage)
         // M6 Phase C — first-token latency starts when we hand the request
         // to the engine. Pre-flight + memory retrieval + the synthetic
         // search round-trip on FireSearch all happen BEFORE this point;
@@ -815,7 +824,7 @@ class AgentLoop(
                         // valid call, we suppress the error entirely and let
                         // the Done path build a normal message.
                         val recovered = if (toolHandlers.isNotEmpty()) {
-                            runTextMarkerFallback(event.message, turnAppendix)
+                            runTextMarkerFallback(event.message, turnAppendix, markerDispatchAllowed)
                         } else null
                         if (recovered != null) {
                             logger("[turn] recovered from engine error via marker fallback")
@@ -852,6 +861,7 @@ class AgentLoop(
             val replacement = runTextMarkerFallback(
                 rawText = finalText.toString(),
                 turnAppendix = turnAppendix,
+                dispatchAllowed = markerDispatchAllowed,
             )
             if (replacement != null) {
                 finalText.clear()
@@ -1042,12 +1052,21 @@ class AgentLoop(
     private suspend fun runTextMarkerFallback(
         rawText: String,
         turnAppendix: MutableList<ChatMessage>,
+        dispatchAllowed: Boolean,
     ): String? {
         val startIdx = rawText.indexOf(TEXT_TOOL_START_MARKER)
         if (startIdx < 0) return null
         val afterStart = rawText.substring(startIdx + TEXT_TOOL_START_MARKER.length)
         val endIdx = afterStart.indexOf(TEXT_TOOL_END_MARKER)
         val body = if (endIdx >= 0) afterStart.substring(0, endIdx) else afterStart
+        // M1 (security) — when this turn is not a clock/My-List intent we never
+        // *execute* a model-emitted tool (it may have been coaxed out by injected
+        // search content). Strip the marker region so the raw marker isn't shown
+        // and return the cleaned text, but dispatch nothing.
+        if (!dispatchAllowed) {
+            logger("[turn] marker fallback: dispatch suppressed (no clock/mylist intent)")
+            return stripMarkerRegion(rawText, startIdx, afterStart, endIdx)
+        }
         logger("[turn] marker fallback: raw body=\"${redact(body)}\"")
         // Three-tier parsing (most strict first):
         //
@@ -1098,6 +1117,18 @@ class AgentLoop(
         val rendered = ClockResponseFormatter.format(parsed.name, result, strings)
         logger("[turn] marker fallback: rendered \"${redact(rendered)}\"")
         return rendered
+    }
+
+    /**
+     * Remove the `<|tool_call>…<tool_call|>` region (and trailing end marker) from
+     * [rawText], returning the surrounding prose trimmed. Used by the M1 strip-only
+     * path so a suppressed marker never reaches the user. Indices are those already
+     * computed by [runTextMarkerFallback] against the same [rawText].
+     */
+    private fun stripMarkerRegion(rawText: String, startIdx: Int, afterStart: String, endIdx: Int): String {
+        val before = rawText.substring(0, startIdx)
+        val after = if (endIdx >= 0) afterStart.substring(endIdx + TEXT_TOOL_END_MARKER.length) else ""
+        return (before + after).trim()
     }
 
 

@@ -29,9 +29,10 @@ import io.ktor.server.routing.routing
 class DesktopLinkServer(
     /**
      * PR #74 — handles the Stripe Checkout success redirect (`GET
-     * /subscribe/callback?claim_code=…`). Returns true on success.
+     * /subscribe/callback?claim_code=…&nonce=…`). Returns true on success. The
+     * `nonce` binds the callback to the in-flight checkout (M3 — loopback CSRF).
      */
-    private val onSubscribeCallback: (suspend (claimCode: String) -> Boolean)? = null,
+    private val onSubscribeCallback: (suspend (claimCode: String, nonce: String) -> Boolean)? = null,
     private val preferredPort: Int = DesktopLinkConfig.DEFAULT_PORT,
     private val logger: (String) -> Unit = {},
 ) {
@@ -78,9 +79,10 @@ class DesktopLinkServer(
                 // to this loopback address.
                 get("/subscribe/callback") {
                     val code = call.request.queryParameters["claim_code"].orEmpty()
+                    val nonce = call.request.queryParameters["nonce"].orEmpty()
                     val canceled = call.request.queryParameters["status"] == "canceled"
                     val ok = !canceled && code.isNotBlank() &&
-                        (onSubscribeCallback?.invoke(code) ?: false)
+                        (onSubscribeCallback?.invoke(code, nonce) ?: false)
                     val message = when {
                         canceled -> "Checkout canceled. You can close this tab."
                         ok -> "Subscription activated. You can return to the Local Agent app."

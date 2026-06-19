@@ -209,6 +209,42 @@ class JobExecutorTest {
     }
 
     @Test
+    fun posixArgvKeepsPromptAndArgsAsPositionalParameters() {
+        // POSIX form: command interpolated, args + prompt ride distinct positional
+        // `$@` parameters (never re-tokenized), regardless of host.
+        val argv = JobExecutor.buildPosixArgv("watch.sh", listOf("--headless"), "K7M 2T6")
+        assertEquals(listOf("sh", "-c", "watch.sh \"\$@\"", "sh", "--headless", "K7M 2T6"), argv)
+    }
+
+    @Test
+    fun windowsArgvEscapesUntrustedPromptAsSingleQuotedLiteral() {
+        // H1 regression: a peer/LLM-controlled keyword reaching `prompt` must be
+        // emitted as a single PowerShell single-quoted literal so `$()`/`;`/quotes
+        // cannot break out of the argument and execute.
+        val script = JobExecutor.buildWindowsArgv(
+            command = "node watch.js",
+            args = listOf("--mode=fast"),
+            prompt = "\"; calc; #",
+        ).last()
+        // Trusted command is interpolated; args + prompt are single-quoted literals.
+        assertEquals("node watch.js '--mode=fast' '\"; calc; #'", script)
+
+        // `$(...)` subexpressions stay inert inside a single-quoted literal.
+        val subexpr = JobExecutor.buildWindowsArgv("cmd", emptyList(), "\$(calc)").last()
+        assertEquals("cmd  '\$(calc)'", subexpr)
+
+        // An embedded single quote is doubled (the only PowerShell escape needed),
+        // so it cannot terminate the literal and start new commands.
+        val withQuote = JobExecutor.buildWindowsArgv("cmd", emptyList(), "' ; calc ; '").last()
+        assertEquals("cmd  ''' ; calc ; '''", withQuote)
+        // The full argv is exactly: powershell -NoProfile -Command <script>.
+        assertEquals(
+            listOf("powershell", "-NoProfile", "-Command", "cmd  ''' ; calc ; '''"),
+            JobExecutor.buildWindowsArgv("cmd", emptyList(), "' ; calc ; '"),
+        )
+    }
+
+    @Test
     fun successiveRunsContinueTheSameConversationThread() = runBlocking {
         if (isWindows) return@runBlocking
 

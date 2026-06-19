@@ -261,7 +261,7 @@ fun main() {
         },
     )
     val linkServer = DesktopLinkServer(
-        onSubscribeCallback = { code -> subscription.handleClaimCode(code) },
+        onSubscribeCallback = { code, nonce -> subscription.handleClaimCode(code, nonce) },
         logger = { System.err.println("[DesktopLink] $it") },
     )
     // The checkout redirect targets the loopback callback server's port.

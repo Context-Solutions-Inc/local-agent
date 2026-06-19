@@ -1,12 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  PR #56 — permit cleartext HTTP so the app can reach a user-entered Ollama
-  server on the LAN, which typically serves plain http:// with no TLS. The IP is
-  configured at runtime (Settings → Ollama server), so it can't be enumerated as
-  a per-domain entry here; a permissive base-config is the practical scope. The
-  app's only other outbound traffic is HTTPS (Brave Search, HuggingFace, model
-  downloads), which is unaffected.
+  Cleartext policy (M4 hardening).
+
+  The permissive base-config (PR #56) is needed so the app can reach a
+  user-entered Ollama server on the LAN, which typically serves plain http:// with
+  no TLS. That IP is configured at runtime (Settings → Ollama server), so it can't
+  be enumerated as a per-domain entry.
+
+  BUT the app's fixed, secret-bearing endpoints (Brave Search key, Hugging Face
+  token, model/binary downloads) must never be downgraded to cleartext by an
+  on-path attacker rewriting a URL to http://. Pin those hosts to HTTPS-only with
+  an explicit domain-config so the broad base-config can't unprotect them.
 -->
 <network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.search.brave.com</domain>
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

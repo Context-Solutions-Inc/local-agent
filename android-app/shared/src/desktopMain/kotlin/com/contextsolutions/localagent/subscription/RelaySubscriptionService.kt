@@ -41,6 +41,19 @@ class RelaySubscriptionService(
 ) {
     private val claimMutex = Mutex()
 
+    // M3 (security) — the nonce minted by the most recent [startCheckout]. The
+    // loopback `/subscribe/callback` is unauthenticated and browser-facing, so a
+    // local process or a web page could POST/GET it an attacker-controlled
+    // claim_code (CSRF). We bind the callback to this in-flight nonce: a callback
+    // is only honored while a checkout WE started is pending and the URL carries
+    // the matching nonce. Stripe preserves our `success_url` query string, so the
+    // nonce rides back on the browser redirect with no gateway change.
+    @Volatile
+    private var pendingNonce: String? = null
+
+    @Volatile
+    private var pendingNonceExpiresAtMs: Long = 0L
+
     /** Reactive subscription state for the Settings UI. */
     fun stateFlow() = prefs.stateFlow()
 
@@ -52,11 +65,16 @@ class RelaySubscriptionService(
         val port = callbackPortProvider()
             ?: return "The desktop link server is not running yet. Try again in a moment."
         val nonce = newNonce()
-        val redirect = "http://127.0.0.1:$port/subscribe/callback"
+        // The nonce rides on the redirect (Stripe preserves the success_url query
+        // string) so the callback can prove it corresponds to a checkout we began.
+        val redirect = "http://127.0.0.1:$port/subscribe/callback?nonce=$nonce"
         return when (val r = client.startCheckout(gatewayBaseUrl, nonce, redirect)) {
             is RelayGatewayClient.StartResult.Ok -> {
+                val ttl = r.expiresInSec.coerceIn(60, 3600)
+                pendingNonce = nonce
+                pendingNonceExpiresAtMs = System.currentTimeMillis() + ttl * 1000L
                 urlOpener.openUrl(r.checkoutUrl)
-                startFallbackPoll(nonce, r.expiresInSec.coerceIn(60, 3600))
+                startFallbackPoll(nonce, ttl)
                 null
             }
             RelayGatewayClient.StartResult.Unavailable ->
@@ -65,14 +83,27 @@ class RelaySubscriptionService(
         }
     }
 
-    /** Called by the `/subscribe/callback` route. Returns true once the claim lands. */
-    suspend fun handleClaimCode(claimCode: String): Boolean =
-        when (val r = client.claim(gatewayBaseUrl, claimCode = claimCode)) {
+    /**
+     * Called by the `/subscribe/callback` route. Returns true once the claim lands.
+     * Rejected unless [nonce] matches the in-flight checkout's nonce (M3) — this
+     * closes the loopback-CSRF path where an attacker drives the browser to the
+     * callback with a code the desktop never requested.
+     */
+    suspend fun handleClaimCode(claimCode: String, nonce: String): Boolean {
+        val expected = pendingNonce
+        if (expected == null || nonce.isBlank() || nonce != expected ||
+            System.currentTimeMillis() > pendingNonceExpiresAtMs
+        ) {
+            logger("rejected /subscribe/callback: no matching in-flight checkout nonce")
+            return false
+        }
+        return when (val r = client.claim(gatewayBaseUrl, claimCode = claimCode)) {
             // The fallback nonce poll already redeemed this claim (no-Stripe flow);
             // the credential is being stored by that path, so report success.
-            RelayGatewayClient.ClaimResult.AlreadyClaimed -> true
-            else -> applyClaim(r)
+            RelayGatewayClient.ClaimResult.AlreadyClaimed -> { pendingNonce = null; true }
+            else -> applyClaim(r).also { if (it) pendingNonce = null }
         }
+    }
 
     /** Launch-time re-validation; no-op when no account is stored locally. */
     suspend fun refresh() {
