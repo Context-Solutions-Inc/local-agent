@@ -115,6 +115,10 @@ build needs only JDK 17.
 ```bash
 git clone --recurse-submodules <repo-url>      # agent-jobs is a submodule
 cd local-agent/android-app                      # the Gradle project lives here
+mkdir models
+curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0.onnx
+curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0_int8.tflite
+
 ```
 
 **Android** (needs `android-app/secrets.properties` — copy `secrets.properties.example` and fill in a
