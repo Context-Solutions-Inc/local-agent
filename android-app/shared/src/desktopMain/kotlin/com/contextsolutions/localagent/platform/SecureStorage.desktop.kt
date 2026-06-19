@@ -14,33 +14,86 @@ import javax.crypto.spec.PBEKeySpec
  * rest with the JDK's PBE — the Android side uses `EncryptedSharedPreferences`,
  * iOS uses the Keychain; this is the desktop counterpart.
  *
- * **Security tier.** This is the **fallback** the plan calls for. PKCS#12 keeps
- * the secrets non-plaintext on disk (PRD §4.4), but the store password is
- * derived from a stable per-user value (or the `LOCALAGENT_KEYSTORE_PASSWORD`
- * override) rather than an OS-protected secret — so it defends against casual
- * disk inspection, not an attacker who has both the file and the user identity.
- * The hardening upgrade is the **OS keyring** (java-keyring → Secret Service /
- * macOS Keychain / Windows Credential Manager), deferred so this increment stays
- * dependency-free and headless-safe (no desktop session needed in CI).
+ * **Security tier (H2).** The store password is no longer derived from a
+ * reconstructable per-user value — at rest the secrets are protected by a
+ * password that cannot be recovered from the file plus the user identity.
+ * [KeystorePassword] resolves it with precedence:
+ *  1. `LOCALAGENT_KEYSTORE_PASSWORD` env override — always wins (deployment / headless / recovery).
+ *  2. OS keyring via CLI shell-out (Linux `secret-tool`/libsecret, macOS `security`/Keychain) —
+ *     read-or-generate a [java.security.SecureRandom] password; skipped when `LOCALAGENT_HEADLESS=1` or on Windows.
+ *  3. A `0600` password file in the app-data dir (headless / no keyring / Windows / CI) — read-or-generate.
  *
- * No new dependency — pure JDK `java.security` / `javax.crypto`. Thread-safe via
- * coarse synchronization (secret access is rare: key read on search, write on
- * settings save).
+ * **File modes.** `secrets.p12` and the password file are `0600`, the app-data
+ * dir `0700` — best-effort on POSIX ([PosixPerms]); a silent no-op on Windows
+ * (ACL-based), where protection then relies on the per-user ACL of `%LOCALAPPDATA%`.
+ *
+ * **Migration.** A store created under the old derived password (or a prior env
+ * value) is transparently re-keyed on first launch under the resolved password —
+ * no data loss (see the migration loop in the constructor).
+ *
+ * **Known limitation.** A store created under a keyring password and later opened
+ * headless with neither the env override nor the password file present is
+ * unrecoverable — set `LOCALAGENT_KEYSTORE_PASSWORD` for headless/server deployments.
+ *
+ * No new dependency — pure JDK `java.security` / `javax.crypto` + the OS keyring
+ * CLI. Thread-safe via coarse synchronization (secret access is rare: key read on
+ * search, write on settings save).
  */
 class DesktopSecureStorage internal constructor(
     private val storeFile: File,
     private val password: CharArray,
+    candidates: List<CharArray>,
 ) : SecureStorage {
 
-    private val keyStore: KeyStore = KeyStore.getInstance("PKCS12").apply {
+    /**
+     * Backward-compatible constructor (used by tests): opens the store under a
+     * single [password], with no migration/re-key.
+     */
+    internal constructor(storeFile: File, password: CharArray) :
+        this(storeFile, password, listOf(password))
+
+    private val keyStore: KeyStore
+    private val protection: KeyStore.PasswordProtection
+
+    init {
         if (storeFile.isFile) {
-            storeFile.inputStream().use { load(it, password) }
+            // Try each candidate (primary first, legacy derived last) so an existing
+            // store created under an older password still opens. A fresh KeyStore per
+            // attempt — a failed load() leaves the instance in an undefined state.
+            var opened: KeyStore? = null
+            var openedWith: CharArray? = null
+            for (cand in candidates) {
+                val ks = KeyStore.getInstance("PKCS12")
+                val ok = runCatching { storeFile.inputStream().use { ks.load(it, cand) } }.isSuccess
+                if (ok) {
+                    opened = ks
+                    openedWith = cand
+                    break
+                }
+            }
+            keyStore = opened ?: throw IllegalStateException(
+                "secrets.p12 is present but no candidate password opened it. The store may have " +
+                    "been created under an OS-keyring password that is now unavailable; set " +
+                    "${KeystorePassword.PASSWORD_ENV} to recover (see DesktopSecureStorage KDoc).",
+            )
+            protection = KeyStore.PasswordProtection(password)
+            // Opened under a non-primary candidate (legacy derivation, old env, …) →
+            // re-key under the resolved password. Each PKCS#12 SecretKeyEntry is
+            // individually password-protected, so re-storing the file alone is NOT
+            // enough — re-set every entry under the new protection, then persist.
+            if (!openedWith!!.contentEquals(password)) {
+                val oldProtection = KeyStore.PasswordProtection(openedWith)
+                for (alias in keyStore.aliases().toList()) {
+                    val entry = keyStore.getEntry(alias, oldProtection)
+                    keyStore.setEntry(alias, entry, protection)
+                }
+                persist()
+            }
         } else {
-            load(null, password) // initialise an empty store
+            keyStore = KeyStore.getInstance("PKCS12").apply { load(null, password) }
+            protection = KeyStore.PasswordProtection(password)
         }
     }
-
-    private val protection = KeyStore.PasswordProtection(password)
 
     // Arbitrary string secrets are stored as PBE keys — the portable way to put
     // a variable-length value into a KeyStore (a plain SecretKeySpec("raw") is
@@ -80,24 +133,22 @@ class DesktopSecureStorage internal constructor(
     private fun persist() {
         storeFile.parentFile?.mkdirs()
         storeFile.outputStream().use { keyStore.store(it, password) }
+        // Re-assert owner-only on every write (best-effort; no-op on Windows/ACL).
+        PosixPerms.restrict(storeFile, PosixPerms.FILE_0600)
     }
 
     companion object {
         const val STORE_FILENAME: String = "secrets.p12"
-        const val PASSWORD_ENV: String = "LOCALAGENT_KEYSTORE_PASSWORD"
 
-        fun create(baseDir: File = DesktopAppDirs.dataDir()): DesktopSecureStorage =
-            DesktopSecureStorage(File(baseDir, STORE_FILENAME), resolvePassword())
-
-        private fun resolvePassword(): CharArray {
-            System.getenv(PASSWORD_ENV)?.takeIf { it.isNotBlank() }?.let { return it.toCharArray() }
-            // Stable per-user fallback — see the class KDoc on the security tier.
-            val seed = buildString {
-                append(System.getProperty("user.name").orEmpty())
-                append('|')
-                append(System.getProperty("user.home").orEmpty())
-            }.ifBlank { "local-agent" }
-            return seed.toCharArray()
+        fun create(baseDir: File = DesktopAppDirs.dataDir()): DesktopSecureStorage {
+            baseDir.mkdirs()
+            // Lock the app-data dir to 0700 before any secret lands in it.
+            PosixPerms.restrict(baseDir, PosixPerms.DIR_0700)
+            val resolved = KeystorePassword.resolve(
+                baseDir,
+                logger = { System.err.println("[SecureStorage] $it") },
+            )
+            return DesktopSecureStorage(File(baseDir, STORE_FILENAME), resolved.primary, resolved.candidates)
         }
     }
 }

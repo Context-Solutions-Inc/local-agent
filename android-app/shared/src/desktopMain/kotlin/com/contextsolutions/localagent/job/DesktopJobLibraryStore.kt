@@ -91,6 +91,9 @@ class DesktopJobLibraryStore(
      * denied" on Linux/macOS. Restore it: walk the tree and `chmod +x` every `job.settings.json`'s
      * resolved `program` files plus any `*.sh` (the documented launcher convention). No-op on
      * Windows (`setExecutable` is meaningless there). Best-effort per file.
+     *
+     * Owner-only (`setExecutable(true, true)`, security fix F3): the extracted job files live in
+     * the per-user app-data dir, so the exec bit shouldn't be world-wide.
      */
     private fun markExecutables(root: File) {
         if (isWindows) return
@@ -99,9 +102,9 @@ class DesktopJobLibraryStore(
             when {
                 file.name == JobSettingsLoader.FILE_NAME ->
                     JobSettingsLoader.load(file)?.program?.values?.forEach { rel ->
-                        if (rel.isNotBlank()) runCatching { File(file.parentFile, rel).setExecutable(true, false) }
+                        if (rel.isNotBlank()) runCatching { File(file.parentFile, rel).setExecutable(true, true) }
                     }
-                file.name.endsWith(".sh") -> runCatching { file.setExecutable(true, false) }
+                file.name.endsWith(".sh") -> runCatching { file.setExecutable(true, true) }
             }
         }
     }
