@@ -18,8 +18,11 @@ class DownloadViewModel(
 
     val state: StateFlow<DownloadState> = controller.state
 
-    /** The primary (Gemma LLM) spec — shown as the headline file in the UI. */
+    /** The primary (Gemma LLM) spec — used for the spec-configured warning. */
     fun spec(): ModelSpec = inventory.spec()
+
+    /** Every model the one-time download fetches: Gemma LLM + aux models (PR #3). */
+    fun specs(): List<ModelSpec> = inventory.requiredSpecs()
 
     /** Total bytes the one-time download fetches: Gemma LLM + aux models (PR #3). */
     fun totalDownloadBytes(): Long = inventory.requiredSpecs().sumOf { it.sizeBytes }

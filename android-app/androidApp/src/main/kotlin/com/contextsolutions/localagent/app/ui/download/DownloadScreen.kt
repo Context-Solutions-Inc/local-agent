@@ -50,7 +50,7 @@ fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
     val scrollState = rememberScrollState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Set up the on-device model") }) },
+        topBar = { TopAppBar(title = { Text("Set up the on-device models") }) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -67,20 +67,28 @@ fun DownloadScreen(viewModel: DownloadViewModel = koinViewModel()) {
             )
             Spacer(Modifier.height(16.dp))
 
-            Text("File: ${spec.filename}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            Text("Models to download:", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(4.dp))
+            for (model in viewModel.specs()) {
+                val size = if (model.sizeBytes > 0L) {
+                    " — ${Formatter.formatShortFileSize(context, model.sizeBytes)}"
+                } else {
+                    ""
+                }
+                Text(
+                    "• ${model.filename}$size",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
             val totalBytes = viewModel.totalDownloadBytes()
             if (totalBytes > 0L) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Total download: ${Formatter.formatShortFileSize(context, totalBytes)} " +
-                        "(model + search/memory)",
+                    "Total download: ${Formatter.formatShortFileSize(context, totalBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text(
-                "URL: ${spec.downloadUrl}",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-            )
             Spacer(Modifier.height(16.dp))
 
             DownloadStateBlock(state, context)
