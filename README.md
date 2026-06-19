@@ -114,17 +114,22 @@ build needs only JDK 17.
 
 ```bash
 git clone --recurse-submodules <repo-url>      # agent-jobs is a submodule
-cd local-agent/android-app                      # the Gradle project lives here
+cd local-agent
 mkdir models
+curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/all-MiniLM-L6-v2.onnx
+curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/all-MiniLM-L6-v2_int8.tflite
 curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0.onnx
 curl -LO --output-dir models --progress-bar https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev/preflight_memory_shared_v1.0.0_int8.tflite
-
+cd android-app                      # the Gradle project lives here
 ```
 
 **Android** (needs `android-app/secrets.properties` — copy `secrets.properties.example` and fill in a
 [Brave key](https://brave.com/search/api/) + [HF token](https://huggingface.co/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
 
 ```bash
+$ adb devices
+List of devices attached
+192.168.1.93:38863	device
 ./gradlew :androidApp:installDebug                   # build + install on a connected Pixel 7
 ```
 
