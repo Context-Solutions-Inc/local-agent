@@ -41,9 +41,10 @@ class OllamaClient internal constructor(
      */
     private val secureStorage: SecureStorage? = null,
     /**
-     * PR #73 — diagnostic logcat sink. Logs the full outbound control-plane
-     * request: method, URL (incl. port) and the Bearer token. **Prints the API
-     * key in cleartext** — a deliberate debug aid; logcat is on-device only.
+     * PR #73 — diagnostic logcat sink. Logs the outbound control-plane request:
+     * method, URL (incl. port) and the **presence/absence** of the Bearer token.
+     * The API key itself is never logged (L1) — only `Bearer <redacted>` / `(none)`,
+     * matching the redaction style of `AndroidRelayBytePipeFactory` / `LlamaServerProcess`.
      */
     private val logger: (String) -> Unit = {},
 ) {
@@ -67,7 +68,11 @@ class OllamaClient internal constructor(
         serverType: RemoteServerType = RemoteServerType.OLLAMA,
     ): List<OllamaModel> = try {
         val url = "${baseUrl.trimEnd('/')}${serverType.modelsPath}"
-        logger("GET $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"}")
+        if (apiKey() != null && isCleartext(url)) {
+            logger("GET $url | refusing — API key set over cleartext HTTP (enable SSL/HTTPS)")
+            return emptyList()
+        }
+        logger("GET $url | header Authorization: ${authLogValue()}")
         val response = client.get(url) {
             timeout { requestTimeoutMillis = LIST_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
             apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
@@ -95,7 +100,11 @@ class OllamaClient internal constructor(
         serverType: RemoteServerType = RemoteServerType.OLLAMA,
     ): Boolean = try {
         val url = "${baseUrl.trimEnd('/')}${serverType.modelsPath}"
-        logger("GET $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} (health)")
+        if (apiKey() != null && isCleartext(url)) {
+            logger("GET $url | refusing — API key set over cleartext HTTP (enable SSL/HTTPS) (health)")
+            return false
+        }
+        logger("GET $url | header Authorization: ${authLogValue()} (health)")
         client.get(url) {
             timeout { requestTimeoutMillis = HEALTH_TIMEOUT_MS; connectTimeoutMillis = CONNECT_TIMEOUT_MS }
             apiKey()?.let { header(HttpHeaders.Authorization, "Bearer $it") }
@@ -109,6 +118,9 @@ class OllamaClient internal constructor(
     /** The configured outbound API key, or null when unset/blank (PR #58). */
     private fun apiKey(): String? =
         secureStorage?.get(SecureStorageKeys.OLLAMA_API_KEY)?.takeIf { it.isNotBlank() }
+
+    /** Redacted Authorization value for logs (L1) — never the key itself. */
+    private fun authLogValue(): String = if (apiKey() != null) "Bearer <redacted>" else "(none)"
 
     private fun parseModels(raw: String): List<OllamaModel> = runCatching {
         JSON.parseToJsonElement(raw).jsonObject["models"]?.jsonArray.orEmpty().mapNotNull { el ->
@@ -145,6 +157,12 @@ class OllamaClient internal constructor(
         }
     }
 }
+
+/**
+ * True when [url] is plain `http://` (no TLS). Used to refuse sending the API key
+ * in cleartext (L3) and shared by [OllamaClient] / [OllamaInferenceEngine].
+ */
+internal fun isCleartext(url: String): Boolean = url.startsWith("http://", ignoreCase = true)
 
 /** One installed Ollama model, as surfaced by `/api/tags`. */
 data class OllamaModel(

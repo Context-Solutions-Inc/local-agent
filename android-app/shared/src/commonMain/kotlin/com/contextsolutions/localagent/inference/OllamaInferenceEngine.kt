@@ -150,12 +150,22 @@ class OllamaInferenceEngine(
             var finish = FinishReason.END_OF_TURN
             var sawDataLine = false
             val url = "${h.baseUrl}${h.config.serverType.chatCompletionsPath}"
-            // PR #73 — full outbound request diagnostic (URL incl. port, Bearer token,
-            // and the JSON body/query). Prints the API key in cleartext: a deliberate
-            // on-device debug aid.
+            // L3 — never send the API key over cleartext HTTP; refuse and let the
+            // router fall back to the on-device model. Nudges the user to enable SSL.
+            if (apiKey() != null && isCleartext(url)) {
+                emit(
+                    GenerationEvent.Error(
+                        "Refusing to send the API key over cleartext HTTP. " +
+                            "Enable SSL/HTTPS for this remote server.",
+                    ),
+                )
+                return@flow
+            }
+            // PR #73 — outbound request diagnostic (URL incl. port, the JSON body/query,
+            // and the *presence/absence* of the Bearer token). The API key itself is
+            // never logged (L1) — only `Bearer <redacted>` / `(none)`.
             logger(
-                "[request] POST $url | header Authorization: ${apiKey()?.let { "Bearer $it" } ?: "(none)"} " +
-                    "| body=$body",
+                "[request] POST $url | header Authorization: ${authLogValue()} | body=$body",
             )
             h.client.preparePost(url) {
                 contentType(ContentType.Application.Json)
@@ -217,6 +227,9 @@ class OllamaInferenceEngine(
     /** The configured outbound API key, or null when unset/blank (PR #58). */
     private fun apiKey(): String? =
         secureStorage?.get(SecureStorageKeys.OLLAMA_API_KEY)?.takeIf { it.isNotBlank() }
+
+    /** Redacted Authorization value for logs (L1) — never the key itself. */
+    private fun authLogValue(): String = if (apiKey() != null) "Bearer <redacted>" else "(none)"
 
     private companion object {
         const val DEFAULT_KEEP_ALIVE = "30m"

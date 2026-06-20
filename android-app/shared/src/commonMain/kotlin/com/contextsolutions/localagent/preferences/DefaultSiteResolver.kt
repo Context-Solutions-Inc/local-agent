@@ -1,6 +1,7 @@
 package com.contextsolutions.localagent.preferences
 
 import com.contextsolutions.localagent.search.SearchSubtype
+import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -91,17 +92,21 @@ class DefaultSiteResolver(jsonText: String) {
         ): String? {
             val needsGps = template.contains("{lat}") || template.contains("{lon}")
             if (needsGps && gps == null) return null
+            // L6 — URL-encode user-derived substitutions (query + the location
+            // fields) so `&`/`?`/`#`/etc. can't inject into the query string. The
+            // host is fixed in the template (no SSRF); this is input hygiene.
+            // {lat}/{lon} stay raw — numeric, locale-independent via formatCoord.
             var out = template
             if (location != null) {
-                out = out.replace("{country}", location.country)
-                out = out.replace("{region}", location.regionCode)
-                out = out.replace("{city}", location.city.replace(" ", "+"))
+                out = out.replace("{country}", location.country.encodeURLParameter(spaceToPlus = true))
+                out = out.replace("{region}", location.regionCode.encodeURLParameter(spaceToPlus = true))
+                out = out.replace("{city}", location.city.encodeURLParameter(spaceToPlus = true))
             }
             if (gps != null) {
                 out = out.replace("{lat}", formatCoord(gps.latitude))
                 out = out.replace("{lon}", formatCoord(gps.longitude))
             }
-            out = out.replace("{query}", query.replace(" ", "+"))
+            out = out.replace("{query}", query.encodeURLParameter(spaceToPlus = true))
             return out
         }
 

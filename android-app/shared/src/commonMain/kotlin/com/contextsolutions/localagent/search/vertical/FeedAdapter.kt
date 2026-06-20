@@ -12,9 +12,11 @@ import com.contextsolutions.localagent.search.SearchSource
 import com.contextsolutions.localagent.search.SearchSubtype
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.io.readString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -95,7 +97,12 @@ class FeedAdapter(
             }
             logger("[vertical:$subtype] GET ${site.domain} kind=${site.kind.name} url=$url")
             try {
-                val body = httpClient.get(url).bodyAsText()
+                // L5 — bound the read: a malicious/MITM'd feed (several RSS defaults
+                // are plain HTTP) could otherwise stream an unbounded body into a
+                // String and OOM the process. `readRemaining(max)` reads at most
+                // MAX_FEED_BYTES and discards the rest.
+                val body = httpClient.get(url).bodyAsChannel()
+                    .readRemaining(MAX_FEED_BYTES).readString()
                 logger("[vertical:$subtype] ${site.domain} bodyLen=${body.length}")
                 val (snippet, payloadBlock) = when (site.kind) {
                     SourceKind.RSS -> {
@@ -233,6 +240,10 @@ class FeedAdapter(
 
     private companion object {
         const val DEFAULT_MAX_SOURCES = 3
+        // L5 — hard cap on a single feed body read (4 MiB), comfortably above any
+        // real RSS/DWML/HTML feed. Guards against an OOM from a malicious/MITM'd
+        // source; the downstream PER_SOURCE_CHAR_CAP truncation is unaffected.
+        const val MAX_FEED_BYTES = 4L * 1024 * 1024
         // Per-source budget ~600 tokens of cleaned text. Weather feeds in
         // particular have alert + current + many forecast periods; the
         // outer SEARCH_CONTEXT_MAX_CHARS=3600 cap in AgentLoop keeps the

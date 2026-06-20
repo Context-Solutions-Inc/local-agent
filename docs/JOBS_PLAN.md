@@ -202,6 +202,15 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   `<app-data>/runtimes/node`. `DesktopJobRuntimeEnv` prepends that private bin dir to the
   subprocess `PATH` for BOTH the init steps (`npm install`) and the job's later runs
   (`JobExecutor`), so a scheduled run still finds `node`.
+- **Init manifest trust boundary (PR #6 / security — L4, accepted risk).** The `init` manifest
+  (`job.settings.json`) is read from the *writable* overlay `<app-data>/agent-jobs` (never pruned),
+  not the read-only classpath bundle, and `DesktopJobInitializer` runs its commands via `sh -c` /
+  `powershell -Command`. There is **no remote / LLM input path** to these commands, so this is a
+  purely **local-tamper** concern (an attacker who can already write the user's app-data dir). The
+  extracted exec bit is already **owner-only** (`setExecutable(true, true)`, fix F3 in
+  `DesktopJobLibraryStore.markExecutables`). Reading the manifest from the bundle or hash-verifying
+  the extracted tree is **out of scope** under the current threat model (the library is first-party
+  bundled content); revisit only if untrusted third-party job sources are ever introduced.
 
 The numbered design sections below remain accurate for the scheduler/executor
 mechanics, persistence conventions, sync envelope reuse, Koin wiring, and the

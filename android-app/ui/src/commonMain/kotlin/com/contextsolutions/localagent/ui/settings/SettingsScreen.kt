@@ -985,11 +985,25 @@ private fun OllamaServerSection(
             )
         },
     )
+    // L3 (UI gate) — an API key may only be saved when SSL/HTTPS is on, so the key
+    // is never sent over cleartext HTTP. OPENAI implies SSL (locked on), so this only
+    // blocks an OLLAMA server with the checkbox off. Mirrors the runtime refusal in
+    // OllamaInferenceEngine/OllamaClient.
+    val sslEnabledForKey = useSsl || isOpenAi
+    val keyBlockedBySsl = apiKeyInput.isNotBlank() && !sslEnabledForKey
+    if (keyBlockedBySsl) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            tr(StringKeys.SETTINGS_OLLAMA_APIKEY_REQUIRES_SSL),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = { onSaveApiKey(apiKeyInput); apiKeyInput = "" },
-            enabled = enabled && apiKeyInput.isNotBlank(),
+            enabled = enabled && apiKeyInput.isNotBlank() && sslEnabledForKey,
         ) { Text(tr(StringKeys.SETTINGS_OLLAMA_SAVE_KEY)) }
         if (state.hasOllamaApiKey) {
             OutlinedButton(onClick = onClearApiKey, enabled = enabled) { Text(tr(StringKeys.SETTINGS_OLLAMA_CLEAR_KEY)) }

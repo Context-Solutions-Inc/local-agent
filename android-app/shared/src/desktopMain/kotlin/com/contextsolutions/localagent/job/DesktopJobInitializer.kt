@@ -38,6 +38,14 @@ internal data class JobInitMarker(
  * waits poll + `ensureActive`, so cancelling the caller (the dialog's Cancel) kills the
  * subprocess. Commands are full shell strings (`sh -c` / `powershell -Command`) run in the job
  * dir — the manifest is trusted bundled content, so no injection-safe positional binding.
+ *
+ * **Security note (L4 — accepted risk).** The `init` manifest is read from the *writable* overlay
+ * `<app-data>/agent-jobs` ([DesktopJobLibraryStore.dir]), not the read-only classpath bundle, and
+ * the overlay is never pruned. There is **no remote / LLM input path** to these commands, so this
+ * is a purely **local-tamper** concern (an attacker who can already write the user's app-data dir).
+ * The extracted exec bit is owner-only ([DesktopJobLibraryStore.markExecutables], fix F3). Reading
+ * the manifest from the bundle / hash-verifying the tree is out of scope for the current threat
+ * model; revisit if untrusted job sources are ever introduced.
  */
 class DesktopJobInitializer(
     private val nodeProvisioner: DesktopNodeProvisioner? = null,

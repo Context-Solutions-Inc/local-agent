@@ -33,8 +33,10 @@ import java.io.File
 /**
  * UI surface for running the M0 inference spike on a Pixel 7.
  *
- * Internal-only — release builds disable this Activity via PackageManager
- * (wired in M6 release engineering).
+ * Internal-only — declared ONLY in the debug variant
+ * (`androidApp/src/debug/AndroidManifest.xml`), so it is absent from release
+ * builds and cannot be launched externally (L2). The class itself compiles into
+ * both variants but is harmless dead code without a manifest declaration.
  */
 class SpikeActivity : ComponentActivity() {
 

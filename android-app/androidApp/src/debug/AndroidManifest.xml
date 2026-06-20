@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Debug-only declaration of the M0 inference/benchmark harness (L2).
+      Kept out of release builds entirely (this manifest is merged into the
+      debug variant only), so no external app can launch it in production.
+      `exported="true"` is intentional here — it preserves the documented
+      `adb shell am start … SpikeActivity` dev workflow (see CLAUDE.md).
+    -->
+    <application>
+        <activity
+            android:name=".spike.SpikeActivity"
+            android:exported="true"
+            android:label="@string/spike_title"
+            android:theme="@style/Theme.LocalAgent" />
+    </application>
+</manifest>

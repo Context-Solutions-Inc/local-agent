@@ -315,6 +315,10 @@ object EnglishStrings {
         StringKeys.SETTINGS_OLLAMA_APIKEY_LABEL_OPTIONAL to Simple("API key (optional)"),
         StringKeys.SETTINGS_OLLAMA_APIKEY_PLACEHOLDER_REPLACE to Simple("Replace existing key"),
         StringKeys.SETTINGS_OLLAMA_APIKEY_PLACEHOLDER_PASTE to Simple("Paste key"),
+        StringKeys.SETTINGS_OLLAMA_APIKEY_REQUIRES_SSL to Simple(
+            "Enable \"Use SSL (https)\" to save an API key — keys are never sent over " +
+                "cleartext HTTP.",
+        ),
         StringKeys.SETTINGS_OLLAMA_SAVE_KEY to Simple("Save key"),
         StringKeys.SETTINGS_OLLAMA_CLEAR_KEY to Simple("Clear key"),
         StringKeys.SETTINGS_OLLAMA_STATUS_CONNECTING to Simple("Connecting…"),

@@ -183,6 +183,7 @@
   "settings.ollama.apikey_label_optional": "Clave de API (opcional)",
   "settings.ollama.apikey_placeholder_replace": "Reemplazar la clave existente",
   "settings.ollama.apikey_placeholder_paste": "Pegar clave",
+  "settings.ollama.apikey_requires_ssl": "Active «Usar SSL (https)» para guardar una clave de API: las claves nunca se envían por HTTP sin cifrar.",
   "settings.ollama.save_key": "Guardar clave",
   "settings.ollama.clear_key": "Borrar clave",
   "settings.ollama.status_connecting": "Conectando…",

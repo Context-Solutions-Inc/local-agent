@@ -81,13 +81,11 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".spike.SpikeActivity"
-            android:exported="true"
-            android:label="@string/spike_title"
-            android:theme="@style/Theme.LocalAgent">
-            <!-- Internal-only entry point. Disabled in release builds via PackageManager. -->
-        </activity>
+        <!--
+          SpikeActivity (the M0 inference/benchmark harness) is declared ONLY in the
+          debug variant (androidApp/src/debug/AndroidManifest.xml), so it is absent
+          from release builds entirely — no external app can launch it (L2).
+        -->
 
         <service
             android:name=".service.InferenceForegroundService"
