@@ -45,6 +45,25 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   `JobService.runNow`. Online-only (needs the link UP). Create/edit/delete remain
   desktop-only; the sync trust boundary above is unchanged (run-now is a separate
   imperative channel, not a synced column).
+- **Cancel a running job kills the process TREE and records CANCELLED (M5 PR).**
+  Symmetric with run-now, also a separate imperative channel (not synced). The
+  desktop is the authority: `JobService` keeps an in-flight registry keyed by job
+  id, and `runNow` + the scheduler fire-path (`onJobFired`) both run the job in a
+  **tracked, `CoroutineStart.LAZY`** coroutine. `JobAdmin.cancel(id): Boolean`
+  cancels that coroutine (false when none is in flight). `JobExecutor.runProcess`
+  is now **cancellation-aware** (poll loop + `coroutineContext.ensureActive()`,
+  mirroring `runCapture`/#59) so the cancel breaks the `waitFor` promptly, and
+  `execute()` records the terminal **CANCELLED** row under `NonCancellable` (the
+  old `runCatching { runProcess }` swallowed `CancellationException` → mislabelled
+  it FAILED). New **`destroyTree(proc)`** snapshots `ProcessHandle.descendants()`
+  and `destroyForcibly()`s the whole subtree **before** the parent (a bare
+  `destroyForcibly` reparents/orphans grandchildren) — used on **both cancel AND
+  timeout**, in `runProcess` and `runCapture`. Best-effort: `descendants()` is a
+  snapshot, so a child spawned during the kill window can survive. Mobile cancels
+  over the relay via a new imperative **`CANCEL_JOB` `LinkMethod`** (unary, id in
+  `query["id"]`): `RemoteJobRunner.cancel`/`RelayRemoteJobRunner` (mobile-only) →
+  `DesktopLinkRequestHandler.cancelJob` seam → `JobService.cancel` (200 if a run
+  was cancelled, else 404). Wired in `Main.kt`. Online-only.
 - **`SqlDelightJobRepository.flow()` MUST be a reactive SQLDelight query**
   (`selectAllJobs().asFlow().mapToList`). Synced rows are written by the sync layer
   via the raw `*FromPeer` queries, **bypassing the repo**, so a manually-seeded
@@ -70,7 +89,11 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
   when the relay link is UP, firing the `RUN_JOB` RPC above); **Edit/Delete stay
   `isAdmin`-only** (desktop). While a run is in flight the row shows a spinner +
   "Running…"; on completion it switches to the result text. **Edit stays enabled** so
-  a completed one-shot can be reopened and given a new time.
+  a completed one-shot can be reopened and given a new time. **While
+  `lastRunStatus == RUNNING` the run-now ▶ is replaced by a Stop ⏹ button** (under
+  the same `canControl` gate, both platforms; `JOBS_CD_CANCEL_RUN` string, EN+ES) that
+  calls `JobsViewModel.cancel` → `JobAdmin.cancel` (desktop) or `RemoteJobRunner.cancel`
+  (mobile, relay) — the cancel channel above.
 - **Schedule UI mirrors the mobile clock screens** (desktop has no alarm/timer icons
   by design, but reuses the layout): **Repeat** = the alarm flow (time-of-day + day
   chips → a 5-field cron `min hour * * dows`, `*` = daily), **Once** = the timer flow
