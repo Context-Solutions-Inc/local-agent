@@ -289,6 +289,9 @@ object EnglishStrings {
         StringKeys.SETTINGS_OLLAMA_SSL_LOCKED to Simple(
             "Use SSL (https) — required for OpenAI-compatible",
         ),
+        StringKeys.SETTINGS_OLLAMA_SSL_LOCKED_BY_KEY to Simple(
+            "SSL is required while an API key is saved. Clear the saved key to turn it off.",
+        ),
         StringKeys.SETTINGS_OLLAMA_SSL to Simple("Use SSL (https)"),
         StringKeys.SETTINGS_OLLAMA_BASE_URL to Simple("Base URL"),
         StringKeys.SETTINGS_OLLAMA_HOST to Simple("Host / IP"),

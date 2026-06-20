@@ -835,20 +835,38 @@ private fun OllamaServerSection(
     )
     Spacer(Modifier.height(8.dp))
     val sslLocked = serverType == RemoteServerType.OPENAI
+    // L3 (UI gate) — a saved API key must never ride cleartext HTTP, so once a key
+    // is stored SSL can't be turned off. OPENAI already locks SSL on, so this only
+    // adds the lock for OLLAMA. The user must clear the saved key first (warning below).
+    val sslLockedByKey = state.hasOllamaApiKey && !sslLocked
+    // Keep the form's useSsl consistent with the forced-on display so a later
+    // server-config save can't persist a cleartext config alongside a saved key.
+    LaunchedEffect(sslLockedByKey) {
+        if (sslLockedByKey && !useSsl) onUseSslChange(true)
+    }
+    val sslForcedOn = sslLocked || sslLockedByKey
     Row(verticalAlignment = Alignment.CenterVertically) {
         Checkbox(
-            checked = useSsl || sslLocked,
+            checked = useSsl || sslForcedOn,
             onCheckedChange = onUseSslChange,
-            enabled = enabled && !sslLocked,
+            enabled = enabled && !sslForcedOn,
         )
         Text(
             if (sslLocked) tr(StringKeys.SETTINGS_OLLAMA_SSL_LOCKED) else tr(StringKeys.SETTINGS_OLLAMA_SSL),
             style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled && !sslLocked) {
+            color = if (enabled && !sslForcedOn) {
                 MaterialTheme.colorScheme.onSurface
             } else {
                 MaterialTheme.colorScheme.outline
             },
+        )
+    }
+    if (sslLockedByKey) {
+        Text(
+            tr(StringKeys.SETTINGS_OLLAMA_SSL_LOCKED_BY_KEY),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(start = 48.dp),
         )
     }
     Spacer(Modifier.height(8.dp))
