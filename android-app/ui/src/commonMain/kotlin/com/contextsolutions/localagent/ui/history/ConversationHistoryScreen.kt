@@ -124,15 +124,22 @@ fun ConversationHistoryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        if (searching) {
-                            // Closing search clears the filter so the full list returns.
-                            viewModel.setQuery("")
-                            searching = false
-                        } else {
-                            searching = true
-                        }
-                    }) {
+                    // Match the per-row delete icon's right inset: the row uses
+                    // horizontal = 16.dp while the TopAppBar actions slot only adds
+                    // ~4.dp end padding, so add the 12.dp difference to right-align
+                    // the magnifying glass with the trash icons below it.
+                    IconButton(
+                        modifier = Modifier.padding(end = 12.dp),
+                        onClick = {
+                            if (searching) {
+                                // Closing search clears the filter so the full list returns.
+                                viewModel.setQuery("")
+                                searching = false
+                            } else {
+                                searching = true
+                            }
+                        },
+                    ) {
                         if (searching) {
                             Icon(Icons.Default.Close, contentDescription = tr(StringKeys.HISTORY_CD_CLOSE_SEARCH))
                         } else {
