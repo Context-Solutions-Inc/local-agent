@@ -44,7 +44,8 @@ ktor = "3.0.2"
 okhttp = "4.12.0"
 # Secure Gateway client SDK (PR #74), built from ../secure-gateway/sdk → mavenLocal.
 # 0.2.0: breaking E2EE handshake v1->v2 (ephemeral forward secrecy + replay protection).
-securegateway = "0.2.0"
+# 0.2.1: SG-15 fix — one-shot handshake so a replayed handshake can't reset the replay window.
+securegateway = "0.2.1"
 # Desktop LLM runtime: NOT a JNI binding. PR #55 (Option 3) replaced the
 # net.ladenthin:llama JNI dep with llama.cpp's reference `llama-server` subprocess
 # reached over localhost HTTP (LlamaServerInferenceEngine, ktor-client-cio). The JNI
