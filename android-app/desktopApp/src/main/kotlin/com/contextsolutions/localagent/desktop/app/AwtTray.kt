@@ -47,9 +47,10 @@ data class TrayMenuStyle(
  * falls back to the logging presenter + close-to-quit, exactly as when the tray is
  * unsupported.
  *
- * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered at the reported
- *   `trayIconSize` with AWT auto-resize ON, so the icon tracks whatever slot the DE
- *   reports across resolution / DPI changes.
+ * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered 1:1 at an exact
+ *   pixel size with AWT auto-resize OFF (auto-resize inflates the image ~3× on HiDPI).
+ *   Defaults to the DE's reported `trayIconSize`; `LOCALAGENT_TRAY_ICON_SIZE` overrides
+ *   it when the DE over-reports the slot.
  * - **Menu:** a STYLED Swing [JPopupMenu], not the native AWT [java.awt.PopupMenu]
  *   (unstyleable Motif/X11 look on Linux) and not a Compose `Window` (PR #71 proved a
  *   custom top-level window can't get the click: AWT's `TrayIcon` grabs the pointer on
@@ -104,17 +105,24 @@ class AwtTray private constructor(
             menuStyle: () -> TrayMenuStyle,
         ): AwtTray? = runCatching {
             val tray = SystemTray.getSystemTray()
-            // Render at the tray's reported slot size and let AWT auto-fit the icon. The
-            // earlier overfill hack (render TRAY_SLOT_FACTOR× larger × the HiDPI scale)
-            // was tuned to one display and over-sized the icon after a resolution change,
-            // cropping it to a corner — simple sizing tracks whatever slot the DE reports.
-            val slot = tray.trayIconSize
-            val image = loadIcon(slot.width, slot.height)
+            // Render the icon at an EXACT pixel size with auto-resize OFF: with it ON,
+            // AWT inflates the logical-sized image to physical pixels on a HiDPI /
+            // fractionally-scaled display (the ~3× blow-up that cropped the icon). Size
+            // defaults to the DE's reported slot, but DEs over-report (and HiDPI confuses
+            // it), so LOCALAGENT_TRAY_ICON_SIZE overrides it — set e.g. 22/24 if too big.
+            val reported = maxOf(tray.trayIconSize.width, tray.trayIconSize.height)
+            val side = System.getenv("LOCALAGENT_TRAY_ICON_SIZE")?.toIntOrNull()?.takeIf { it > 0 }
+                ?: reported
+            System.err.println(
+                "[desktopApp] tray icon: reported slot=$reported, using size=$side " +
+                    "(override with LOCALAGENT_TRAY_ICON_SIZE)",
+            )
+            val image = loadIcon(side, side)
 
             val icon = TrayIcon(image, tooltip).apply {
-                // Let AWT scale the image to the actual slot, robust across resolution /
-                // DPI changes.
-                isImageAutoSize = true
+                // Auto-resize OFF — show the image 1:1 at the size we rendered, so AWT
+                // never rescales/inflates it across resolution / DPI changes.
+                isImageAutoSize = false
                 // Activating the icon (single/double-click depending on DE) shows the window.
                 addActionListener { onShow() }
                 // Right-click → styled Swing JPopupMenu. `isPopupTrigger` fires on press on
@@ -195,9 +203,10 @@ class AwtTray private constructor(
             // the navy edge-to-edge and the glyph filling the tile, not a small rounded plate.
             val src = AwtTray::class.java.getResourceAsStream("/tray.png")!!
                 .use { ImageIO.read(it) }
-            // Pre-scale to the reported slot size with high-quality bilinear interpolation;
-            // AWT auto-resize then fits it to the real slot. Filling the whole canvas — the
-            // source is already a centred full-bleed square — keeps navy to every edge.
+            // Pre-scale ONCE to the exact target size with high-quality bilinear
+            // interpolation so the TrayIcon never rescales it (auto-resize off). Filling
+            // the whole canvas — the source is already a centred full-bleed square —
+            // keeps navy to every edge, no border gap.
             val canvas = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
             val g = canvas.createGraphics()
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
