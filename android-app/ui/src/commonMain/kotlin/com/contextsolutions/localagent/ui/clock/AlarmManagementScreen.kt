@@ -14,10 +14,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,12 +82,15 @@ fun AlarmManagementScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
+                actions = {
+                    // Nudge left so the "+" right-aligns with the per-row trash icon,
+                    // which sits inside the body's 16dp horizontal padding while
+                    // TopAppBar actions inset only ~4dp.
+                    IconButton(onClick = { creating = true }, modifier = Modifier.padding(end = 12.dp)) {
+                        Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.CLOCK_UI_CD_NEW_ALARM))
+                    }
+                },
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { creating = true }) {
-                Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.CLOCK_UI_CD_NEW_ALARM))
-            }
         },
     ) { padding ->
         Column(
@@ -194,8 +198,22 @@ private fun AlarmRow(
             )
         }
         Switch(checked = alarm.enabled, onCheckedChange = onToggleEnabled)
-        TextButton(onClick = onEdit) { Text(tr(StringKeys.CLOCK_UI_EDIT)) }
-        TextButton(onClick = onCancel) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
+        // Grey pencil/trash (onSurfaceVariant) to match the top-bar "+" and the My
+        // List row icons, replacing the prior text "Edit"/"Cancel" buttons.
+        IconButton(onClick = onEdit) {
+            Icon(
+                Icons.Filled.Edit,
+                contentDescription = tr(StringKeys.CLOCK_UI_EDIT),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onCancel) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = tr(StringKeys.CLOCK_UI_CANCEL),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

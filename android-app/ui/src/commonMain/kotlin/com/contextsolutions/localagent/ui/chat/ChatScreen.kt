@@ -52,6 +52,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -860,6 +861,9 @@ fun ChatScreen(
                         }
                     },
                     enabled = micPermission.available,
+                    // Grey resting tint (onSurfaceVariant) to match the top-bar icons;
+                    // the IconButton dims it when disabled. Active stays primary below.
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
                     Icon(
                         imageVector = if (micEnabled) Icons.Default.Mic else Icons.Default.MicOff,
@@ -873,7 +877,11 @@ fun ChatScreen(
                 }
                 // Speaker — read finished answers aloud. Persisted toggle;
                 // available regardless of generation state.
-                IconButton(onClick = { viewModel.toggleTts() }) {
+                IconButton(
+                    onClick = { viewModel.toggleTts() },
+                    // Grey resting tint to match the top-bar icons; active stays primary.
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                ) {
                     Icon(
                         imageVector = if (ttsEnabled) {
                             Icons.AutoMirrored.Filled.VolumeUp
@@ -900,6 +908,9 @@ fun ChatScreen(
                         }
                     },
                     enabled = !ui.isGenerating && !thermal.isBlocking,
+                    // Grey resting tint to match the top-bar icons; the IconButton dims
+                    // it while disabled (during generation / thermal blocking).
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
                     Icon(Icons.Default.Image, contentDescription = tr(StringKeys.CHAT_CD_ATTACH_IMAGE))
                 }

@@ -21,7 +21,6 @@ import javax.swing.SwingUtilities
 import javax.swing.border.EmptyBorder
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
-import kotlin.math.roundToInt
 
 /**
  * Colours + font size for the themed tray menu, supplied per-show by the caller so the
@@ -48,9 +47,10 @@ data class TrayMenuStyle(
  * falls back to the logging presenter + close-to-quit, exactly as when the tray is
  * unsupported.
  *
- * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered [TRAY_SLOT_FACTOR]×
- *   larger than the reported `trayIconSize` (which GNOME/Pop under-reports), with
- *   auto-resize OFF, so the navy overfills the real slot instead of leaving light edges.
+ * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered 1:1 at an exact
+ *   pixel size with AWT auto-resize OFF (auto-resize inflates the image ~3× on HiDPI).
+ *   Defaults to a standard 16px tray icon ([DEFAULT_TRAY_ICON_SIZE]); the DE's reported
+ *   `trayIconSize` is unreliable, so `LOCALAGENT_TRAY_ICON_SIZE` overrides per machine.
  * - **Menu:** a STYLED Swing [JPopupMenu], not the native AWT [java.awt.PopupMenu]
  *   (unstyleable Motif/X11 look on Linux) and not a Compose `Window` (PR #71 proved a
  *   custom top-level window can't get the click: AWT's `TrayIcon` grabs the pointer on
@@ -89,11 +89,11 @@ class AwtTray private constructor(
 
     companion object {
         /**
-         * How much larger than the reported `trayIconSize` to render the icon, to cover
-         * the real (under-reported) slot on GNOME/Pop. Raise if light edges remain on the
-         * right/bottom; lower if the centred bubble looks pushed toward a corner.
+         * Default tray-icon side in pixels when LOCALAGENT_TRAY_ICON_SIZE is unset. 16 is
+         * the standard freedesktop tray size and looked right across the test machines;
+         * the DE's reported `trayIconSize` is too unreliable to use directly.
          */
-        private const val TRAY_SLOT_FACTOR = 1.35
+        private const val DEFAULT_TRAY_ICON_SIZE = 16
 
         /**
          * Build + register the tray icon. Returns null if anything throws — the caller
@@ -112,27 +112,24 @@ class AwtTray private constructor(
             menuStyle: () -> TrayMenuStyle,
         ): AwtTray? = runCatching {
             val tray = SystemTray.getSystemTray()
-            val preferred = tray.trayIconSize // the tray's slot size, in LOGICAL px
-            // HiDPI / fractional scaling: the embedded tray-icon window is sized in
-            // physical pixels, but trayIconSize is logical. A logical-sized image is
-            // then anchored top-left and the bare right/bottom of the slot shows through
-            // as light "lines". Render at the physical size so the navy fills the slot.
-            // The DE sizes the real tray slot, and on GNOME/Pop trayIconSize UNDER-reports
-            // it (reports 24 while the slot is larger), so a slot-sized tile is pinned
-            // top-left and the bare right/bottom shows as light "lines". Render a square
-            // TRAY_SLOT_FACTOR× larger than the reported size (× the HiDPI displayScale) so
-            // the navy overfills the slot. Too small → white edges; too large → the centred
-            // bubble is pushed toward a corner. One knob, tune from the logged size below.
-            val scale = displayScale()
-            val side = (maxOf(preferred.width, preferred.height) * scale * TRAY_SLOT_FACTOR)
-                .roundToInt()
-                .coerceAtLeast(maxOf(preferred.width, preferred.height))
+            // Render the icon at an EXACT pixel size with auto-resize OFF: with it ON,
+            // AWT inflates the logical-sized image to physical pixels on a HiDPI /
+            // fractionally-scaled display (the ~3× blow-up that cropped the icon). The
+            // DE's reported slot size is unreliable (over-reports / HiDPI-confused), so
+            // we default to a standard 16px tray icon and let LOCALAGENT_TRAY_ICON_SIZE
+            // override it per machine.
+            val reported = maxOf(tray.trayIconSize.width, tray.trayIconSize.height)
+            val side = System.getenv("LOCALAGENT_TRAY_ICON_SIZE")?.toIntOrNull()?.takeIf { it > 0 }
+                ?: DEFAULT_TRAY_ICON_SIZE
+            System.err.println(
+                "[desktopApp] tray icon: reported slot=$reported, using size=$side " +
+                    "(override with LOCALAGENT_TRAY_ICON_SIZE)",
+            )
             val image = loadIcon(side, side)
 
             val icon = TrayIcon(image, tooltip).apply {
-                // Image is already the exact slot size, so auto-resize must stay OFF: its
-                // rescale filter bleeds a light 1px edge on the right/bottom (the "white
-                // lines"). 1:1 blit = navy edge-to-edge, no artifact.
+                // Auto-resize OFF — show the image 1:1 at the size we rendered, so AWT
+                // never rescales/inflates it across resolution / DPI changes.
                 isImageAutoSize = false
                 // Activating the icon (single/double-click depending on DE) shows the window.
                 addActionListener { onShow() }
@@ -208,21 +205,16 @@ class AwtTray private constructor(
             popup.show(owner, 0, 0)
         }
 
-        /** Display scale factor (2.0 on HiDPI, 1.25/1.5 on fractional). 1.0 fallback. */
-        private fun displayScale(): Double = runCatching {
-            java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .defaultScreenDevice.defaultConfiguration.defaultTransform.scaleX
-        }.getOrDefault(1.0).coerceAtLeast(1.0)
-
         private fun loadIcon(width: Int, height: Int): Image {
             // tray.png is a full-bleed navy square with an enlarged bubble (generate_icons.py),
             // distinct from the rounded window/app icon.png — the tray slot is tiny, so it wants
             // the navy edge-to-edge and the glyph filling the tile, not a small rounded plate.
             val src = AwtTray::class.java.getResourceAsStream("/tray.png")!!
                 .use { ImageIO.read(it) }
-            // Pre-scale ONCE to the exact slot size (high-quality bilinear) so the TrayIcon
-            // never rescales it (auto-resize off). Filling the whole canvas — the source is
-            // already a centred full-bleed square — keeps navy to every edge, no border gap.
+            // Pre-scale ONCE to the exact target size with high-quality bilinear
+            // interpolation so the TrayIcon never rescales it (auto-resize off). Filling
+            // the whole canvas — the source is already a centred full-bleed square —
+            // keeps navy to every edge, no border gap.
             val canvas = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
             val g = canvas.createGraphics()
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
