@@ -444,6 +444,12 @@ object StringKeys {
     const val HISTORY_DELETE = "history.delete"
     const val HISTORY_CANCEL = "history.cancel"
     const val HISTORY_CD_DELETE = "history.cd.delete"
+    // PR #8 — conversation search affordance.
+    const val HISTORY_SEARCH_HINT = "history.search_hint"
+    const val HISTORY_CD_SEARCH = "history.cd.search"
+    const val HISTORY_CD_CLOSE_SEARCH = "history.cd.close_search"
+    const val HISTORY_CD_CLEAR_SEARCH = "history.cd.clear_search"
+    const val HISTORY_SEARCH_EMPTY = "history.search_empty"
 
     // ── Jobs (UI) ────────────────────────────────────────────────────────
     const val JOBS_TITLE = "jobs.title"
@@ -737,6 +743,7 @@ object StringKeys {
         // ── History (UI) ──
         HISTORY_TITLE, HISTORY_EMPTY, HISTORY_CAPACITY_FOOTNOTE,
         HISTORY_DELETE_TITLE, HISTORY_DELETE_BODY, HISTORY_DELETE, HISTORY_CANCEL, HISTORY_CD_DELETE,
+        HISTORY_SEARCH_HINT, HISTORY_CD_SEARCH, HISTORY_CD_CLOSE_SEARCH, HISTORY_CD_CLEAR_SEARCH, HISTORY_SEARCH_EMPTY,
         // ── Clock (UI) ──
         CLOCK_UI_ALARMS_TITLE, CLOCK_UI_ALARMS_EMPTY, CLOCK_UI_ALARMS_EMPTY_HINT,
         CLOCK_UI_TIMERS_TITLE, CLOCK_UI_TIMERS_EMPTY, CLOCK_UI_TIMERS_EMPTY_HINT,

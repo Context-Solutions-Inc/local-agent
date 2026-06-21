@@ -669,6 +669,11 @@ object EnglishStrings {
         StringKeys.HISTORY_DELETE to Simple("Delete"),
         StringKeys.HISTORY_CANCEL to Simple("Cancel"),
         StringKeys.HISTORY_CD_DELETE to Simple("Delete conversation"),
+        StringKeys.HISTORY_SEARCH_HINT to Simple("Search conversations"),
+        StringKeys.HISTORY_CD_SEARCH to Simple("Search"),
+        StringKeys.HISTORY_CD_CLOSE_SEARCH to Simple("Close search"),
+        StringKeys.HISTORY_CD_CLEAR_SEARCH to Simple("Clear"),
+        StringKeys.HISTORY_SEARCH_EMPTY to Simple("No conversations match your search."),
 
         // ── Jobs (UI) ──
         StringKeys.JOBS_TITLE to Simple("Jobs"),

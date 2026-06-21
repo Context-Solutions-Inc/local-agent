@@ -49,6 +49,23 @@ SELECT * FROM conversations WHERE deleted_at_epoch_ms IS NULL ORDER BY updated_a
 selectConversationById:
 SELECT * FROM conversations WHERE id = ? AND deleted_at_epoch_ms IS NULL;
 
+-- PR #8: full-content search for the Manage Conversations screen. Matches the
+-- query against the title OR any live user/assistant message body (tool/system
+-- rows excluded, mirroring selectLastMessagePreview). Both soft-delete
+-- tombstones (#68) are honoured. No FTS index — the CONVERSATION_CAP (50) keeps
+-- this LIKE scan trivially fast, so nothing changes in the save path. :q is a
+-- bound parameter (injection-safe); the % wildcards are concatenated in SQL so
+-- the caller passes the raw term.
+searchConversations:
+SELECT DISTINCT conversations.* FROM conversations
+JOIN messages ON messages.conversation_id = conversations.id
+WHERE conversations.deleted_at_epoch_ms IS NULL
+  AND messages.deleted_at_epoch_ms IS NULL
+  AND messages.role IN ('user', 'assistant')
+  AND (conversations.title LIKE '%' || :q || '%' OR messages.content LIKE '%' || :q || '%')
+ORDER BY conversations.updated_at_epoch_ms DESC
+LIMIT :limit;
+
 countConversations:
 SELECT COUNT(*) FROM conversations WHERE deleted_at_epoch_ms IS NULL;
 
