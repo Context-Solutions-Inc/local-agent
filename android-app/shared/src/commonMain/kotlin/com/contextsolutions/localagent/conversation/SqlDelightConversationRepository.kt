@@ -60,21 +60,30 @@ class SqlDelightConversationRepository(
 
     override suspend fun listRecent(limit: Int): List<ConversationSummary> =
         withContext(ioDispatcher) {
-            val rows = queries.selectRecentConversations(limit.toLong()).executeAsList()
-            rows.map { row ->
-                val preview = queries
-                    .selectLastMessagePreview(row.id)
-                    .executeAsOneOrNull()
-                ConversationSummary(
-                    id = row.id,
-                    title = row.title,
-                    createdAtEpochMs = row.created_at_epoch_ms,
-                    updatedAtEpochMs = row.updated_at_epoch_ms,
-                    truncationAcknowledgedAtEpochMs = row.truncation_acknowledged_at,
-                    lastMessagePreview = preview,
-                )
-            }
+            queries.selectRecentConversations(limit.toLong()).executeAsList()
+                .map { it.toSummary() }
         }
+
+    override suspend fun search(query: String, limit: Int): List<ConversationSummary> =
+        withContext(ioDispatcher) {
+            val q = query.trim()
+            if (q.isEmpty()) {
+                queries.selectRecentConversations(limit.toLong()).executeAsList()
+            } else {
+                queries.searchConversations(q = q, limit = limit.toLong()).executeAsList()
+            }.map { it.toSummary() }
+        }
+
+    /** Row → [ConversationSummary], attaching the per-row last-message preview. */
+    private fun com.contextsolutions.localagent.db.Conversations.toSummary(): ConversationSummary =
+        ConversationSummary(
+            id = id,
+            title = title,
+            createdAtEpochMs = created_at_epoch_ms,
+            updatedAtEpochMs = updated_at_epoch_ms,
+            truncationAcknowledgedAtEpochMs = truncation_acknowledged_at,
+            lastMessagePreview = queries.selectLastMessagePreview(id).executeAsOneOrNull(),
+        )
 
     override suspend fun get(id: String): ConversationRecord? = withContext(ioDispatcher) {
         queries.selectConversationById(id).executeAsOneOrNull()?.let { row ->

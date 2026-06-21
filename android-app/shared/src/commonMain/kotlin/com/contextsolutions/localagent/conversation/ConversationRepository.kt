@@ -37,6 +37,15 @@ interface ConversationRepository {
     /** Latest [limit] conversations, newest-first. Used by ConversationHistoryScreen. */
     suspend fun listRecent(limit: Int = LIST_PAGE_SIZE): List<ConversationSummary>
 
+    /**
+     * Conversations whose title or any live user/assistant message body contains
+     * [query] (case-insensitive), newest-first, capped at [limit]. Returns the
+     * same [ConversationSummary] shape as [listRecent]. A blank [query] returns
+     * the recent list (no filter). Backs the PR #8 search affordance on the
+     * Manage Conversations screen.
+     */
+    suspend fun search(query: String, limit: Int = LIST_PAGE_SIZE): List<ConversationSummary>
+
     /** Read a single conversation row by id, or null if it doesn't exist. */
     suspend fun get(id: String): ConversationRecord?
 

@@ -413,6 +413,11 @@
   "history.delete": "Eliminar",
   "history.cancel": "Cancelar",
   "history.cd.delete": "Eliminar conversación",
+  "history.search_hint": "Buscar conversaciones",
+  "history.cd.search": "Buscar",
+  "history.cd.close_search": "Cerrar búsqueda",
+  "history.cd.clear_search": "Borrar",
+  "history.search_empty": "Ninguna conversación coincide con tu búsqueda.",
 
   "jobs.title": "Trabajos",
   "jobs.cd.add": "Añadir trabajo",
