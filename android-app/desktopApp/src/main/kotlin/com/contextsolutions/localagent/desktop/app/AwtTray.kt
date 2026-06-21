@@ -49,8 +49,8 @@ data class TrayMenuStyle(
  *
  * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered 1:1 at an exact
  *   pixel size with AWT auto-resize OFF (auto-resize inflates the image ~3× on HiDPI).
- *   Defaults to the DE's reported `trayIconSize`; `LOCALAGENT_TRAY_ICON_SIZE` overrides
- *   it when the DE over-reports the slot.
+ *   Defaults to a standard 16px tray icon ([DEFAULT_TRAY_ICON_SIZE]); the DE's reported
+ *   `trayIconSize` is unreliable, so `LOCALAGENT_TRAY_ICON_SIZE` overrides per machine.
  * - **Menu:** a STYLED Swing [JPopupMenu], not the native AWT [java.awt.PopupMenu]
  *   (unstyleable Motif/X11 look on Linux) and not a Compose `Window` (PR #71 proved a
  *   custom top-level window can't get the click: AWT's `TrayIcon` grabs the pointer on
@@ -89,6 +89,13 @@ class AwtTray private constructor(
 
     companion object {
         /**
+         * Default tray-icon side in pixels when LOCALAGENT_TRAY_ICON_SIZE is unset. 16 is
+         * the standard freedesktop tray size and looked right across the test machines;
+         * the DE's reported `trayIconSize` is too unreliable to use directly.
+         */
+        private const val DEFAULT_TRAY_ICON_SIZE = 16
+
+        /**
          * Build + register the tray icon. Returns null if anything throws — the caller
          * then keeps the logging presenter and close-to-quit behaviour.
          *
@@ -107,12 +114,13 @@ class AwtTray private constructor(
             val tray = SystemTray.getSystemTray()
             // Render the icon at an EXACT pixel size with auto-resize OFF: with it ON,
             // AWT inflates the logical-sized image to physical pixels on a HiDPI /
-            // fractionally-scaled display (the ~3× blow-up that cropped the icon). Size
-            // defaults to the DE's reported slot, but DEs over-report (and HiDPI confuses
-            // it), so LOCALAGENT_TRAY_ICON_SIZE overrides it — set e.g. 22/24 if too big.
+            // fractionally-scaled display (the ~3× blow-up that cropped the icon). The
+            // DE's reported slot size is unreliable (over-reports / HiDPI-confused), so
+            // we default to a standard 16px tray icon and let LOCALAGENT_TRAY_ICON_SIZE
+            // override it per machine.
             val reported = maxOf(tray.trayIconSize.width, tray.trayIconSize.height)
             val side = System.getenv("LOCALAGENT_TRAY_ICON_SIZE")?.toIntOrNull()?.takeIf { it > 0 }
-                ?: reported
+                ?: DEFAULT_TRAY_ICON_SIZE
             System.err.println(
                 "[desktopApp] tray icon: reported slot=$reported, using size=$side " +
                     "(override with LOCALAGENT_TRAY_ICON_SIZE)",
