@@ -459,3 +459,28 @@ re-pairing. Covered by `SecureStorageKeyStoreTest`.
 (or `LOCALAGENT_KEYSTORE_PASSWORD`), so this matches the account-secret tier — it defends against
 casual disk inspection, not a process already running as the user. The genuine hardening is an OS
 keyring (Secret Service / Keychain / DPAPI) via the SDK's `OsKeyStore` seam — still deferred.
+
+## Android **minified release** breaks relay pairing without R8 keep rules (PR #7)
+
+The mobile relay stack is reflection- and JNI-heavy, so the **minified release APK** (`assembleRelease`/
+`installRelease`, `isMinifyEnabled=true`) needs explicit R8 keep rules that **debug never exercises**.
+Without them pairing fails — and the **QR parses fine first** (`[Relay/scan] matched RELAY …`), so the
+generic UI message is the misleading **"gateway unreachable"** even though no gateway request is ever made.
+The two relay-specific failures (both in `androidApp/proguard-rules.pro`, full set + rationale in CLAUDE.md
+hard invariant **#70**):
+
+1. **`decode qr payload: Cannot construct instance of <obfuscated> (no Creators …)`** — the SDK's models
+   (`com.securegateway.core.auth.QrPayload`, frames, auth) are deserialized by **Jackson** via reflection;
+   R8 obfuscated them. Fix: `-keep class com.securegateway.** { *; }` + `-keepattributes Signature`.
+2. **`UnsatisfiedLinkError: Can't obtain peer field ID for class com.sun.jna.Pointer` → `NoClassDefFoundError:
+   com.securegateway.core.Crypto`** (at `MobileClient.<init>` / `AndroidKeystoreKeyStore.loadOrCreateIdentity`)
+   — `Crypto` uses **lazysodium → native libsodium → JNA**, and JNA's `libjnidispatch.so` reads
+   `com.sun.jna.Pointer.peer` back through JNI by name; R8 renamed it. Fix: JNA's documented ProGuard rules
+   (`-keep class com.sun.jna.** { *; }`, `-keep`/`-keepclassmembers class * extends com.sun.jna.**`,
+   `-dontwarn java.awt.**`) + `-keep class com.goterl.** { *; }` (lazysodium).
+
+**Diagnose with** `adb logcat -s Relay:I DesktopLink:I System.out:I AndroidRuntime:E` — the byte pipe and
+SDK (`[sdk] …`) log under `Relay`, the QR-parse `println`s under `System.out`. A native abort (litert path)
+shows only in the tombstone/`DEBUG` logcat, not as a Java `FATAL EXCEPTION`. **Always verify pairing on a
+release build, not just debug** — R8 is blind to JNI/Jackson/JNA name lookups, so a green build can still
+fail at runtime.
