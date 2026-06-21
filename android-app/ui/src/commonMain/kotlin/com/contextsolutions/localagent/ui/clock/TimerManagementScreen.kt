@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -83,7 +84,10 @@ fun TimerManagementScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { creating = true }) {
+                    // Nudge left so the "+" right-aligns with the per-row cancel/trash
+                    // icon, which sits inside the body's 16dp horizontal padding while
+                    // TopAppBar actions inset only ~4dp.
+                    IconButton(onClick = { creating = true }, modifier = Modifier.padding(end = 12.dp)) {
                         Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.CLOCK_UI_CD_NEW_TIMER))
                     }
                 },
@@ -163,7 +167,15 @@ private fun TimerRow(
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            TextButton(onClick = onCancel) { Text(tr(StringKeys.CLOCK_UI_CANCEL)) }
+            // Grey trash can (onSurfaceVariant) to match the top-bar "+" and the My
+            // List row icons, replacing the prior text "Cancel" button.
+            IconButton(onClick = onCancel) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = tr(StringKeys.CLOCK_UI_CANCEL),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onExtend(60_000L) }) { Text(tr(StringKeys.CLOCK_UI_EXTEND_1MIN)) }
