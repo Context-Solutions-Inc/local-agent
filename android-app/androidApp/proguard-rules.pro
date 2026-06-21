@@ -35,3 +35,16 @@
 # only an on-device launch does — see hard invariant #70 / #40.)
 -keep class com.google.ai.edge.litert.** { *; }
 -keep class com.google.ai.edge.litertlm.** { *; }
+
+# Secure Gateway relay SDK. Its model types (com.securegateway.core.auth.QrPayload,
+# the link frames, auth responses) are (de)serialized by Jackson via reflection —
+# constructors, Kotlin @Metadata, and polymorphic @JsonSubTypes info. R8 obfuscated
+# them, so relay pairing failed at "decode qr payload" with
+#   Cannot construct instance of <obfuscated> (no Creators, like default constructor,
+#   exist): abstract types either need to be mapped to concrete types ...
+# which the UI surfaced as "gateway unreachable" (the gateway is never even contacted).
+# Keep the SDK names + members + ctors so Jackson can build them; Signature keeps the
+# generic types (e.g. the QR's Map<String,String> endpoints). Same class of break as
+# the litert JNI keep above (R8 can't see reflective construction) — hard invariant #70.
+-keep class com.securegateway.** { *; }
+-keepattributes Signature
