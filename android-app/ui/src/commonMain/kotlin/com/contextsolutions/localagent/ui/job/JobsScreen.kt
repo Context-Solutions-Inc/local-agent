@@ -31,7 +31,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -133,14 +132,14 @@ fun JobsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr(StringKeys.COMMON_BACK))
                     }
                 },
+                actions = {
+                    if (isAdmin) {
+                        IconButton(onClick = { creating = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.JOBS_CD_ADD))
+                        }
+                    }
+                },
             )
-        },
-        floatingActionButton = {
-            if (isAdmin) {
-                FloatingActionButton(onClick = { creating = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.JOBS_CD_ADD))
-                }
-            }
         },
     ) { padding ->
         Column(
@@ -349,7 +348,14 @@ private fun JobRow(
             IconButton(onClick = onEdit) {
                 Icon(Icons.Filled.Edit, contentDescription = tr(StringKeys.JOBS_CD_EDIT))
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = tr(StringKeys.JOBS_CD_DELETE)) }
+            // A running job can't be deleted — finish or cancel the run first. The
+            // Stop button above handles cancelling.
+            IconButton(
+                onClick = onDelete,
+                enabled = job.lastRunStatus != JobRunStatus.RUNNING,
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = tr(StringKeys.JOBS_CD_DELETE))
+            }
         }
         // Pause toggle: enabled only while controllable AND there are future runs
         // (a completed one-shot has nothing to pause). Mobile also needs the link UP.

@@ -21,7 +21,6 @@ import javax.swing.SwingUtilities
 import javax.swing.border.EmptyBorder
 import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
-import kotlin.math.roundToInt
 
 /**
  * Colours + font size for the themed tray menu, supplied per-show by the caller so the
@@ -48,9 +47,9 @@ data class TrayMenuStyle(
  * falls back to the logging presenter + close-to-quit, exactly as when the tray is
  * unsupported.
  *
- * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered [TRAY_SLOT_FACTOR]×
- *   larger than the reported `trayIconSize` (which GNOME/Pop under-reports), with
- *   auto-resize OFF, so the navy overfills the real slot instead of leaving light edges.
+ * - **Icon:** a tray-only full-bleed navy tile (`tray.png`) rendered at the reported
+ *   `trayIconSize` with AWT auto-resize ON, so the icon tracks whatever slot the DE
+ *   reports across resolution / DPI changes.
  * - **Menu:** a STYLED Swing [JPopupMenu], not the native AWT [java.awt.PopupMenu]
  *   (unstyleable Motif/X11 look on Linux) and not a Compose `Window` (PR #71 proved a
  *   custom top-level window can't get the click: AWT's `TrayIcon` grabs the pointer on
@@ -89,13 +88,6 @@ class AwtTray private constructor(
 
     companion object {
         /**
-         * How much larger than the reported `trayIconSize` to render the icon, to cover
-         * the real (under-reported) slot on GNOME/Pop. Raise if light edges remain on the
-         * right/bottom; lower if the centred bubble looks pushed toward a corner.
-         */
-        private const val TRAY_SLOT_FACTOR = 1.35
-
-        /**
          * Build + register the tray icon. Returns null if anything throws — the caller
          * then keeps the logging presenter and close-to-quit behaviour.
          *
@@ -112,28 +104,17 @@ class AwtTray private constructor(
             menuStyle: () -> TrayMenuStyle,
         ): AwtTray? = runCatching {
             val tray = SystemTray.getSystemTray()
-            val preferred = tray.trayIconSize // the tray's slot size, in LOGICAL px
-            // HiDPI / fractional scaling: the embedded tray-icon window is sized in
-            // physical pixels, but trayIconSize is logical. A logical-sized image is
-            // then anchored top-left and the bare right/bottom of the slot shows through
-            // as light "lines". Render at the physical size so the navy fills the slot.
-            // The DE sizes the real tray slot, and on GNOME/Pop trayIconSize UNDER-reports
-            // it (reports 24 while the slot is larger), so a slot-sized tile is pinned
-            // top-left and the bare right/bottom shows as light "lines". Render a square
-            // TRAY_SLOT_FACTOR× larger than the reported size (× the HiDPI displayScale) so
-            // the navy overfills the slot. Too small → white edges; too large → the centred
-            // bubble is pushed toward a corner. One knob, tune from the logged size below.
-            val scale = displayScale()
-            val side = (maxOf(preferred.width, preferred.height) * scale * TRAY_SLOT_FACTOR)
-                .roundToInt()
-                .coerceAtLeast(maxOf(preferred.width, preferred.height))
-            val image = loadIcon(side, side)
+            // Render at the tray's reported slot size and let AWT auto-fit the icon. The
+            // earlier overfill hack (render TRAY_SLOT_FACTOR× larger × the HiDPI scale)
+            // was tuned to one display and over-sized the icon after a resolution change,
+            // cropping it to a corner — simple sizing tracks whatever slot the DE reports.
+            val slot = tray.trayIconSize
+            val image = loadIcon(slot.width, slot.height)
 
             val icon = TrayIcon(image, tooltip).apply {
-                // Image is already the exact slot size, so auto-resize must stay OFF: its
-                // rescale filter bleeds a light 1px edge on the right/bottom (the "white
-                // lines"). 1:1 blit = navy edge-to-edge, no artifact.
-                isImageAutoSize = false
+                // Let AWT scale the image to the actual slot, robust across resolution /
+                // DPI changes.
+                isImageAutoSize = true
                 // Activating the icon (single/double-click depending on DE) shows the window.
                 addActionListener { onShow() }
                 // Right-click → styled Swing JPopupMenu. `isPopupTrigger` fires on press on
@@ -208,21 +189,15 @@ class AwtTray private constructor(
             popup.show(owner, 0, 0)
         }
 
-        /** Display scale factor (2.0 on HiDPI, 1.25/1.5 on fractional). 1.0 fallback. */
-        private fun displayScale(): Double = runCatching {
-            java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .defaultScreenDevice.defaultConfiguration.defaultTransform.scaleX
-        }.getOrDefault(1.0).coerceAtLeast(1.0)
-
         private fun loadIcon(width: Int, height: Int): Image {
             // tray.png is a full-bleed navy square with an enlarged bubble (generate_icons.py),
             // distinct from the rounded window/app icon.png — the tray slot is tiny, so it wants
             // the navy edge-to-edge and the glyph filling the tile, not a small rounded plate.
             val src = AwtTray::class.java.getResourceAsStream("/tray.png")!!
                 .use { ImageIO.read(it) }
-            // Pre-scale ONCE to the exact slot size (high-quality bilinear) so the TrayIcon
-            // never rescales it (auto-resize off). Filling the whole canvas — the source is
-            // already a centred full-bleed square — keeps navy to every edge, no border gap.
+            // Pre-scale to the reported slot size with high-quality bilinear interpolation;
+            // AWT auto-resize then fits it to the real slot. Filling the whole canvas — the
+            // source is already a centred full-bleed square — keeps navy to every edge.
             val canvas = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
             val g = canvas.createGraphics()
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
