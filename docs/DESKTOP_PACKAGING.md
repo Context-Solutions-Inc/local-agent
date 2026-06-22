@@ -313,7 +313,7 @@ shared across modes (the "One instance only" note above). Same env-gate conventi
   operators wanting CUDA point `LOCALAGENT_LLAMA_SERVER` at their own build.
 - **Code signing / notarisation.** Now **wired** (env-gated macOS signing +
   notarization in `desktopApp/build.gradle.kts`; Windows `signtool` post-build) — see
-  `docs/PRODUCTION_DESKTOP_RUNBOOK.md`. The default local/CI build stays unsigned
+  `docs/PRODUCTION_RUNBOOK.md`. The default local/CI build stays unsigned
   (Gatekeeper / SmartScreen warnings) until credentials are supplied; Linux `.deb`/`.rpm`
   remain unsigned (repo GPG signing is the follow-up).
 - **ProGuard/R8-minified release bundle.** The CI builds the non-minified

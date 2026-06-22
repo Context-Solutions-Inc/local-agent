@@ -172,7 +172,7 @@ compose.desktop {
                 appCategory = "public.app-category.productivity"
                 // dmgPackageVersion/pkgPackageVersion default to packageVersion.
 
-                // Code signing + notarization (docs/PRODUCTION_DESKTOP_RUNBOOK.md).
+                // Code signing + notarization (docs/PRODUCTION_RUNBOOK.md).
                 // GATED on credentials so the unsigned local/CI build still works (the
                 // "CPU-default build that ALWAYS works" guarantee — Phase 8): signing
                 // engages ONLY when MAC_SIGN_IDENTITY is exported. With it set,

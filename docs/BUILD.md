@@ -2,7 +2,7 @@
 
 How to build, run, and iterate on Local Agent — Android and desktop — plus the classifier-training
 pipeline and CI. For *using* the app see [USER_GUIDE.md](USER_GUIDE.md); for production signed
-installers see the run book, [PRODUCTION_DESKTOP_RUNBOOK.md](PRODUCTION_DESKTOP_RUNBOOK.md).
+installers see the run book, [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md).
 
 > The Gradle project lives under **`android-app/`**, not the repo root. All `./gradlew` commands below
 > are run from `android-app/`.
@@ -164,7 +164,7 @@ need the host's packaging tools (`fakeroot`/`rpm` on Linux, WiX on Windows, etc.
 Vulkan (Linux/Windows) / Metal (macOS) variant downloads by default and falls back to CPU when no
 driver is present. Full native-runtime / GPU / distribution detail is in
 [DESKTOP_PACKAGING.md](DESKTOP_PACKAGING.md); the end-to-end **signed + notarized** production
-procedure is the run book, [PRODUCTION_DESKTOP_RUNBOOK.md](PRODUCTION_DESKTOP_RUNBOOK.md).
+procedure is the run book, [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md).
 
 ## Build flags & env vars
 
@@ -341,7 +341,7 @@ See [SPIKE_RUNBOOK.md](SPIKE_RUNBOOK.md) for running the M0 inference benchmark 
 | Run the desktop app | `./gradlew :desktopApp:run` (window + tray) |
 | Desktop background service (no window) | `LOCALAGENT_HEADLESS=1 ./gradlew :desktopApp:run` — see service templates in `desktopApp/packaging/` and [DESKTOP_PACKAGING.md](DESKTOP_PACKAGING.md) "Headless / standalone deployment" |
 | Headless wiring check | `DI_CHECK=1 ./gradlew :desktopApp:run` |
-| Build a production installer | Follow the run book → [PRODUCTION_DESKTOP_RUNBOOK.md](PRODUCTION_DESKTOP_RUNBOOK.md) |
+| Build a production installer / app (desktop or mobile) | Follow the run book → [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md) |
 
 For installed desktop builds, the launcher/binary is produced by `createDistributable`
 (`:desktopApp/build/compose/binaries/`) or the per-OS installer from

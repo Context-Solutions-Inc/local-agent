@@ -167,7 +167,7 @@ llama.cpp) and the optional remote-LLM / anywhere-access paths are merged to `ma
 | Document | What it covers |
 |---|---|
 | [docs/BUILD.md](docs/BUILD.md) | **Build book** — prerequisites, toolchain, build flags, Docker dev container, classifier training, CI, day-to-day running |
-| [docs/PRODUCTION_DESKTOP_RUNBOOK.md](docs/PRODUCTION_DESKTOP_RUNBOOK.md) | **Run book** — end-to-end signed/notarized production installer procedure per OS |
+| [docs/PRODUCTION_RUNBOOK.md](docs/PRODUCTION_RUNBOOK.md) | **Run book** — end-to-end signed production build/install/deploy for desktop (per OS) **and** Android mobile |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | **User guide** — configuring search sources, forcing a web search, photo input, voice in/read-aloud, desktop appearance |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guidelines, conventions, the hard-invariant model, testing |
 | [SECURITY.md](SECURITY.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Vulnerability reporting policy · full threat analysis (trust boundaries, egress, data-at-rest) |
