@@ -50,6 +50,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Diagnose GitHub Packages auth (TEMP — remove before merge)
+        env:
+          PAT: ${{ secrets.SECURE_GATEWAY_PAT }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "github.actor = $ACTOR"
+          echo "SECURE_GATEWAY_PAT length = ${#PAT}   (0 = secret missing/not granted to repo)"
+          echo "--- classic-PAT scopes (X-OAuth-Scopes) ---"
+          curl -sI -H "Authorization: Bearer $PAT" https://api.github.com/user | grep -iE "^HTTP|x-oauth-scopes|x-accepted-oauth-scopes" || true
+          echo "--- direct package GET (actor as username) ---"
+          curl -s -o /dev/null -w "actor-auth http=%{http_code}\n" -u "$ACTOR:$PAT" -L \
+            "https://maven.pkg.github.com/Context-Solution-Inc/secure-gateway/com/contextsolutions/securegateway/core/0.2.3/core-0.2.3.pom" || true
+
       - name: Run canonical eval
         # Single test file — exercises the routing path + PromptAssembler.
         # Failures bundle every regression in one assertion message.
