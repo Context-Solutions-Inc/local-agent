@@ -47,7 +47,11 @@ okhttp = "4.12.0"
 # 0.2.1: SG-15 fix — one-shot handshake so a replayed handshake can't reset the replay window.
 # 0.2.2: SG-14/SG-19 — transports reject non-wss:// relay / non-https:// auth endpoints
 #        (loopback/RFC1918 carve-out); iOS URL parse is failable. Interop-compatible with 0.2.x.
-securegateway = "0.2.2"
+# 0.2.3: peer-reconnect re-key — the handshake stays one-shot for an identical (replayed) ephemeral
+#        (SG-15 holds) but rebuilds the session when the peer reconnects with a NEW ephemeral,
+#        instead of keeping stale keys and silently dropping frames ("green-but-hung after
+#        reconnect"). Interop-compatible with 0.2.x. (secure-gateway PR #5.)
+securegateway = "0.2.3"
 # Desktop LLM runtime: NOT a JNI binding. PR #55 (Option 3) replaced the
 # net.ladenthin:llama JNI dep with llama.cpp's reference `llama-server` subprocess
 # reached over localhost HTTP (LlamaServerInferenceEngine, ktor-client-cio). The JNI

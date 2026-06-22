@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +60,35 @@ class FrameRoundTripTest {
             emit(LinkStreamEvent.Data("b"))
             emit(LinkStreamEvent.End(200))
         }
+    }
+
+    /** Handler whose stream emits its FIRST frame only after [delayMs] (virtual time). */
+    private class DelayingHandler(private val delayMs: Long) : LinkRequestHandler {
+        override suspend fun handleUnary(request: LinkRequest): LinkResponse = LinkResponse(200, "ok")
+
+        override fun handleStream(request: LinkRequest): Flow<LinkStreamEvent> = flow {
+            delay(delayMs)
+            emit(LinkStreamEvent.Data("late"))
+            emit(LinkStreamEvent.End(200))
+        }
+    }
+
+    /** A pipe whose UP state never changes and whose sends vanish — no peer ever replies. */
+    private class SilentPipe : RelayBytePipe {
+        private val inboundChannel = Channel<ByteArray>(Channel.UNLIMITED)
+        override suspend fun send(bytes: ByteArray) = Unit // request reaches no server
+        override val inbound: Flow<ByteArray> = inboundChannel.receiveAsFlow()
+        override val state: StateFlow<LinkConnectionState> = MutableStateFlow(LinkConnectionState.UP)
+        override suspend fun close() {}
+    }
+
+    /** A pipe whose send always fails (peer offline), mirroring the real byte pipes' propagation. */
+    private class ThrowingSendPipe : RelayBytePipe {
+        private val inboundChannel = Channel<ByteArray>(Channel.UNLIMITED)
+        override suspend fun send(bytes: ByteArray): Unit = throw RuntimeException("peer is offline")
+        override val inbound: Flow<ByteArray> = inboundChannel.receiveAsFlow()
+        override val state: StateFlow<LinkConnectionState> = MutableStateFlow(LinkConnectionState.UP)
+        override suspend fun close() {}
     }
 
     @Test
@@ -120,6 +150,56 @@ class FrameRoundTripTest {
 
         assertTrue(escaped.isEmpty(), "send failure must not escape the dispatcher launch: $escaped")
         appScope.cancel()
+    }
+
+    @Test
+    fun unaryTimesOutWhenServerNeverReplies() = runTest {
+        // The pipe stays UP (so failAllInFlight never fires) but no response ever arrives —
+        // the desync case. Without the first-frame timeout this awaited forever; now it must
+        // fail with status 0 so the caller falls back on-device.
+        val mux = FrameMultiplexer(SilentPipe(), backgroundScope).also { it.start() }
+        val resp = mux.unary(LinkRequest(LinkMethod.HEALTH))
+        assertEquals(0, resp.status, "a never-answered unary times out to status 0")
+    }
+
+    @Test
+    fun unarySendFailureFailsTheRequest() = runTest {
+        // The real byte pipes now PROPAGATE a send failure (previously swallowed). The
+        // multiplexer must map it to status 0 rather than hang on the never-completed deferred.
+        val mux = FrameMultiplexer(ThrowingSendPipe(), backgroundScope).also { it.start() }
+        val resp = mux.unary(LinkRequest(LinkMethod.HEALTH))
+        assertEquals(0, resp.status, "a send failure fails the request")
+        assertTrue(resp.body.contains("offline"), "carries the failure message: ${resp.body}")
+    }
+
+    @Test
+    fun chatStreamFirstFrameTimesOut() = runTest {
+        // The first frame is delayed past the CHAT first-token budget (60s) → the stream must
+        // fail with a status-0 Error so the caller falls back instead of hanging.
+        val pipes = PipePair()
+        FrameDispatcher(pipes.server, DelayingHandler(delayMs = 120_000), backgroundScope).start()
+        val mux = FrameMultiplexer(pipes.client, backgroundScope).also { it.start() }
+
+        val events = mux.serverStream(LinkRequest(LinkMethod.CHAT, body = "{}")).toList()
+
+        val error = events.filterIsInstance<LinkStreamEvent.Error>().single()
+        assertEquals(0, error.status, "timed-out chat first frame surfaces as status 0")
+    }
+
+    @Test
+    fun inlineJobStreamIsNotFirstFrameTimedOut() = runTest {
+        // RUN_JOB_INLINE emits its first frame only after the (long) subprocess run, so it must
+        // be exempt from the first-frame timeout: a 120s wait (> CHAT's 60s) still delivers.
+        val pipes = PipePair()
+        FrameDispatcher(pipes.server, DelayingHandler(delayMs = 120_000), backgroundScope).start()
+        val mux = FrameMultiplexer(pipes.client, backgroundScope).also { it.start() }
+
+        val events = mux.serverStream(
+            LinkRequest(LinkMethod.RUN_JOB_INLINE, query = mapOf("id" to "x")),
+        ).toList()
+
+        assertTrue(events.any { it is LinkStreamEvent.Data }, "inline job output is delivered")
+        assertTrue(events.last() is LinkStreamEvent.End, "inline stream ends cleanly")
     }
 
     @Test

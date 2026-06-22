@@ -55,11 +55,12 @@ class DesktopRelayBytePipe(
         } catch (c: CancellationException) {
             throw c
         } catch (t: Throwable) {
-            // Peer offline / connection lost / revoked mid-send (e.g. the phone unpaired). The
-            // send can't be delivered; the onStateChange → _state transition already drives
-            // fallback. Drop it quietly so it can't escape a fire-and-forget coroutine and print
-            // a stack trace.
-            logger("pipe: send failed (${t::class.simpleName}: ${t.message}); dropping")
+            // Peer offline / connection lost / revoked mid-send (e.g. the phone unpaired).
+            // Propagate (symmetric with the mobile pipe) so the FrameDispatcher stops pumping a
+            // stream to a dead peer instead of swallowing each frame. Its response/stream sends
+            // already wrap this in runCatching / catch, so the throw can't escape uncaught.
+            logger("pipe: send failed (${t::class.simpleName}: ${t.message}); propagating")
+            throw t
         }
     }
 

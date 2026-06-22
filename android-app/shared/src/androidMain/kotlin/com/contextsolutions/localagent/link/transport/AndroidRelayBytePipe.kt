@@ -65,10 +65,12 @@ class AndroidRelayBytePipe(
             throw c
         } catch (t: Throwable) {
             // Peer offline / connection lost / revoked mid-send (e.g. the desktop disconnected).
-            // The send can't be delivered; the onStateChange → _state transition already drives
-            // fallback. Drop it quietly so it can't escape a fire-and-forget coroutine and print
-            // a stack trace.
-            logger("pipe: send failed (${t::class.simpleName}: ${t.message}); dropping")
+            // Propagate so the FrameMultiplexer fails the in-flight request and the caller falls
+            // back to on-device — rather than swallowing, which (with the un-timed stream) let a
+            // request silently hang after a peer reconnect. Callers that can't tolerate a throw
+            // (the dispatcher's response sends, the CANCEL frame) already wrap this in runCatching.
+            logger("pipe: send failed (${t::class.simpleName}: ${t.message}); propagating")
+            throw t
         }
     }
 

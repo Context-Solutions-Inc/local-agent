@@ -1,5 +1,6 @@
 package com.contextsolutions.localagent.link.transport
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Client side of the relay RPC (the mobile). Allocates a request [LinkFrame.id],
@@ -48,8 +50,18 @@ class FrameMultiplexer(
         mutex.withLock { pending[id] = deferred }
         return try {
             pipe.send(LinkFrameCodec.encode(requestFrame(id, request)))
-            val frame = deferred.await()
-            LinkResponse(frame.status ?: 500, frame.body ?: "")
+            // Bound the wait: a request dropped by a desynced peer (sockets up, frames
+            // undecryptable) would otherwise await forever. The byte pipe now also propagates a
+            // genuine send failure into the catch below, mapped to the same status-0 result.
+            val timeout = firstFrameTimeoutMs(request.method)
+            val frame = if (timeout == null) deferred.await() else withTimeoutOrNull(timeout) { deferred.await() }
+            if (frame == null) {
+                LinkResponse(0, "relay timed out after ${timeout}ms")
+            } else {
+                LinkResponse(frame.status ?: 500, frame.body ?: "")
+            }
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             LinkResponse(0, t.message ?: "relay unreachable")
         } finally {
@@ -62,16 +74,58 @@ class FrameMultiplexer(
         val channel = Channel<LinkStreamEvent>(Channel.BUFFERED)
         mutex.withLock { streams[id] = channel }
         try {
-            pipe.send(LinkFrameCodec.encode(requestFrame(id, request)))
-            for (event in channel) {
-                send(event)
-                if (event is LinkStreamEvent.End || event is LinkStreamEvent.Error) break
+            try {
+                pipe.send(LinkFrameCodec.encode(requestFrame(id, request)))
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                // A genuine send failure now propagates from the pipe — surface it as an
+                // unreachable (status 0) error so the caller falls back instead of hanging.
+                send(LinkStreamEvent.Error(0, t.message ?: "relay send failed"))
+                return@channelFlow
+            }
+            // Time only the FIRST event: a request dropped by a desynced peer would otherwise hang
+            // forever. Once a stream is flowing its total duration is uncapped (long LLM
+            // generations are legitimate — CLAUDE.md #44); RUN_JOB_INLINE is exempt entirely (its
+            // first frame follows the whole subprocess run).
+            val timeout = firstFrameTimeoutMs(request.method)
+            val firstResult =
+                if (timeout == null) channel.receiveCatching()
+                else withTimeoutOrNull(timeout) { channel.receiveCatching() }
+            if (firstResult == null) {
+                send(LinkStreamEvent.Error(0, "relay timed out after ${timeout}ms"))
+                return@channelFlow
+            }
+            val first = firstResult.getOrNull() ?: run {
+                send(LinkStreamEvent.Error(0, "relay disconnected"))
+                return@channelFlow
+            }
+            send(first)
+            if (first !is LinkStreamEvent.End && first !is LinkStreamEvent.Error) {
+                for (event in channel) {
+                    send(event)
+                    if (event is LinkStreamEvent.End || event is LinkStreamEvent.Error) break
+                }
             }
         } finally {
             mutex.withLock { streams.remove(id) }
             // Tell the server to stop (no-op if it already ended).
             runCatching { pipe.send(LinkFrameCodec.encode(LinkFrame(id = id, kind = FrameKind.CANCEL))) }
         }
+    }
+
+    /**
+     * Per-method first-frame timeout — defense-in-depth against a peer desync (the real fix is the
+     * SDK re-key, securegateway 0.2.3). Returns null to leave a call un-timed. Only the FIRST frame
+     * is bounded; a flowing stream's total duration stays uncapped (CLAUDE.md #44).
+     */
+    private fun firstFrameTimeoutMs(method: LinkMethod): Long? = when (method) {
+        // The inline job runs the desktop subprocess BEFORE emitting any frame — that can be minutes.
+        LinkMethod.RUN_JOB_INLINE -> null
+        // Generation's first token can be slow (large prompt / CPU-only desktop) — give it room.
+        LinkMethod.CHAT -> CHAT_FIRST_TOKEN_TIMEOUT_MS
+        // Health / sync / pair / run-now / subscribe all respond promptly.
+        else -> REQUEST_TIMEOUT_MS
     }
 
     private fun requestFrame(id: Long, request: LinkRequest) = LinkFrame(
@@ -112,4 +166,12 @@ class FrameMultiplexer(
     private suspend fun nextId(): Long = mutex.withLock { ++counter }
 
     private class RelayUnreachable : RuntimeException("relay disconnected")
+
+    private companion object {
+        /** First-frame budget for quick requests (health, sync, pair, run-now, subscribe). */
+        const val REQUEST_TIMEOUT_MS = 20_000L
+
+        /** Generous first-token budget for chat generation (large prompt / CPU-only desktop). */
+        const val CHAT_FIRST_TOKEN_TIMEOUT_MS = 60_000L
+    }
 }
