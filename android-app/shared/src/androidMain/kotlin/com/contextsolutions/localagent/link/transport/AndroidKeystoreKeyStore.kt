@@ -3,9 +3,9 @@ package com.contextsolutions.localagent.link.transport
 import android.content.Context
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
-import com.securegateway.core.Crypto
-import com.securegateway.core.KeyPair
-import com.securegateway.core.keystore.KeyStore
+import com.contextsolutions.securegateway.core.Crypto
+import com.contextsolutions.securegateway.core.KeyPair
+import com.contextsolutions.securegateway.core.keystore.KeyStore
 import java.io.File
 
 /**
@@ -16,7 +16,7 @@ import java.io.File
  * generated in-app via libsodium ([Crypto.generateKeyPair]) and persisted in an androidx
  * [EncryptedFile] whose master key is a hardware-backed AndroidKeyStore AES-GCM key. The key
  * material is therefore encrypted at rest under a key that never leaves the secure hardware —
- * strictly better than the desktop [com.securegateway.core.keystore.FileKeyStore]'s plaintext
+ * strictly better than the desktop [com.contextsolutions.securegateway.core.keystore.FileKeyStore]'s plaintext
  * hex file, which the relay transport used on-device before the real AAR (#55).
  *
  * The public key is re-derived on load. Replaces the prior `FileKeyStore(filesDir/relay_identity.key)`

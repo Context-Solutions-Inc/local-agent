@@ -1,9 +1,9 @@
 package com.contextsolutions.localagent.relay
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.securegateway.core.Crypto
-import com.securegateway.core.Role
-import com.securegateway.core.Session
+import com.contextsolutions.securegateway.core.Crypto
+import com.contextsolutions.securegateway.core.Role
+import com.contextsolutions.securegateway.core.Session
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test

@@ -261,12 +261,12 @@ okhttp-logging-interceptor = { module = "com.squareup.okhttp3:logging-intercepto
 # "anywhere access". Built from ../secure-gateway/sdk, consumed via mavenLocal().
 # JVM-only; wired into :shared/desktopMain. Android consumes the :android variant
 # in the transport follow-up PR (needs lazysodium-android, see CLAUDE.md #40).
-securegateway-java = { module = "com.securegateway:java", version.ref = "securegateway" }
+securegateway-java = { module = "com.contextsolutions.securegateway:java", version.ref = "securegateway" }
 # Mobile relay SDK (MobileClient). Consumed in :shared/androidMain for the relay
 # transport. Published from ../secure-gateway/sdk via publishToMavenLocal. The
 # on-device AAR with lazysodium-android + Android Keystore is the remaining device
 # step (see CLAUDE.md #40); the API is identical to what androidMain compiles against.
-securegateway-android = { module = "com.securegateway:android", version.ref = "securegateway" }
+securegateway-android = { module = "com.contextsolutions.securegateway:android", version.ref = "securegateway" }
 
 # Test
 junit = { module = "junit:junit", version.ref = "junit" }

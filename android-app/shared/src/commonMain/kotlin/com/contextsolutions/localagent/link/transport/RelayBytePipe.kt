@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
  * The opaque end-to-end-encrypted byte-pipe to the paired peer, as a
  * platform-clean seam (#23). The actuals wrap the Secure Gateway SDK clients —
  * `DesktopClient` (desktopMain) and `MobileClient` (androidMain) — keeping all
- * `com.securegateway.*` types out of commonMain.
+ * `com.contextsolutions.securegateway.*` types out of commonMain.
  *
  * [send] suspends until the peer acks the message (the SDK's `send` future). The
  * [FrameMultiplexer] (client) and [FrameDispatcher] (server) build the link RPC

@@ -1,7 +1,7 @@
 package com.contextsolutions.localagent.link.transport
 
-import com.securegateway.core.transport.ConnectionState
-import com.securegateway.mobile.MobileClient
+import com.contextsolutions.securegateway.core.transport.ConnectionState
+import com.contextsolutions.securegateway.mobile.MobileClient
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * [RelayBytePipe] over the Secure Gateway mobile SDK ([MobileClient]). Keeps all
- * `com.securegateway.*` types in androidMain (#23). Mirror of the desktop pipe.
+ * `com.contextsolutions.securegateway.*` types in androidMain (#23). Mirror of the desktop pipe.
  *
  * The SDK callbacks must be wired **before** `connect()`, so the factory
  * constructs this (after `pair`) and then calls `connect()`. Inbound frames arrive

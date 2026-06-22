@@ -6,7 +6,7 @@ import kotlinx.serialization.json.Json
 
 /**
  * commonMain mirror of the Secure Gateway SDK's relay QR JSON (#23 — commonMain
- * must not reference `com.securegateway.*`). Used only to **detect + classify** a
+ * must not reference `com.contextsolutions.securegateway.*`). Used only to **detect + classify** a
  * scanned QR (relay vs the LAN `magent://` URI) and pull out the bits the app
  * persists; the SDK re-parses the raw JSON itself when pairing.
  */

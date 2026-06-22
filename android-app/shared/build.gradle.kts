@@ -159,7 +159,7 @@ kotlin {
                 implementation(libs.cron.utils)
                 // PR #74 — Secure Gateway desktop client SDK (E2EE relay for paid
                 // "anywhere access"). JVM-only (libsodium/JNA), consumed via mavenLocal.
-                // Pulls in com.securegateway:core transitively. Used for the relay
+                // Pulls in com.contextsolutions.securegateway:core transitively. Used for the relay
                 // pairing QR (DesktopClient.generatePairingQr); the relay transport
                 // itself is the stubbed follow-up (RelayLinkTransport).
                 implementation(libs.securegateway.java)
