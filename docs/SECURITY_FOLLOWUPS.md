@@ -21,11 +21,14 @@ turned on Gradle dependency verification (`android-app/gradle/verification-metad
 repo secret** (classic PAT, `repo` + `read:packages`) instead of checking out +
 `publishToMavenLocal`.
 
-**Validated green on every path:** `prompt-eval-gate` (Android + verification),
-`desktop-package` on **Linux / macOS / Windows**, local `installRelease` (R8 + lint) on a
-Pixel 7, and local `installDebug`. The exposed-during-setup token was rotated. See CLAUDE.md
-"Relay SDK from GitHub Packages + dependency verification" for the (battle-tested) regen
-procedure — note the lint/release path needs a separate `--no-configuration-cache` pass.
+**Validated green:** `prompt-eval-gate` (Android + verification), `desktop-package` on
+**Linux**, local `installRelease` (R8 + lint) on a Pixel 7, and local `installDebug`. The
+exposed-during-setup token was rotated. **Deferred:** macOS/Windows `desktop-package`
+verification — that workflow runs on `v*` tags (not PRs), so formal cross-OS validation is
+deferred to the release-tag run; the macOS/Windows native entries are hand-added in
+`verification-metadata.xml` and were exercised once via a manual `workflow_dispatch`. See
+CLAUDE.md "Relay SDK from GitHub Packages + dependency verification" for the (battle-tested)
+regen procedure — note the lint/release path needs a separate `--no-configuration-cache` pass.
 
 Historical plan (for reference):
 
