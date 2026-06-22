@@ -17,7 +17,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Secure Gateway client SDK (com.securegateway:java/:core), built from
+        // Secure Gateway client SDK (com.contextsolutions.securegateway:java/:core), built from
         // ../secure-gateway/sdk via `./gradlew publishToMavenLocal` (PR #74).
         mavenLocal()
     }

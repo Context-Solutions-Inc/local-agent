@@ -7,10 +7,10 @@ import com.contextsolutions.localagent.link.transport.LinkRequestHandler
 import com.contextsolutions.localagent.observability.ContentRedactor
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
-import com.securegateway.core.auth.AuthException
-import com.securegateway.desktop.DesktopClient
-import com.securegateway.desktop.DesktopConfig
-import com.securegateway.desktop.SecureGateway
+import com.contextsolutions.securegateway.core.auth.AuthException
+import com.contextsolutions.securegateway.desktop.DesktopClient
+import com.contextsolutions.securegateway.desktop.DesktopConfig
+import com.contextsolutions.securegateway.desktop.SecureGateway
 import java.nio.file.Path
 import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +35,7 @@ import kotlinx.coroutines.withContext
  *
  * The LAN server keeps running alongside this (concurrent) — relay covers
  * remote access, LAN stays the fast same-network path and the offline/revoked
- * fallback. All `com.securegateway.*` types stay in desktopMain (#23).
+ * fallback. All `com.contextsolutions.securegateway.*` types stay in desktopMain (#23).
  *
  * The account secret is embedded in the QR by the SDK's `generatePairingQr`
  * (decision: the phone has no subscription of its own), so the scanned QR lets

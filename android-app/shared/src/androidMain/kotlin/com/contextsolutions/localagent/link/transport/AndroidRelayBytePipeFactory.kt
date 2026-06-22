@@ -4,9 +4,9 @@ import android.content.Context
 import com.contextsolutions.localagent.observability.ContentRedactor
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
-import com.securegateway.core.auth.QrPayload
-import com.securegateway.mobile.MobileConfig
-import com.securegateway.mobile.SecureGateway
+import com.contextsolutions.securegateway.core.auth.QrPayload
+import com.contextsolutions.securegateway.mobile.MobileConfig
+import com.contextsolutions.securegateway.mobile.SecureGateway
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

@@ -2,8 +2,8 @@ package com.contextsolutions.localagent.subscription
 
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
-import com.securegateway.core.Crypto
-import com.securegateway.core.Hex
+import com.contextsolutions.securegateway.core.Crypto
+import com.contextsolutions.securegateway.core.Hex
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContentEquals

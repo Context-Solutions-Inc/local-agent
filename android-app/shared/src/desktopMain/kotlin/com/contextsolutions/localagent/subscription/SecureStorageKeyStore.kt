@@ -2,10 +2,10 @@ package com.contextsolutions.localagent.subscription
 
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
-import com.securegateway.core.Crypto
-import com.securegateway.core.Hex
-import com.securegateway.core.KeyPair
-import com.securegateway.core.keystore.KeyStore
+import com.contextsolutions.securegateway.core.Crypto
+import com.contextsolutions.securegateway.core.Hex
+import com.contextsolutions.securegateway.core.KeyPair
+import com.contextsolutions.securegateway.core.keystore.KeyStore
 import java.nio.file.Files
 import java.nio.file.Path
 

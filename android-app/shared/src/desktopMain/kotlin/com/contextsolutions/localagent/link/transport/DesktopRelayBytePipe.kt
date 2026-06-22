@@ -1,7 +1,7 @@
 package com.contextsolutions.localagent.link.transport
 
-import com.securegateway.core.transport.ConnectionState
-import com.securegateway.desktop.DesktopClient
+import com.contextsolutions.securegateway.core.transport.ConnectionState
+import com.contextsolutions.securegateway.desktop.DesktopClient
 import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -16,7 +16,7 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * [RelayBytePipe] over the Secure Gateway desktop SDK ([DesktopClient]). Keeps all
- * `com.securegateway.*` types in desktopMain (#23).
+ * `com.contextsolutions.securegateway.*` types in desktopMain (#23).
  *
  * The SDK callbacks (`onMessage`, `onStateChange`) must be wired **before**
  * `connect()`, so this wraps an unconnected client; the caller

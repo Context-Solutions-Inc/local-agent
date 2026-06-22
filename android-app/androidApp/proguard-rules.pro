@@ -36,7 +36,7 @@
 -keep class com.google.ai.edge.litert.** { *; }
 -keep class com.google.ai.edge.litertlm.** { *; }
 
-# Secure Gateway relay SDK. Its model types (com.securegateway.core.auth.QrPayload,
+# Secure Gateway relay SDK. Its model types (com.contextsolutions.securegateway.core.auth.QrPayload,
 # the link frames, auth responses) are (de)serialized by Jackson via reflection —
 # constructors, Kotlin @Metadata, and polymorphic @JsonSubTypes info. R8 obfuscated
 # them, so relay pairing failed at "decode qr payload" with
@@ -46,7 +46,7 @@
 # Keep the SDK names + members + ctors so Jackson can build them; Signature keeps the
 # generic types (e.g. the QR's Map<String,String> endpoints). Same class of break as
 # the litert JNI keep above (R8 can't see reflective construction) — hard invariant #70.
--keep class com.securegateway.** { *; }
+-keep class com.contextsolutions.securegateway.** { *; }
 -keepattributes Signature
 
 # JNA + lazysodium — the relay SDK's Crypto signs/encrypts via lazysodium, which
@@ -54,7 +54,7 @@
 # reaches back into Java via JNI to read com.sun.jna.Pointer's `peer` field (and
 # other Structure/Library members) BY NAME; R8 renamed them, so pairing failed:
 #   UnsatisfiedLinkError: Can't obtain peer field ID for class com.sun.jna.Pointer
-#   -> NoClassDefFoundError: com.securegateway.core.Crypto  (static init failed)
+#   -> NoClassDefFoundError: com.contextsolutions.securegateway.core.Crypto  (static init failed)
 # at MobileClient.<init> / AndroidKeystoreKeyStore.loadOrCreateIdentity. These are
 # JNA's documented ProGuard rules plus a keep for lazysodium's JNA bindings.
 -keep class com.sun.jna.** { *; }
