@@ -575,5 +575,6 @@
   "desktop.link.scan_instructions": "Escanea esto con la app Local Agent de tu teléfono (Ajustes → Conexión del agente de escritorio → Escanear QR del escritorio).",
   "desktop.link.pair_now": "Emparejar ahora",
   "desktop.link.code_expires": "El código de emparejamiento caduca en %1$ds.",
+  "desktop.link.qr_warning": "Este código contiene una credencial: no lo captures ni lo compartas.",
   "desktop.backup.filter_desc": "Copia de seguridad JSON (*.json)"
 }

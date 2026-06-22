@@ -218,6 +218,35 @@ fallback needs no display (X11/Wayland/Quartz) — safe on a true headless serve
 > task/job consumers racing the same SQLite rows). Stop the service before opening the GUI,
 > and vice versa.
 
+### Secrets & `/proc` exposure (Security L3)
+
+The desktop reads a few secrets from environment variables — `LOCALAGENT_KEYSTORE_PASSWORD`
+(PKCS#12 store password), `BRAVE_API_KEY` (search), and `HF_AUTH_TOKEN` (gated-model
+download). All three have **non-env fallbacks the app prefers**: the keystore password falls
+back to the OS keyring then a `0600` `secrets.p12.pass`, and the Brave/HF tokens are read from
+the encrypted `secrets.p12` `SecureStorage` first (env is only a fallback). Env vars are the
+*least* private option:
+
+> ⚠️ A process's environment is **world-readable by the same user** via
+> `/proc/<pid>/environ`, is inherited by every child process, and is frequently captured in
+> crash dumps, `systemctl show`, and audit logs. Do **not** put long-lived secrets in a
+> service unit's inline `Environment=` lines.
+
+For headless/service deployments, prefer, in order:
+
+1. **Provision via the app's `SecureStorage`** (run the GUI once to enter the Brave/HF keys;
+   they persist encrypted in `secrets.p12`) — then the service needs **no** secret env vars at
+   all.
+2. **systemd `LoadCredential=`** (the secret is exposed only under `$CREDENTIALS_DIRECTORY`,
+   `0400`, not in the environment) or an **`EnvironmentFile=`** pointing at a root-or-owner
+   `0600` file — both keep the value out of `/proc/<pid>/environ` of unrelated tooling.
+3. Inline `Environment=SECRET=…` only for throwaway/dev boxes — never production.
+
+The keystore password specifically: setting `LOCALAGENT_KEYSTORE_PASSWORD` on a headless box
+(where no OS keyring is reachable) is supported, but deliver it via `LoadCredential=` /
+`EnvironmentFile=` rather than inline, or let the `0600` `secrets.p12.pass` file fallback own
+it (it never touches the environment).
+
 ### Implementation notes (CLAUDE.md invariant #53)
 
 `LOCALAGENT_HEADLESS=1` only changes **window startup** — the full background runtime

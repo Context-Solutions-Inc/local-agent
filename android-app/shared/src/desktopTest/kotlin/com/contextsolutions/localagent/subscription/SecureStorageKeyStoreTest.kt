@@ -10,6 +10,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /** PR #80 — relay identity key lives in SecureStorage (secrets.p12), not a plaintext file. */
 class SecureStorageKeyStoreTest {
@@ -81,6 +82,31 @@ class SecureStorageKeyStoreTest {
         SecureStorageKeyStore(store, legacy).loadOrCreateIdentity()
 
         assertFalse(Files.exists(legacy), "a leftover legacy file is retried + deleted on the next load")
+    }
+
+    @Test
+    fun escalatesWhenLeftoverLegacyFileCannotBeDeleted() {
+        // Security L6: the store already holds the identity but the plaintext file can't be
+        // deleted (here a NON-EMPTY directory at the legacy path — Files.delete throws). The
+        // migration must still succeed AND surface a clearly-marked SECURITY warning rather
+        // than a quiet info line, so a lingering cleartext private key is visible.
+        val store = FakeSecureStorage()
+        val kp = Crypto.generateKeyPair()
+        store.put(SecureStorageKeys.RELAY_IDENTITY_KEY, Hex.encode(kp.privateKey()))
+
+        val legacyDir = Files.createTempDirectory("relay_identity_dir")
+        Files.createTempFile(legacyDir, "child", ".tmp") // makes the dir undeletable
+
+        val logs = mutableListOf<String>()
+        val loaded = SecureStorageKeyStore(store, legacyDir, logger = { logs.add(it) }).loadOrCreateIdentity()
+
+        // Identity still resolves from the store...
+        assertContentEquals(kp.privateKey(), loaded.privateKey())
+        // ...and the failure was escalated, not whispered.
+        assertTrue(
+            logs.any { it.contains("SECURITY WARNING") },
+            "a persistent legacy-file deletion failure must log a SECURITY WARNING; got $logs",
+        )
     }
 
     private class FakeSecureStorage : SecureStorage {

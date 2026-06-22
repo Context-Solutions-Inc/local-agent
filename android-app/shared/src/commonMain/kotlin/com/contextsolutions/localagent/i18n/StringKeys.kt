@@ -614,6 +614,7 @@ object StringKeys {
     const val DESKTOP_LINK_SCAN_INSTRUCTIONS = "desktop.link.scan_instructions"
     const val DESKTOP_LINK_PAIR_NOW = "desktop.link.pair_now"
     const val DESKTOP_LINK_CODE_EXPIRES = "desktop.link.code_expires"
+    const val DESKTOP_LINK_QR_WARNING = "desktop.link.qr_warning"
     const val DESKTOP_BACKUP_FILTER_DESC = "desktop.backup.filter_desc"
 
     /** Every key above — the guardrail test asserts the English floor covers exactly this set. */
@@ -826,6 +827,7 @@ object StringKeys {
         DESKTOP_GPU_DETECTION_FAILED, DESKTOP_GPU_NO_DEVICES,
         DESKTOP_LINK_SUBSCRIBE_PROMPT, DESKTOP_LINK_QR_CD,
         DESKTOP_LINK_SCAN_INSTRUCTIONS, DESKTOP_LINK_PAIR_NOW, DESKTOP_LINK_CODE_EXPIRES,
+        DESKTOP_LINK_QR_WARNING,
         DESKTOP_BACKUP_FILTER_DESC,
     )
 }

@@ -69,6 +69,15 @@ actual fun DesktopLinkPairingControls(
                     tr(StringKeys.DESKTOP_LINK_SCAN_INSTRUCTIONS),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                // Security L2: the QR currently embeds the relay account secret, so warn the
+                // user not to screenshot/share it (the per-pair-credential redesign in
+                // docs/SECURITY_FOLLOWUPS.md removes the secret from the QR entirely).
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    tr(StringKeys.DESKTOP_LINK_QR_WARNING),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
                 PairingCountdown(expiresAtEpochMs = state.desktopLinkQrExpiresAtEpochMs)
             }
             // No QR + no paired phone → offer to mint one on demand. CONNECTED/OFFLINE are

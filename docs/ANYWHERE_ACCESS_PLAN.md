@@ -218,6 +218,11 @@ offline/revoked fallback. See CLAUDE.md invariant **#55**.
   client-side by `generatePairingQr`, read by `MobileClient.pair`). The phone stores
   it in `SecureStorage` (`RELAY_ACCOUNT_SECRET`) and clears it on unpair. A relay
   `4004` (REVOKED) close ⇒ `LinkConnectionState.DISABLED` ⇒ fall back to LAN/local.
+  - **Security L2:** the QR carries the *long-lived* shared account secret, so it's
+    displayed in plaintext on screen for the ~300s pairing window. PR #16 added a
+    "don't screenshot/share this code" warning under the QR; the full fix (a per-pair
+    credential minted at pairing completion, dropping the secret from the QR entirely)
+    is a cross-repo epic tracked in `docs/SECURITY_FOLLOWUPS.md`.
 
 ## Verification
 

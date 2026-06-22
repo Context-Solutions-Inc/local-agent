@@ -23,6 +23,13 @@ User=<you>
 Environment=HOME=/home/<you>
 Environment=LOCALAGENT_HEADLESS=1
 # Optional: Environment=LOCALAGENT_LLAMA_SERVER_VARIANT=cpu
+#
+# Secrets: prefer provisioning Brave/HF keys via the app's SecureStorage (no env vars
+# needed). If a secret must be passed (e.g. LOCALAGENT_KEYSTORE_PASSWORD on a box with no
+# OS keyring), do NOT inline it — env is readable via /proc/<pid>/environ. Use systemd
+# credentials or a 0600 file (see "Secrets & /proc exposure" in DESKTOP_PACKAGING.md):
+#   LoadCredential=keystore_pw:/etc/localagent/keystore_pw   # exposed 0400 under $CREDENTIALS_DIRECTORY
+#   # or: EnvironmentFile=/etc/localagent/secrets.env        # 0600, owner-only
 ExecStart=/opt/local-agent/bin/LocalAgent
 Restart=on-failure
 RestartSec=5

@@ -130,10 +130,13 @@
             android:exported="false" />
 
         <!-- PR #11 — Re-arms persisted timers + alarms after a device boot or
-             app upgrade (AlarmManager drops scheduled fires across both). -->
+             app upgrade (AlarmManager drops scheduled fires across both).
+             Security L5: not exported. All three actions are *protected*
+             broadcasts (only the OS can send them), so the receiver still fires
+             with exported="false" while no other app can target it. -->
         <receiver
             android:name=".service.clock.ClockBootReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />

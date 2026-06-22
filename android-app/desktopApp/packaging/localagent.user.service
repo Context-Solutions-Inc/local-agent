@@ -19,8 +19,13 @@ Type=simple
 Environment=LOCALAGENT_HEADLESS=1
 # Optional: force the CPU llama-server build instead of the Vulkan GPU one.
 # Environment=LOCALAGENT_LLAMA_SERVER_VARIANT=cpu
-# Optional: Brave search key (or provision via the app's SecureStorage).
-# Environment=BRAVE_API_KEY=...
+#
+# Secrets (Brave/HF keys, keystore password): prefer provisioning via the app's
+# SecureStorage (run the GUI once) so the service needs NO secret env vars. If you must
+# pass one, do NOT inline `Environment=BRAVE_API_KEY=...` — a process's env is readable via
+# /proc/<pid>/environ. Use a 0600 file instead (see "Secrets & /proc exposure" in
+# DESKTOP_PACKAGING.md):
+#   EnvironmentFile=%h/.config/localagent/secrets.env   # 0600, KEY=VALUE lines
 # .deb install path shown; for a `createDistributable` app-image use that bin/LocalAgent.
 ExecStart=/opt/local-agent/bin/LocalAgent
 Restart=on-failure

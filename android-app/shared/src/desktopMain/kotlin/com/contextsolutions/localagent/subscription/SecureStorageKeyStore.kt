@@ -90,7 +90,18 @@ class SecureStorageKeyStore(
                 Files.delete(file)
                 logger("keystore: removed leftover legacy relay identity file $file")
             }
-        }.onFailure { logger("keystore: could not delete leftover legacy identity file $file: ${it.message}") }
+        }.onFailure {
+            // Security L6: the identity already lives in the encrypted store, so a surviving
+            // plaintext private key on disk is a real exposure — escalate the message (not a
+            // quiet info line) and register a JVM-exit deletion as a belt-and-suspenders. The
+            // every-launch retry in loadOrCreateIdentity() remains the primary remediation.
+            logger(
+                "keystore: SECURITY WARNING — could not delete leftover plaintext relay " +
+                    "identity file $file (${it.message}); the X25519 private key remains on " +
+                    "disk. Will retry next launch; attempting JVM-exit cleanup.",
+            )
+            runCatching { file.toFile().deleteOnExit() }
+        }
     }
 
     private fun fromHex(hex: String): KeyPair {
