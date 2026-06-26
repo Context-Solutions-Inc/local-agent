@@ -41,6 +41,10 @@ class AndroidRelayBytePipeFactory(
         val deviceId: String,
         val pairId: String,
         val desktopPublicKey: String,
+        // Security L2: the per-pair credential the phone authenticates with (issue/refresh/unpair),
+        // minted by the gateway at pairing. Nullable so an old saved blob (pre-L2) still decodes;
+        // restored into MobileConfig.pairCredential so a reconnect can connect() on its own.
+        val pairCredential: String? = null,
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -48,7 +52,9 @@ class AndroidRelayBytePipeFactory(
     override suspend fun create(relayQrJson: String): RelayBytePipe? = withContext(ioDispatcher) {
         runCatching {
             val qr = QrPayload.fromJson(relayQrJson)
-            logger("create: relay QR auth=${qr.authEndpoint()} relay=${qr.relayEndpoint()} secret=${if (qr.accountSecret.isNullOrBlank()) "MISSING" else "present"}")
+            // Security L2: the QR no longer carries the account secret — the phone authenticates
+            // with the per-pair credential the gateway mints at pairing (below).
+            logger("create: relay QR auth=${qr.authEndpoint()} relay=${qr.relayEndpoint()}")
 
             // Reconnect with the saved pairing only when it matches THIS QR's (single-use) token.
             val saved = loadPairing()?.takeIf { it.pairingToken == qr.pairingToken }
@@ -56,6 +62,8 @@ class AndroidRelayBytePipeFactory(
             val config = MobileConfig().apply {
                 authUrl = qr.authEndpoint() ?: error("relay QR missing auth endpoint")
                 relayUrl = qr.relayEndpoint()
+                // L2: kept only as a legacy fallback if an old QR still carries one; new desktops
+                // omit it, and the SDK uses the per-pair credential instead.
                 accountSecret = qr.accountSecret
                 keyStore = AndroidKeystoreKeyStore(context)
                 // Security M3: scrub the SDK's diagnostic output (it may carry
@@ -66,6 +74,7 @@ class AndroidRelayBytePipeFactory(
                     deviceId = saved.deviceId
                     pairId = saved.pairId
                     desktopPublicKeyB64 = saved.desktopPublicKey
+                    pairCredential = saved.pairCredential // L2: reconnect authenticates with this
                 }
             }
             val client = SecureGateway.mobile(config)
@@ -80,15 +89,16 @@ class AndroidRelayBytePipeFactory(
                     val deviceId = client.deviceId()
                     val pairId = client.pairId()
                     val desktopKey = client.desktopPublicKeyB64()
+                    val pairCredential = client.pairCredential() // L2: persist so reconnect can authenticate
                     if (deviceId != null && pairId != null && desktopKey != null) {
                         secureStorage.put(
                             SecureStorageKeys.RELAY_PAIRING_STATE,
                             json.encodeToString(
                                 SavedPairing.serializer(),
-                                SavedPairing(qr.pairingToken, deviceId, pairId, desktopKey),
+                                SavedPairing(qr.pairingToken, deviceId, pairId, desktopKey, pairCredential),
                             ),
                         )
-                        logger("create: pairing persisted (deviceId=$deviceId pairId=$pairId)")
+                        logger("create: pairing persisted (deviceId=$deviceId pairId=$pairId cred=${if (pairCredential.isNullOrBlank()) "none" else "present"})")
                     }
                 }.onFailure { logger("create: failed to persist pairing: ${it.message}") }
             }

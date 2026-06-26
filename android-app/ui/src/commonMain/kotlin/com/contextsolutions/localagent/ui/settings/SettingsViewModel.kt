@@ -156,9 +156,9 @@ class SettingsViewModel(
         if (diag) println("[Relay/scan] applyScannedLink: ${rawQr.length} chars")
         RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
             if (diag) println("[Relay/scan] -> matched RELAY v=${relay.v}")
-            if (relay.accountSecret.isNotBlank()) {
-                secureStorage.put(SecureStorageKeys.RELAY_ACCOUNT_SECRET, relay.accountSecret)
-            }
+            // Security L2: the phone NO LONGER stores the account secret from the QR. New desktops
+            // don't put it in the QR; the phone authenticates with the per-pair credential the
+            // gateway mints at pairing (persisted in RELAY_PAIRING_STATE by AndroidRelayBytePipeFactory).
             desktopLinkPreferences.setConfig(
                 desktopLinkPreferences.config().copy(
                     enabled = true,

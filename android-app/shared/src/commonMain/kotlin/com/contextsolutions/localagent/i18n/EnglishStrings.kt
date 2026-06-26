@@ -864,7 +864,7 @@ object EnglishStrings {
         StringKeys.DESKTOP_LINK_PAIR_NOW to Simple("Pair Now"),
         StringKeys.DESKTOP_LINK_CODE_EXPIRES to Simple("Pairing code expires in %1\$ds."),
         StringKeys.DESKTOP_LINK_QR_WARNING to
-            Simple("This code contains a credential — don't screenshot or share it."),
+            Simple("Only show this code to your phone — it lets a device pair for a short time."),
         StringKeys.DESKTOP_BACKUP_FILTER_DESC to Simple("JSON backup (*.json)"),
     )
 }

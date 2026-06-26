@@ -76,9 +76,27 @@ just checksums.
 
 ## L2 — Remove the relay account secret from the displayed pairing QR
 
-**Status:** PR #16 added a "don't screenshot/share this code" warning under the QR
-(`DesktopLinkPairingControls.desktop.kt`, `DESKTOP_LINK_QR_WARNING`). Full fix below is a
-cross-repo epic.
+**Status: DONE — per-pair credential (secure-gateway PR #8 / SDK `0.2.4` / this consumer PR).** The
+desktop's shared account secret no longer rides the pairing QR. The gateway mints a **per-pair
+credential** at pairing completion and registers the mobile device from its public key (authorized by
+the single-use pairing token), so the phone needs no account secret to register *or* to issue tokens:
+- **Gateway (secure-gateway PR #8):** `pair_credentials` table (migration `0005`, keyed by `pair_id`,
+  rotated on re-pair); `completePairing` mints + returns `pair_credential` and `mobile_device_id`;
+  token/unpair endpoints accept the account secret **or** a pair credential (bound to its
+  pair/device); unpair revokes it.
+- **SDK `0.2.3`→`0.2.4`:** `DesktopClient.generatePairingQr` stops injecting `QrPayload.accountSecret`;
+  `MobileClient` learns the credential + device id from `completePairing` and issues/refreshes/unpairs
+  with it (`MobileConfig.pairCredential` restores it for reconnect). Cross-platform E2E passes with the
+  phone holding no account secret.
+- **Consumer (this repo):** bumped `securegateway = 0.2.4` + regenerated `verification-metadata.xml`;
+  `SettingsViewModel.applyScannedLink` no longer persists `RELAY_ACCOUNT_SECRET` from the QR;
+  `AndroidRelayBytePipeFactory` persists the per-pair credential inside `RELAY_PAIRING_STATE` and feeds
+  it back via `MobileConfig.pairCredential` on reconnect; `DESKTOP_LINK_QR_WARNING` softened (the QR now
+  carries only a short-lived pairing token). The desktop keeps its own account secret
+  (`RELAY_ACCOUNT_SECRET`) for its gateway auth — only the phone/QR exposure is gone.
+
+PR #16's interim QR warning (`DesktopLinkPairingControls.desktop.kt`, `DESKTOP_LINK_QR_WARNING`) is now
+the softened note. The original cross-repo design follows (as implemented):
 
 **Why not literal "rotate the account secret":** the account secret is the *shared* account
 credential (`acct_<id>.<rand>`), used by the desktop **and** every paired phone. The phone needs
