@@ -76,9 +76,22 @@ just checksums.
 
 ## L2 — Remove the relay account secret from the displayed pairing QR
 
-**Status:** PR #16 added a "don't screenshot/share this code" warning under the QR
-(`DesktopLinkPairingControls.desktop.kt`, `DESKTOP_LINK_QR_WARNING`). Full fix below is a
-cross-repo epic.
+**Status: Phases 1–2 DONE (secure-gateway PR #8); Phase 3 (consumer) pending the signed `0.2.4`
+publish.** The gateway now mints a **per-pair credential** at pairing completion and registers the
+mobile device from its public key (authorized by the pairing token), and the SDK (bumped
+`0.2.3`→`0.2.4`) uses it: `DesktopClient.generatePairingQr` no longer injects
+`QrPayload.accountSecret`, and `MobileClient` issues/refreshes/unpairs with the per-pair credential
+(account-secret fallback only against a legacy gateway). The cross-platform E2E now passes with the
+phone holding **no** account secret. **Remaining (Phase 3, this repo):** after a signed `0.2.4` is
+published, bump `securegateway` in `libs.versions.toml` + **regen `verification-metadata.xml`**
+(full M4 dance — the SDK hashes change), stop persisting `RELAY_ACCOUNT_SECRET` from the QR in
+`SettingsViewModel.applyScannedLink`, persist the per-pair credential in `AndroidRelayBytePipeFactory`'s
+`SavedPairing` (feed back via `MobileConfig.pairCredential` on reconnect), and drop/soften
+`DESKTOP_LINK_QR_WARNING`. PR #16's QR warning remains the interim mitigation until then.
+
+PR #16 added a "don't screenshot/share this code" warning under the QR
+(`DesktopLinkPairingControls.desktop.kt`, `DESKTOP_LINK_QR_WARNING`). The original cross-repo design
+follows (now implemented in Phases 1–2):
 
 **Why not literal "rotate the account secret":** the account secret is the *shared* account
 credential (`acct_<id>.<rand>`), used by the desktop **and** every paired phone. The phone needs
