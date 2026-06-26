@@ -16,8 +16,12 @@ sealed interface MyListCommand {
         val dueDateEpochMs: Long?,
     ) : MyListCommand
 
-    /** Read-only list. [includeCompleted] toggles the active-only filter. */
-    data class Show(val includeCompleted: Boolean) : MyListCommand
+    /**
+     * Read-only list. [includeCompleted] toggles the active-only filter.
+     * [ref] non-null (PR #22) narrows the reply to a single item ("show number
+     * 2 on my list" / "show the milk item on my list") — only that item renders.
+     */
+    data class Show(val includeCompleted: Boolean, val ref: MyListRef? = null) : MyListCommand
 
     /** Flip the completed flag on an item referenced by [ref]. */
     data class SetCompleted(val ref: MyListRef, val completed: Boolean) : MyListCommand

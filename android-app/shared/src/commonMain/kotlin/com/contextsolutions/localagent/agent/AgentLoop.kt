@@ -1590,6 +1590,8 @@ class AgentLoop(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 put("include_completed", JsonPrimitive(command.includeCompleted))
+                // A ref narrows the reply to a single item (PR #22).
+                command.ref?.let { putRef(it) }
             },
         )
         is MyListCommand.SetCompleted -> MyListToolHandler.COMPLETE_ITEM_NAME to Json.encodeToString(

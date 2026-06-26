@@ -115,23 +115,58 @@ class MyListToolHandler(
         val includeCompleted = args["include_completed"]?.asBoolean() ?: false
         val items = if (includeCompleted) repository.snapshot() else repository.snapshotActive()
         lastListedIds = items.map { it.id }
+
+        // Single-item show (PR #22): "show number 2 on my list" passes a ref.
+        // Resolve it against THIS displayed list (1-based position) — not the
+        // index cache — so it works even as the first command of a turn, and
+        // emit just that one row (formatter renders it without the list header).
+        if (args.containsKey("index") || args.containsKey("title_substring") || args.containsKey("id")) {
+            val match = resolveListItemWithIndex(args, items)
+                ?: return errorPayload("could not find that item on your list")
+            return resultJson {
+                put("status", "ok")
+                put("count", 1)
+                put("single", true)
+                put("include_completed", includeCompleted)
+                put("items", buildJsonArray { add(itemJson(match.first, match.second)) })
+            }
+        }
+
         return resultJson {
             put("status", "ok")
             put("count", items.size)
             put("include_completed", includeCompleted)
-            put("items", buildJsonArray {
-                items.forEachIndexed { i, t ->
-                    add(buildJsonObject {
-                        put("index", (i + 1).toLong())
-                        put("id", t.id)
-                        put("title", t.title)
-                        put("priority", t.priority.name)
-                        put("completed", t.completed)
-                        t.dueDateEpochMs?.let { put("due_date_epoch_ms", it) }
-                        t.notes?.takeIf { it.isNotBlank() }?.let { put("notes", it) }
-                    })
-                }
-            })
+            put("items", buildJsonArray { items.forEachIndexed { i, t -> add(itemJson(t, i + 1)) } })
+        }
+    }
+
+    /** Per-item JSON for [SHOW_LIST_NAME]. [oneBased] is the displayed index. */
+    private fun itemJson(t: MyListItem, oneBased: Int): JsonObject = buildJsonObject {
+        put("index", oneBased.toLong())
+        put("id", t.id)
+        put("title", t.title)
+        put("priority", t.priority.name)
+        put("completed", t.completed)
+        t.dueDateEpochMs?.let { put("due_date_epoch_ms", it) }
+        t.notes?.takeIf { it.isNotBlank() }?.let { put("notes", it) }
+    }
+
+    /**
+     * Resolve a `index` / `title_substring` / `id` ref against the freshly-read
+     * [items] (the displayed order), returning the item plus its 1-based
+     * position. Title matches must be unambiguous. Null when nothing matches.
+     */
+    private fun resolveListItemWithIndex(args: JsonObject, items: List<MyListItem>): Pair<MyListItem, Int>? {
+        val id = args["id"]?.asStringOrNull()
+        val index = args["index"]?.asInt()
+        val needle = args["title_substring"]?.asStringOrNull()?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        return when {
+            index != null -> items.getOrNull(index - 1)?.let { it to index }
+            id != null -> items.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { items[it] to (it + 1) }
+            needle != null ->
+                items.withIndex().filter { it.value.title.lowercase().contains(needle) }
+                    .singleOrNull()?.let { it.value to (it.index + 1) }
+            else -> null
         }
     }
 

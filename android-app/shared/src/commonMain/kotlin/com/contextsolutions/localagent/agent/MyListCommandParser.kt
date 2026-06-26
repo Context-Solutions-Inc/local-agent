@@ -52,7 +52,9 @@ class MyListCommandParser(
         val msg = LEADING_SCAFFOLDING_REGEX.replaceFirst(raw, "").ifBlank { raw }
 
         // Read intents keep "my list" as their object, so they're matched on
-        // the full message first.
+        // the full message first. Show-ONE ("show number 2 on my list") is tried
+        // before the show-all grammar so a numeric/title ref isn't swallowed.
+        parseShowOne(msg)?.let { return it }
         parseShow(msg)?.let { return it }
 
         // Every other command names the surface as a locator ("... on my
@@ -90,6 +92,29 @@ class MyListCommandParser(
         """^\s*(?:(?:please|can\s+you|could\s+you)\s+)?(?:(?:show|read|display|view|see|give|get|pull\s+up|bring\s+up|open|tell|what(?:'?s|\s+is|\s+are)?|whats|which|how\s+many|do\s+i\s+have)\b[^.!?\n]*?\s+)?(?:on|in|of)?\s*(?:all\s+(?:of\s+)?|everything\s+(?:on|in)\s+)?my\s+lists?(?:\s+items?)?(?:\s+(?:please|now|including\s+completed|with\s+completed|do\s+i\s+have|are\s+(?:left|open|done|completed)))?\s*\??\s*\.?\s*$""",
         RegexOption.IGNORE_CASE,
     )
+
+    // Show a single item: "show number 2 on my list", "show #2 on my list",
+    // "show the milk item on my list". Group 1 = the ref text BEFORE the
+    // "<preposition> my list" locator. Requires that locator (so it never
+    // hijacks plain "show my list", which has no preposition before "my").
+    private val SHOW_ONE_REGEX = Regex(
+        """^\s*(?:(?:please|can\s+you|could\s+you)\s+)?(?:show|read|display|view|see|give|get|pull\s+up|bring\s+up|open|tell|what(?:'?s|\s+is|\s+are)?|whats|which)\s+(?:me\s+)?(.+?)\s+(?:on|in|of|from)\s+my\s+lists?\s*\??\s*\.?\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    // Qualifier-only refs ("all", "everything", "completed", …) are show-ALL,
+    // not show-one — let [parseShow] handle them.
+    private val SHOW_ALL_QUALIFIER_REGEX = Regex(
+        """^(?:all|everything|whole|entire|full|completed|finished|done|open|active|remaining)\b.*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun parseShowOne(msg: String): MyListCommand? {
+        val match = SHOW_ONE_REGEX.matchEntire(msg) ?: return null
+        val refText = match.groupValues[1].trim()
+        if (refText.isBlank() || SHOW_ALL_QUALIFIER_REGEX.matches(refText)) return null
+        val ref = parseRef(refText) ?: return null
+        return MyListCommand.Show(includeCompleted = false, ref = ref)
+    }
 
     private fun parseShow(msg: String): MyListCommand? {
         if (!SHOW_REGEX.matches(msg)) return null
@@ -327,12 +352,36 @@ class MyListCommandParser(
             .replace(Regex("""^(?:the\s+|my\s+|a\s+|an\s+)+""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\s+(?:item|task|entry)$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""^(?:item|task|entry)\s+""", RegexOption.IGNORE_CASE), "")
+            // "number 2" / "no. 2" / "num 2" → "2" so it resolves as an index.
+            .replace(Regex("""^(?:number|no\.?|num)\s+""", RegexOption.IGNORE_CASE), "")
             .trim()
         if (cleaned.isBlank()) return null
         Regex("""^#?(\d+)$""").matchEntire(cleaned)?.let { m ->
             m.groupValues[1].toIntOrNull()?.takeIf { it > 0 }?.let { return MyListRef.Index(it) }
         }
+        // Spelled-out numbers ("number two" → 2). Only when the whole token is a
+        // number word, so a title like "two birds" stays a title match.
+        wordToNumber(cleaned)?.let { return MyListRef.Index(it) }
         return MyListRef.TitleSubstring(cleaned.trim('"', '\''))
+    }
+
+    /**
+     * Convert an English number word (or hyphen/space compound, 1–99) to its
+     * value. Returns null unless the ENTIRE input is a valid positive number
+     * phrase — "two" → 2, "twenty one" → 21, "two birds" / "zero" → null.
+     */
+    private fun wordToNumber(text: String): Int? {
+        val s = text.trim().lowercase().replace('-', ' ').replace(WHITESPACE_REGEX, " ")
+        if (s.isBlank()) return null
+        UNITS[s]?.let { return it.takeIf { v -> v > 0 } }
+        TENS[s]?.let { return it }
+        val parts = s.split(' ')
+        if (parts.size == 2) {
+            val tens = TENS[parts[0]]
+            val unit = UNITS[parts[1]]
+            if (tens != null && unit != null && unit in 1..9) return tens + unit
+        }
+        return null
     }
 
     private fun parsePriorityToken(raw: String): MyListItemPriority? = when (raw.lowercase()) {
@@ -368,6 +417,19 @@ class MyListCommandParser(
         )
         val TRAILING_MY_LIST_REGEX = Regex("""\s*\bmy\s+lists?\b\s*$""", RegexOption.IGNORE_CASE)
         val WHITESPACE_REGEX = Regex("""\s+""")
+        // Number words for "show number two on my list" (0–19 + tens; compounds
+        // like "twenty one" are summed in wordToNumber).
+        val UNITS: Map<String, Int> = mapOf(
+            "zero" to 0, "one" to 1, "two" to 2, "three" to 3, "four" to 4,
+            "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
+            "ten" to 10, "eleven" to 11, "twelve" to 12, "thirteen" to 13,
+            "fourteen" to 14, "fifteen" to 15, "sixteen" to 16, "seventeen" to 17,
+            "eighteen" to 18, "nineteen" to 19,
+        )
+        val TENS: Map<String, Int> = mapOf(
+            "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50,
+            "sixty" to 60, "seventy" to 70, "eighty" to 80, "ninety" to 90,
+        )
         val LEADING_SCAFFOLDING_REGEX = Regex(
             """^\s*(?:now|actually|so|and|ok|okay|well|um|er|but|please|hey|can you|could you|would you|will you|i want to|i'd like to|let's)\s*[,\.]?\s*""",
             RegexOption.IGNORE_CASE,

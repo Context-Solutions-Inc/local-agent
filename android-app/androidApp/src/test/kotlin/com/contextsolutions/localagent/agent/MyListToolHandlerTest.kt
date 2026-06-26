@@ -93,6 +93,29 @@ class MyListToolHandlerTest {
     }
 
     @Test
+    fun `show_mylist with an index returns only that single item`() {
+        call("add_mylist_item", """{"title": "a", "priority": "HIGH"}""")
+        call("add_mylist_item", """{"title": "b", "priority": "LOW", "notes": "second"}""")
+        // Sorted active list: "a" (HIGH) is #1, "b" (LOW) is #2.
+        val obj = call("show_mylist", """{"index": 2}""")
+        assertEquals("ok", obj["status"]!!.jsonPrimitive.content)
+        assertEquals("1", obj["count"]!!.jsonPrimitive.content)
+        assertTrue(obj["single"]!!.jsonPrimitive.boolean)
+        val rows = obj["items"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(1, rows.size)
+        assertEquals("b", rows[0]["title"]!!.jsonPrimitive.content)
+        assertEquals("2", rows[0]["index"]!!.jsonPrimitive.content)
+        assertEquals("second", rows[0]["notes"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `show_mylist with an out-of-range index errors`() {
+        call("add_mylist_item", """{"title": "only"}""")
+        val obj = call("show_mylist", """{"index": 5}""")
+        assertEquals("error", obj["status"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `complete_mylist_item with stale index errors instead of guessing`() {
         call("add_mylist_item", """{"title": "a"}""")
         call("show_mylist", "{}")

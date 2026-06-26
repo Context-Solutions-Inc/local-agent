@@ -145,6 +145,55 @@ class MyListCommandParserTest {
         )
     }
 
+    // -- show one (PR #22) ---------------------------------------------------
+
+    @Test
+    fun `show number N on my list resolves to a single-item Show`() {
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(2)),
+            parser.parse("show number 2 on my list"),
+        )
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(2)),
+            parser.parse("show #2 on my list"),
+        )
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(3)),
+            parser.parse("show item 3 on my list"),
+        )
+    }
+
+    @Test
+    fun `show spelled-out number on or in my list`() {
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(2)),
+            parser.parse("show number two on my list"),
+        )
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(2)),
+            parser.parse("show number two in my list"),
+        )
+        // Compound tens, and a bare number word without the "number" prefix.
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.Index(21)),
+            parser.parse("show number twenty one on my list"),
+        )
+    }
+
+    @Test
+    fun `show a specific item by title`() {
+        assertEquals(
+            MyListCommand.Show(includeCompleted = false, ref = MyListRef.TitleSubstring("milk")),
+            parser.parse("show the milk item on my list"),
+        )
+    }
+
+    @Test
+    fun `show all is not mistaken for a single-item show`() {
+        assertEquals(MyListCommand.Show(includeCompleted = true), parser.parse("show all of my list"))
+        assertEquals(MyListCommand.Show(includeCompleted = false), parser.parse("show my list"))
+    }
+
     // -- complete / uncomplete -----------------------------------------------
 
     @Test
