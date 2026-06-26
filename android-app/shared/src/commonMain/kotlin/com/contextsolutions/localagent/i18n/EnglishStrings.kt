@@ -457,9 +457,8 @@ object EnglishStrings {
         // ── Onboarding — model download ──
         StringKeys.DOWNLOAD_TITLE to Simple("Set up the on-device models"),
         StringKeys.DOWNLOAD_INTRO to Simple(
-            "Local Agent runs AI models entirely on your device. The first " +
-                "step is a one-time download of the model weights plus the " +
-                "on-device search + memory models.",
+            "One-time download of the LLM model weights as well as smaller " +
+                "models for search, memory and voice.",
         ),
         StringKeys.DOWNLOAD_MODELS_HEADER to Simple("Models to download:"),
         StringKeys.DOWNLOAD_TOTAL to Simple("Total download: %1\$s"),

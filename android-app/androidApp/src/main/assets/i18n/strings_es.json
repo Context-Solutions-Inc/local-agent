@@ -265,7 +265,7 @@
   "onboarding.disclosure.acknowledge": "Entendido.",
 
   "download.title": "Configura los modelos en el dispositivo",
-  "download.intro": "Local Agent ejecuta modelos de IA completamente en tu dispositivo. El primer paso es una descarga única de los pesos del modelo más los modelos de búsqueda y memoria en el dispositivo.",
+  "download.intro": "Descarga única de los pesos del modelo LLM, además de modelos más pequeños para búsqueda, memoria y voz.",
   "download.models_header": "Modelos para descargar:",
   "download.total": "Descarga total: %1$s",
   "download.spec_incomplete": "⚠ La especificación del modelo está incompleta. Las coordenadas del modelo (URL + sha256 + tamaño) están fijadas en ModelInventory; esto suele indicar una compilación defectuosa.",
