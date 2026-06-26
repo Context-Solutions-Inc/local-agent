@@ -30,7 +30,13 @@ data class RelayQrPayload(
         get() = v >= 1 && pairingToken.isNotBlank() && endpoints["relay"]?.isNotBlank() == true
 
     companion object {
-        private val json = Json { ignoreUnknownKeys = true }
+        // coerceInputValues: the SDK's QrPayload serializes with a plain Jackson ObjectMapper (no
+        // NON_NULL include), so since L2 dropped the account-secret injection the QR now carries
+        // `"account_secret":null`. Without coercion kotlinx-serialization throws on a present-null
+        // for a non-nullable field (defaults apply only to ABSENT keys), so parseOrNull returned
+        // null and the phone reported the QR "UNRECOGNIZED" — pairing silently failed. Coercion maps
+        // a present-null to the field default; isRelayQr still validates the load-bearing fields.
+        private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
         /** Parse a scanned string as a relay QR, or null if it isn't one. */
         fun parseOrNull(raw: String): RelayQrPayload? =

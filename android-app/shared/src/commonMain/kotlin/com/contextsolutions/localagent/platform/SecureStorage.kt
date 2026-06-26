@@ -3,7 +3,9 @@ package com.contextsolutions.localagent.platform
 /**
  * Platform-secure key/value storage for the Brave API key and other secrets.
  *
- * Android: EncryptedSharedPreferences (AndroidX Security crypto, AES256-GCM).
+ * Android: Keystore-direct AES-256-GCM — values sealed under a hardware-backed AndroidKeyStore key
+ * in a plain SharedPreferences file (security finding L4 replaced the deprecated alpha androidx
+ * EncryptedSharedPreferences; see `SecureStorage.android.kt`).
  * iOS (Phase 2): Keychain.
  *
  * Per PRD section 4.4, the Brave API key must never be logged and must never be

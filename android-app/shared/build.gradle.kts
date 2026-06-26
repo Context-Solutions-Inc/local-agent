@@ -90,7 +90,6 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqldelight.android.driver)
-            implementation(libs.androidx.security.crypto)
             // Mobile relay SDK (MobileClient) for the E2EE relay transport. The
             // on-device AAR with lazysodium-android + a hardware-backed Android
             // Keystore is the remaining device step (CLAUDE.md #40 — verify the

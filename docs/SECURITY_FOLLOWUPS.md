@@ -76,7 +76,7 @@ just checksums.
 
 ## L2 — Remove the relay account secret from the displayed pairing QR
 
-**Status: DONE — per-pair credential (secure-gateway PR #8 / SDK `0.2.4` / this consumer PR).** The
+**Status: DONE — per-pair credential (secure-gateway PR #8 / SDK `0.2.4` / consumer PR #20).** The
 desktop's shared account secret no longer rides the pairing QR. The gateway mints a **per-pair
 credential** at pairing completion and registers the mobile device from its public key (authorized by
 the single-use pairing token), so the phone needs no account secret to register *or* to issue tokens:
@@ -128,21 +128,27 @@ the QR and off the phone):
 
 ## L4 — Migrate off the alpha `androidx-security-crypto`
 
-**Status:** plan only (the audit asks to plan, not implement).
+**Status: DONE — Keystore-direct AES-256-GCM, clean break (local-agent PR #19).**
 
-`androidx-security-crypto = 1.1.0-alpha06` (`gradle/libs.versions.toml:18`) is an alpha release
-and Google has signalled deprecation of the library. It backs, on Android:
+`androidx-security-crypto = 1.1.0-alpha06` (an alpha Google has deprecated) is **removed** —
+dependency, version catalog entry (`gradle/libs.versions.toml`), and the pinned
+`verification-metadata.xml` component all deleted. Android at-rest secrets now ride a **Keystore-direct
+AES-256-GCM envelope**: one hardware-backed `AndroidKeyStore` AES-256 key
+(`KeystoreAesKey`, alias `local_agent_secure_store_v1`) seals every value via `AesGcmEnvelope`
+(`iv ‖ ciphertext+tag`, fresh random IV per write, 128-bit tag):
 
-- `EncryptedSharedPreferences` — Brave/HF API tokens
-  (`shared/src/androidMain/.../platform/SecureStorage.android.kt`).
-- `EncryptedFile` — the relay X25519 identity private key
-  (`shared/src/androidMain/.../link/transport/AndroidKeystoreKeyStore.kt`).
-- The relay pairing-state blob rides the `SecureStorage` above
-  (`AndroidRelayBytePipeFactory`).
+- `AndroidSecureStorage` (`SecureStorage.android.kt`) — values Base64 in a **plain** SharedPreferences
+  file `local_agent_secure_store` (Brave/HF/Ollama keys, the M1 SQLCipher DB key, relay credentials).
+  Key *names* are plaintext (not sensitive); only values are encrypted.
+- `AndroidKeystoreKeyStore` (`link/transport/`) — the relay X25519 identity sealed to
+  `relay_identity.x25519.gcm` under the same key.
 
-**Migration target:** Keystore-direct AES-256-GCM — wrap our own `SharedPreferences` / file with
-an `AndroidKeyStore`-held AES key (the same hardware-backed-master-key pattern already used),
-**or** Jetpack DataStore + Tink. Scope is those two `androidMain` files plus the pairing-state
-serialization; no DB schema change. Provide a one-time read-old/write-new migration so existing
-installs keep their tokens + relay identity (no re-pair). Track as a post-M7 item; move when a
-stable `androidx.security:security-crypto` (or the chosen replacement) is available.
+**Clean break — no read-old migration** (chosen because closed-beta hasn't started and PR #94 already
+forced fresh installs). Existing dev/test installs lose API keys, re-pair, and lose their encrypted
+DB. `CleanBreakReset` (invoked at the top of `AndroidDatabaseFactory.create`, before the M1
+keystore-loss guard) prevents an in-place upgrade from *bricking*: when a legacy androidx artifact is
+present **and** the new store has no DB key, it deletes the legacy
+`local_agent_secure_prefs.xml`/`relay_identity.x25519.enc` and wipes the orphaned encrypted DB so a
+fresh key + DB are minted. It only deletes files (never reads androidx), so the dependency fully goes
+away; the loud loss-guard still protects against a genuine future Keystore loss. Covered by
+`AesGcmEnvelopeTest` + `CleanBreakResetTest` (JVM, `:androidApp` unit).

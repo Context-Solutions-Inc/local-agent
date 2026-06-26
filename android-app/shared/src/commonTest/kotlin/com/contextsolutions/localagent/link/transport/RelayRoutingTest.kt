@@ -31,6 +31,31 @@ class RelayRoutingTest {
         assertNull(RelayQrPayload.parseOrNull("not json"))
     }
 
+    /**
+     * Regression: since L2 the desktop no longer injects the account secret, and the SDK's QrPayload
+     * serializes nulls (plain Jackson, no NON_NULL), so the real QR carries `"account_secret":null`.
+     * Without `coerceInputValues` the strict decode threw on the present-null non-nullable field and
+     * parseOrNull returned null → the phone reported "UNRECOGNIZED" and pairing failed. A present-null
+     * (and an absent field) must both still parse as a valid relay QR.
+     */
+    @Test
+    fun detectsRelayQrWhenAccountSecretIsNullOrAbsent() {
+        val nullSecret = """
+            {"v":1,"pairing_token":"tok123","desktop_pubkey":"pk","desktop_device_id":"dev-d",
+             "endpoints":{"relay":"wss://gw/v1/connect","auth":"https://gw"},"account_secret":null}
+        """.trimIndent()
+        val parsedNull = RelayQrPayload.parseOrNull(nullSecret)
+        assertTrue(parsedNull != null && parsedNull.isRelayQr, "QR with account_secret:null must parse")
+        assertEquals("", parsedNull.accountSecret)
+
+        val absentSecret = """
+            {"v":1,"pairing_token":"tok123","desktop_pubkey":"pk","desktop_device_id":"dev-d",
+             "endpoints":{"relay":"wss://gw/v1/connect","auth":"https://gw"}}
+        """.trimIndent()
+        val parsedAbsent = RelayQrPayload.parseOrNull(absentSecret)
+        assertTrue(parsedAbsent != null && parsedAbsent.isRelayQr, "QR without account_secret must parse")
+    }
+
     @Test
     fun configGatesOnRelayQrAndToggle() {
         val relay = DesktopLinkConfig(enabled = true, relayQrJson = relayQr)

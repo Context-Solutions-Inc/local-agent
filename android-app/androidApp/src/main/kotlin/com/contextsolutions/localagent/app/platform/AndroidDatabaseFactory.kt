@@ -4,6 +4,7 @@ import android.content.Context
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import com.contextsolutions.localagent.db.LocalAgentDatabase
+import com.contextsolutions.localagent.platform.CleanBreakReset
 import com.contextsolutions.localagent.platform.DatabaseKeyProvider
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SqliteHeader
@@ -29,6 +30,11 @@ object AndroidDatabaseFactory {
         logger: (String) -> Unit = {},
     ): SqlDriver {
         val dbFile = context.getDatabasePath(dbName)
+
+        // L4 clean break: a pre-L4 install's androidx secrets (incl. the M1 DB key) are unreadable by
+        // the new Keystore-direct store, so wipe the orphaned encrypted DB + legacy files BEFORE the
+        // loss-guard below — otherwise it would error and brick launch. No-op on fresh/migrated installs.
+        CleanBreakReset.run(context, secureStorage, dbFile, logger)
 
         if (dbFile.exists() && isPlaintextDb(dbFile)) {
             deleteDbFiles(dbFile)
