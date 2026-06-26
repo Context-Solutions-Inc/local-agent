@@ -53,12 +53,12 @@ jobs:
         working-directory: android-app
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
         # Temurin 17 bundles jpackage (the toolchain :desktopApp targets). The
         # JDK must be 14+ for jpackage; 17 matches `jvmToolchain(17)`.
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -90,7 +90,7 @@ jobs:
         run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon --stacktrace
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: local-agent-${{ matrix.label }}
           # Paths are relative to the repo root, NOT the job working-directory.

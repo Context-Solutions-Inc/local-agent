@@ -417,7 +417,7 @@ class AgentLoop(
                 val trigger = if (bareWeatherRequest) {
                     "bare-weather-phrase"
                 } else {
-                    "catalog-city=${weatherLocationResolver?.resolve(input.userMessage)?.city}"
+                    "catalog-city=${weatherLocationResolver.resolve(input.userMessage)?.city}"
                 }
                 logger(
                     "[turn] WEATHER force-fire (trigger=$trigger) — " +
