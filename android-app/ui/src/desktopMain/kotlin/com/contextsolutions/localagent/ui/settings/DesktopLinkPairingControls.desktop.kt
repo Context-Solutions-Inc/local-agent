@@ -69,14 +69,15 @@ actual fun DesktopLinkPairingControls(
                     tr(StringKeys.DESKTOP_LINK_SCAN_INSTRUCTIONS),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                // Security L2: the QR currently embeds the relay account secret, so warn the
-                // user not to screenshot/share it (the per-pair-credential redesign in
-                // docs/SECURITY_FOLLOWUPS.md removes the secret from the QR entirely).
+                // Security L2 (done): the QR no longer carries the account secret — only a
+                // single-use, time-boxed pairing token + public keys, and the phone authenticates
+                // with the per-pair credential the gateway mints at pairing. So this is now a mild
+                // "only show it to your phone" note rather than a credential-exposure warning;
+                // rendered in the normal on-surface color instead of error red.
                 Spacer(Modifier.height(4.dp))
                 Text(
                     tr(StringKeys.DESKTOP_LINK_QR_WARNING),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
                 )
                 PairingCountdown(expiresAtEpochMs = state.desktopLinkQrExpiresAtEpochMs)
             }

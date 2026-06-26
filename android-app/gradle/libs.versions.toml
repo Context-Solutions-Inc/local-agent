@@ -51,7 +51,12 @@ okhttp = "4.12.0"
 #        (SG-15 holds) but rebuilds the session when the peer reconnects with a NEW ephemeral,
 #        instead of keeping stale keys and silently dropping frames ("green-but-hung after
 #        reconnect"). Interop-compatible with 0.2.x. (secure-gateway PR #5.)
-securegateway = "0.2.3"
+# 0.2.4: security L2 — per-pair credential. The gateway mints a pairing-scoped credential at
+#        completion (and registers the mobile device via the pairing token), so the account secret
+#        no longer rides the pairing QR: DesktopClient stops injecting it; MobileClient
+#        issues/refreshes/unpairs with the per-pair credential (MobileConfig.pairCredential for
+#        reconnect). Interop-compatible with 0.2.x. (secure-gateway PR #8.)
+securegateway = "0.2.4"
 # Desktop LLM runtime: NOT a JNI binding. PR #55 (Option 3) replaced the
 # net.ladenthin:llama JNI dep with llama.cpp's reference `llama-server` subprocess
 # reached over localhost HTTP (LlamaServerInferenceEngine, ktor-client-cio). The JNI
