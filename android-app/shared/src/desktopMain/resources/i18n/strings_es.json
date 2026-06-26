@@ -261,7 +261,6 @@
   "chat.cd.link_unreachable": "Enlace con el escritorio: no accesible",
 
   "onboarding.nav.continue": "Continuar",
-  "onboarding.nav.save_continue": "Guardar y continuar",
   "onboarding.nav.skip_settings": "Omitir — lo añadiré más tarde en Ajustes",
   "onboarding.language.title": "Elige tu idioma",
   "onboarding.language.body": "Selecciona el idioma de la app y de las respuestas del asistente. Puedes cambiarlo cuando quieras en Ajustes.",
@@ -270,11 +269,6 @@
   "onboarding.disclosure.leaves_header": "Lo que sí sale del dispositivo:",
   "onboarding.disclosure.leaves_body": "•  Consultas de búsqueda web — se envían a la API de Brave Search solo cuando el asistente decide que se necesita una búsqueda. Solo la consulta, nunca tus otros mensajes ni memorias.\n\n•  Telemetría anónima opcional — desactivada de forma predeterminada. Puedes activarla cuando quieras en Ajustes.",
   "onboarding.disclosure.acknowledge": "Entendido.",
-  "onboarding.location.title": "¿En qué país estás?",
-  "onboarding.location.body": "Local Agent obtiene el clima, las noticias, los deportes y las finanzas de fuentes que tienen sentido para tu país. Puedes cambiarlas más tarde en Ajustes. Para el clima, solo dime la ciudad y el estado o provincia cuando preguntes.",
-  "onboarding.location.country_label": "País",
-  "onboarding.location.use_device_default": "Usar el predeterminado del dispositivo",
-  "onboarding.location.select_placeholder": "Seleccionar...",
 
   "download.title": "Configura los modelos en el dispositivo",
   "download.intro": "Local Agent ejecuta modelos de IA completamente en tu dispositivo. El primer paso es una descarga única de los pesos del modelo más los modelos de búsqueda y memoria en el dispositivo.",

@@ -39,11 +39,6 @@ fun OnboardingHost(
         OnboardingStep.Disclosure -> DisclosureScreen(
             onContinue = viewModel::acknowledgeDisclosure,
         )
-        OnboardingStep.Location -> LocationPickerScreen(
-            catalog = viewModel.locationCatalog,
-            onSave = viewModel::saveLocation,
-            onSkip = viewModel::skipLocation,
-        )
         OnboardingStep.Complete -> {
             // No-op — LaunchedEffect above routes us out of the host.
         }

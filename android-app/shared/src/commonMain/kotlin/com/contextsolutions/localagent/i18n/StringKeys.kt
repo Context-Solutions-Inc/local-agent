@@ -290,7 +290,6 @@ object StringKeys {
 
     // ── Onboarding (UI) ──────────────────────────────────────────────────
     const val ONBOARDING_NAV_CONTINUE = "onboarding.nav.continue"
-    const val ONBOARDING_NAV_SAVE_CONTINUE = "onboarding.nav.save_continue"
     const val ONBOARDING_NAV_SKIP_SETTINGS = "onboarding.nav.skip_settings"
     const val ONBOARDING_LANGUAGE_TITLE = "onboarding.language.title"
     const val ONBOARDING_LANGUAGE_BODY = "onboarding.language.body"
@@ -299,11 +298,6 @@ object StringKeys {
     const val ONBOARDING_DISCLOSURE_LEAVES_HEADER = "onboarding.disclosure.leaves_header"
     const val ONBOARDING_DISCLOSURE_LEAVES_BODY = "onboarding.disclosure.leaves_body"
     const val ONBOARDING_DISCLOSURE_ACKNOWLEDGE = "onboarding.disclosure.acknowledge"
-    const val ONBOARDING_LOCATION_TITLE = "onboarding.location.title"
-    const val ONBOARDING_LOCATION_BODY = "onboarding.location.body"
-    const val ONBOARDING_LOCATION_COUNTRY_LABEL = "onboarding.location.country_label"
-    const val ONBOARDING_LOCATION_USE_DEVICE_DEFAULT = "onboarding.location.use_device_default"
-    const val ONBOARDING_LOCATION_SELECT_PLACEHOLDER = "onboarding.location.select_placeholder"
 
     // ── Onboarding — model download (first-run "Set up the on-device models") ──
     const val DOWNLOAD_TITLE = "download.title"
@@ -713,13 +707,11 @@ object StringKeys {
         CHAT_CD_MEM_HEALTHY, CHAT_CD_MEM_CAUTION, CHAT_CD_MEM_LOW,
         CHAT_CD_LINK_CONNECTED, CHAT_CD_LINK_UNREACHABLE,
         // ── Onboarding (UI) ──
-        ONBOARDING_NAV_CONTINUE, ONBOARDING_NAV_SAVE_CONTINUE, ONBOARDING_NAV_SKIP_SETTINGS,
+        ONBOARDING_NAV_CONTINUE, ONBOARDING_NAV_SKIP_SETTINGS,
         ONBOARDING_LANGUAGE_TITLE, ONBOARDING_LANGUAGE_BODY,
         ONBOARDING_DISCLOSURE_TITLE, ONBOARDING_DISCLOSURE_BODY,
         ONBOARDING_DISCLOSURE_LEAVES_HEADER, ONBOARDING_DISCLOSURE_LEAVES_BODY,
         ONBOARDING_DISCLOSURE_ACKNOWLEDGE,
-        ONBOARDING_LOCATION_TITLE, ONBOARDING_LOCATION_BODY, ONBOARDING_LOCATION_COUNTRY_LABEL,
-        ONBOARDING_LOCATION_USE_DEVICE_DEFAULT, ONBOARDING_LOCATION_SELECT_PLACEHOLDER,
         // ── Onboarding — model download ──
         DOWNLOAD_TITLE, DOWNLOAD_INTRO, DOWNLOAD_MODELS_HEADER, DOWNLOAD_TOTAL,
         DOWNLOAD_SPEC_INCOMPLETE, DOWNLOAD_STATE_IDLE, DOWNLOAD_STATE_QUEUED,

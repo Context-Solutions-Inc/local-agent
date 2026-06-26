@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Desktop [OnboardingPreferences] (docs/DESKTOP_PORT_PLAN.md, Phase 7), the
- * counterpart of Android's `SharedPreferencesOnboardingPreferences`. Three
+ * counterpart of Android's `SharedPreferencesOnboardingPreferences`. Two
  * independent first-run gates persisted as plain booleans in a [DesktopJsonStore]
  * file (non-secret — "user was shown the X option"). State is seeded from disk
  * at construction; mutations update both the in-memory [MutableStateFlow] (so
@@ -18,7 +18,6 @@ class DesktopOnboardingPreferences(private val store: DesktopJsonStore) : Onboar
 
     private val languageState = MutableStateFlow(readBool(KEY_LANGUAGE_DECIDED))
     private val disclosureState = MutableStateFlow(readBool(KEY_DISCLOSURE_ACKED))
-    private val locationState = MutableStateFlow(readBool(KEY_LOCATION_DECIDED))
 
     override fun languageDecided(): Boolean = languageState.value
     override fun languageDecidedFlow(): Flow<Boolean> = languageState.asStateFlow()
@@ -27,10 +26,6 @@ class DesktopOnboardingPreferences(private val store: DesktopJsonStore) : Onboar
     override fun disclosureAcknowledged(): Boolean = disclosureState.value
     override fun disclosureAcknowledgedFlow(): Flow<Boolean> = disclosureState.asStateFlow()
     override fun markDisclosureAcknowledged() = mark(disclosureState, KEY_DISCLOSURE_ACKED)
-
-    override fun locationDecided(): Boolean = locationState.value
-    override fun locationDecidedFlow(): Flow<Boolean> = locationState.asStateFlow()
-    override fun markLocationDecided() = mark(locationState, KEY_LOCATION_DECIDED)
 
     private fun readBool(key: String): Boolean =
         store.getString(key)?.toBooleanStrictOrNull() ?: false
@@ -44,6 +39,5 @@ class DesktopOnboardingPreferences(private val store: DesktopJsonStore) : Onboar
     private companion object {
         const val KEY_LANGUAGE_DECIDED = "language_decided"
         const val KEY_DISCLOSURE_ACKED = "disclosure_acknowledged"
-        const val KEY_LOCATION_DECIDED = "location_decided"
     }
 }

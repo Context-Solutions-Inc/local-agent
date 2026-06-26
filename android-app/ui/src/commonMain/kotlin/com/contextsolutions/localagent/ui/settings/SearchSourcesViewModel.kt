@@ -135,6 +135,8 @@ class SearchSourcesViewModel(
 
     private companion object {
         /** Launch-selectable countries for the search-defaults picker (in display order). */
-        val SELECTABLE_COUNTRY_CODES = listOf("CA", "US")
+        // US first so it's the default selection when no location is saved
+        // (PR #23 — the onboarding country step is gone; country defaults to USA).
+        val SELECTABLE_COUNTRY_CODES = listOf("US", "CA")
     }
 }

@@ -88,7 +88,7 @@ fun LanguagePickerScreen(
 
 /**
  * Plain Material3 dropdown — same OutlinedButton-anchor + DropdownMenu pattern
- * as LocationPickerScreen / SettingsScreen, to avoid the experimental
+ * as SettingsScreen / SearchSourcesScreen, to avoid the experimental
  * `ExposedDropdownMenuBox` API. Option labels are `nativeName · englishName`
  * (e.g. "Español · Spanish") — data fields rendered verbatim in their own
  * script, not localizable chrome.

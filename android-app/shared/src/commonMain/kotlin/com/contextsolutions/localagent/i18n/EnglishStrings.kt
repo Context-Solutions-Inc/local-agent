@@ -425,7 +425,6 @@ object EnglishStrings {
 
         // ── Onboarding ──
         StringKeys.ONBOARDING_NAV_CONTINUE to Simple("Continue"),
-        StringKeys.ONBOARDING_NAV_SAVE_CONTINUE to Simple("Save and continue"),
         StringKeys.ONBOARDING_NAV_SKIP_SETTINGS to Simple("Skip — I'll add it later in Settings"),
         StringKeys.ONBOARDING_LANGUAGE_TITLE to Simple("Choose your language"),
         StringKeys.ONBOARDING_LANGUAGE_BODY to Simple(
@@ -447,16 +446,6 @@ object EnglishStrings {
                 "turn it on anytime in Settings.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE to Simple("I understand."),
-        StringKeys.ONBOARDING_LOCATION_TITLE to Simple("Which country are you in?"),
-        StringKeys.ONBOARDING_LOCATION_BODY to Simple(
-            "Local Agent fetches weather, news, sports, and finance " +
-                "from sources that make sense for your country. You can " +
-                "change these later in Settings. For weather, just tell me " +
-                "the city and state or province when you ask.",
-        ),
-        StringKeys.ONBOARDING_LOCATION_COUNTRY_LABEL to Simple("Country"),
-        StringKeys.ONBOARDING_LOCATION_USE_DEVICE_DEFAULT to Simple("Use device default"),
-        StringKeys.ONBOARDING_LOCATION_SELECT_PLACEHOLDER to Simple("Select..."),
 
         // ── Onboarding — model download ──
         StringKeys.DOWNLOAD_TITLE to Simple("Set up the on-device models"),

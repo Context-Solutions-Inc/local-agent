@@ -39,24 +39,23 @@ class MainViewModel(
 
     /**
      * True once the user has completed every onboarding step (language +
-     * disclosure + location). M6 Phase E added this gate before the
-     * [modelPresent] check, so a brand-new install lands on `OnboardingHost`
-     * rather than directly on the download screen. PR #22 removed the
-     * Brave-key, HF-token, and telemetry-consent steps, so the gate mirrors
-     * the trimmed flow (matches `OnboardingViewModel.currentStep` == Complete).
+     * disclosure). M6 Phase E added this gate before the [modelPresent] check,
+     * so a brand-new install lands on `OnboardingHost` rather than directly on
+     * the download screen. PR #22 removed the Brave-key, HF-token, and
+     * telemetry-consent steps; PR #23 removed the country/location step (country
+     * defaults to USA, changeable in Settings), so the gate mirrors the trimmed
+     * flow (matches `OnboardingViewModel.currentStep` == Complete).
      */
     val onboardingComplete: StateFlow<Boolean> = combine(
         onboardingPreferences.languageDecidedFlow(),
         onboardingPreferences.disclosureAcknowledgedFlow(),
-        onboardingPreferences.locationDecidedFlow(),
-    ) { language, disclosure, location ->
-        language && disclosure && location
+    ) { language, disclosure ->
+        language && disclosure
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         initialValue = onboardingPreferences.languageDecided() &&
-            onboardingPreferences.disclosureAcknowledged() &&
-            onboardingPreferences.locationDecided(),
+            onboardingPreferences.disclosureAcknowledged(),
     )
 
     /**
