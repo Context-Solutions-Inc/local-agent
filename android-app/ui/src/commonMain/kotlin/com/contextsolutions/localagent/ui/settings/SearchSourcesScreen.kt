@@ -91,19 +91,21 @@ fun SearchSourcesScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Onboarding captures country only (PR #37); region/city are empty
-            // and resolved per-query for weather, so show whatever is present.
-            val locationLabel = state.location
-                ?.let { loc ->
-                    val country = CountryDisplay.keyFor(loc.country)?.let { tr(it) } ?: loc.country
-                    listOf(loc.city, loc.regionCode, country).filter(String::isNotBlank).joinToString(", ")
-                }
-                ?.takeIf { it.isNotBlank() }
-                ?: tr(StringKeys.SEARCH_SOURCES_NO_LOCATION)
-            Text(
-                text = tr(StringKeys.SEARCH_SOURCES_DEFAULTS_FROM, locationLabel),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
+            // Default-country picker (PR #22). Auto-selects the current country;
+            // changing it OVERWRITES all five vertical source lists with the new
+            // country's defaults via the ViewModel.
+            val selectedCode = state.location?.country
+                ?.takeIf { code -> viewModel.countries.any { it.code.equals(code, ignoreCase = true) } }
+                ?: viewModel.countries.firstOrNull()?.code
+            CountryDropdown(
+                label = tr(StringKeys.SEARCH_SOURCES_COUNTRY_LABEL),
+                selectedCode = selectedCode,
+                options = viewModel.countries.map { c ->
+                    c.code to (CountryDisplay.keyFor(c.code)?.let { tr(it) } ?: c.name)
+                },
+                onSelect = { code ->
+                    if (!code.equals(selectedCode, ignoreCase = true)) viewModel.changeCountry(code)
+                },
             )
             Spacer(Modifier.height(8.dp))
 
@@ -303,6 +305,47 @@ private fun SiteDialog(
             }
         },
     )
+}
+
+/**
+ * Default-country dropdown (PR #22). Plain Material3 pattern (OutlinedButton
+ * anchor + DropdownMenu), mirroring the onboarding LocationPicker's dropdown to
+ * avoid the experimental `ExposedDropdownMenuBox` ceremony.
+ */
+@Composable
+private fun CountryDropdown(
+    label: String,
+    selectedCode: String?,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val value = options.firstOrNull { it.first.equals(selectedCode, ignoreCase = true) }?.second.orEmpty()
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = options.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(text = value, modifier = Modifier.fillMaxWidth())
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { (code, optLabel) ->
+                DropdownMenuItem(
+                    text = { Text(optLabel) },
+                    onClick = {
+                        onSelect(code)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
 }
 
 private fun defaultKindFor(subtype: SearchSubtype): SourceKind = when (subtype) {

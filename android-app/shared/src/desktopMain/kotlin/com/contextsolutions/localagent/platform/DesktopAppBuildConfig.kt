@@ -22,7 +22,6 @@ class DesktopAppBuildConfig : AppBuildConfig {
         System.getProperty("localagent.debug")?.toBoolean() ?: false
     override val isInternalBuild: Boolean = false
     override val hasBraveDevKey: Boolean = false
-    override val hasHfDevToken: Boolean = false
 
     private val buildInfo: Properties = Properties().apply {
         DesktopAppBuildConfig::class.java

@@ -13,8 +13,7 @@ package com.contextsolutions.localagent.app.service
  *
  * The sha256 + byte size pin the EXACT artifacts (the downloader verifies both),
  * so a corrupt/truncated transfer is rejected. Re-pin on a deliberate re-export
- * (and re-upload the hosted artifact to match). No HF auth — the CDN is public
- * (`requiresHfAuth = false`).
+ * (and re-upload the hosted artifact to match). No auth — the CDN is public.
  */
 object AndroidAuxModels {
     /** R2 CDN base; shared with the desktop aux models + GGUF mirror. */
@@ -28,7 +27,6 @@ object AndroidAuxModels {
         downloadUrl = "$BASE_URL/$CLASSIFIER_FILENAME",
         sha256 = "5920733f96bfc2f193fdebc7ef5585cd37ecc3b9f23b21259e448410679ea83d",
         sizeBytes = 67_688_256L,
-        requiresHfAuth = false,
     )
 
     val EMBEDDER_SPEC: ModelSpec = ModelSpec(
@@ -36,7 +34,6 @@ object AndroidAuxModels {
         downloadUrl = "$BASE_URL/$EMBEDDER_FILENAME",
         sha256 = "d4320c6f082450d542949ca1067cbc82de4c0c4c4f2ff8915752ff0885c55dcb",
         sizeBytes = 23_536_088L,
-        requiresHfAuth = false,
     )
 
     /** Both aux models, in load order (classifier then embedder). */

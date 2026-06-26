@@ -23,15 +23,8 @@ interface SecureStorage {
 object SecureStorageKeys {
     const val BRAVE_API_KEY = "brave_api_key"
     const val TELEMETRY_OPT_IN = "telemetry_opt_in"
-    /** "true"/"false". Default behavior when unset is enabled (search on). */
+    /** "true"/"false". Default behavior when unset is DISABLED (search off, PR #22 — opt-in, requires a Brave key). */
     const val SEARCH_ENABLED = "search_enabled"
-    /**
-     * HuggingFace API token used to authenticate the Gemma 4 weights download
-     * (the upstream repo is gated). Same BYOK pattern as [BRAVE_API_KEY] —
-     * user-supplied keys override the bundled internal-build dev value; release
-     * builds never bundle one. Resolved via [com.contextsolutions.localagent.inference.HfAuthTokenProvider].
-     */
-    const val HF_AUTH_TOKEN = "hf_auth_token"
 
     /**
      * The SQLCipher passphrase for the local SQLDelight database (`local_agent.db`),

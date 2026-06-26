@@ -122,7 +122,7 @@ class AgentLoopImageTest {
     @Test
     fun image_turn_bypasses_clock_short_circuit_and_reaches_engine() = runTest {
         val service = SearchService(StubKeyProvider, FakeBraveSearchClient(), dao)
-        val myListRepo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
+        val myListRepo = SqlDelightMyListRepository(db.myListQueries, com.contextsolutions.localagent.sync.LocalChangeBus(), ioDispatcher = Dispatchers.Unconfined)
 
         // Control: clock-shaped text with NO image short-circuits (engine skipped).
         val controlSession = RecordingSession(FakeSession(emitText = "should not run"))

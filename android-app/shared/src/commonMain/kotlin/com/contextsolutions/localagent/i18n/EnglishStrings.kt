@@ -234,23 +234,6 @@ object EnglishStrings {
         StringKeys.SETTINGS_BRAVE_FIELD_LABEL to Simple("Brave API key"),
         StringKeys.SETTINGS_BRAVE_PLACEHOLDER_REPLACE to Simple("Replace existing key"),
         StringKeys.SETTINGS_BRAVE_PLACEHOLDER_PASTE to Simple("Paste key"),
-        StringKeys.SETTINGS_HF_HEADER to Simple("HuggingFace token"),
-        StringKeys.SETTINGS_HF_DESC_PRE to Simple(
-            "The AI model weights are located in a HuggingFace " +
-                "repository. Create a read-scoped access token from ",
-        ),
-        StringKeys.SETTINGS_HF_DESC_MID to Simple(" and accept the "),
-        StringKeys.SETTINGS_HF_DESC_POST to Simple(" license on the model card before downloading."),
-        StringKeys.SETTINGS_HF_STATUS_USER to Simple("Your token is set."),
-        StringKeys.SETTINGS_HF_STATUS_DEV to Simple(
-            "No user token — using bundled dev token (debug build only).",
-        ),
-        StringKeys.SETTINGS_HF_STATUS_NONE to Simple(
-            "No token configured. The model download will fail until you add one.",
-        ),
-        StringKeys.SETTINGS_HF_FIELD_LABEL to Simple("HuggingFace access token"),
-        StringKeys.SETTINGS_HF_PLACEHOLDER_REPLACE to Simple("Replace existing token"),
-        StringKeys.SETTINGS_HF_PLACEHOLDER_PASTE to Simple("Paste token"),
         StringKeys.SETTINGS_LINK_DESKTOP_HEADER to Simple("Local Agent Connection"),
         StringKeys.SETTINGS_LINK_DESKTOP_DESC_ANYWHERE to Simple(
             "Let the Local Agent app on your phone connect to this desktop anywhere. " +
@@ -402,6 +385,11 @@ object EnglishStrings {
         ),
         StringKeys.CHAT_SESSION_LOADED to Simple("Loaded on %1\$s."),
         StringKeys.CHAT_SESSION_FAILED to Simple("Model load failed: %1\$s"),
+        StringKeys.CHAT_SESSION_MOBILE_UNLOADED to Simple("Model unloaded"),
+        StringKeys.CHAT_SESSION_MOBILE_DOWNLOADING to Simple("Model downloading%1\$s"),
+        StringKeys.CHAT_SESSION_MOBILE_LOADING to Simple("Model loading"),
+        StringKeys.CHAT_SESSION_MOBILE_LOADED_GPU to Simple("Model loaded on GPU"),
+        StringKeys.CHAT_SESSION_MOBILE_LOADED_CPU to Simple("Model loaded on CPU"),
         StringKeys.CHAT_THERMAL_WARM to Simple("Your device is running warm. Responses may be slower."),
         StringKeys.CHAT_THERMAL_BLOCK_TITLE to Simple("Device too hot for generation"),
         StringKeys.CHAT_THERMAL_BLOCK_BODY to Simple(
@@ -455,38 +443,10 @@ object EnglishStrings {
             "•  Web search queries — sent to Brave Search API only when " +
                 "the assistant decides a search is needed. Just the query, " +
                 "never your other messages or memories.\n\n" +
-                "•  Optional anonymous telemetry — off by default. You decide " +
-                "on the next screen.",
+                "•  Optional anonymous telemetry — off by default. You can " +
+                "turn it on anytime in Settings.",
         ),
         StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE to Simple("I understand."),
-        StringKeys.ONBOARDING_BRAVE_TITLE to Simple("Add a Brave Search key"),
-        StringKeys.ONBOARDING_BRAVE_BODY to Simple(
-            "Local Agent uses Brave Search for questions about " +
-                "current events, scores, prices, and other time-sensitive " +
-                "things. The free tier is enough for personal use.",
-        ),
-        StringKeys.ONBOARDING_BRAVE_FIELD_LABEL to Simple("Brave Search API key"),
-        StringKeys.ONBOARDING_BRAVE_GET_KEY to Simple("Get a key at api.search.brave.com"),
-        StringKeys.ONBOARDING_BRAVE_FOOTNOTE to Simple(
-            "Without a key, the assistant works offline using only " +
-                "its on-device knowledge.",
-        ),
-        StringKeys.ONBOARDING_HF_TITLE to Simple("Add a HuggingFace token"),
-        StringKeys.ONBOARDING_HF_BODY to Simple(
-            "Local Agent downloads the Gemma 4 model weights from a " +
-                "gated HuggingFace repository. A read-scoped token from your " +
-                "HuggingFace account authenticates the one-time download.",
-        ),
-        StringKeys.ONBOARDING_HF_FIELD_LABEL to Simple("HuggingFace access token"),
-        StringKeys.ONBOARDING_HF_GET_TOKEN to Simple("Get a token at huggingface.co/settings/tokens"),
-        StringKeys.ONBOARDING_HF_LICENSE_NOTE to Simple(
-            "You also need to accept the Gemma license on the model " +
-                "card page before the download will succeed.",
-        ),
-        StringKeys.ONBOARDING_HF_FOOTNOTE to Simple(
-            "Without a token, the model download will fail unless the " +
-                "weights have been sideloaded.",
-        ),
         StringKeys.ONBOARDING_LOCATION_TITLE to Simple("Which country are you in?"),
         StringKeys.ONBOARDING_LOCATION_BODY to Simple(
             "Local Agent fetches weather, news, sports, and finance " +
@@ -497,28 +457,38 @@ object EnglishStrings {
         StringKeys.ONBOARDING_LOCATION_COUNTRY_LABEL to Simple("Country"),
         StringKeys.ONBOARDING_LOCATION_USE_DEVICE_DEFAULT to Simple("Use device default"),
         StringKeys.ONBOARDING_LOCATION_SELECT_PLACEHOLDER to Simple("Select..."),
-        StringKeys.ONBOARDING_TELEMETRY_TITLE to Simple("Help improve the assistant?"),
-        StringKeys.ONBOARDING_TELEMETRY_BODY to Simple(
-            "We can collect anonymous counters once a day to help us " +
-                "spot what's broken and what's slow. It's entirely your " +
-                "choice and you can change it anytime in Settings.",
+
+        // ── Onboarding — model download ──
+        StringKeys.DOWNLOAD_TITLE to Simple("Set up the on-device models"),
+        StringKeys.DOWNLOAD_INTRO to Simple(
+            "Local Agent runs AI models entirely on your device. The first " +
+                "step is a one-time download of the model weights plus the " +
+                "on-device search + memory models.",
         ),
-        StringKeys.ONBOARDING_TELEMETRY_SEND_HEADER to Simple("What we'd send:"),
-        StringKeys.ONBOARDING_TELEMETRY_SEND_BODY to Simple(
-            "•  Counts per day — how many queries, how many web " +
-                "searches, how many memories created.\n" +
-                "•  Latency percentiles — how fast each step ran.\n" +
-                "•  Redacted crash reports — so we can fix what broke.",
+        StringKeys.DOWNLOAD_MODELS_HEADER to Simple("Models to download:"),
+        StringKeys.DOWNLOAD_TOTAL to Simple("Total download: %1\$s"),
+        StringKeys.DOWNLOAD_SPEC_INCOMPLETE to Simple(
+            "⚠ Model spec is incomplete. The model coordinates (URL + sha256 + size) " +
+                "are pinned in ModelInventory; this usually means a bad build.",
         ),
-        StringKeys.ONBOARDING_TELEMETRY_NEVER_HEADER to Simple("What we'd never send:"),
-        StringKeys.ONBOARDING_TELEMETRY_NEVER_BODY to Simple(
-            "•  Your queries.\n" +
-                "•  Your memories.\n" +
-                "•  Any conversation content.\n" +
-                "•  Any personal identifier.",
-        ),
-        StringKeys.ONBOARDING_TELEMETRY_ACCEPT to Simple("Help improve the assistant (anonymous)"),
-        StringKeys.ONBOARDING_TELEMETRY_DECLINE to Simple("No thanks — keep everything on device"),
+        StringKeys.DOWNLOAD_STATE_IDLE to Simple("Ready to download."),
+        StringKeys.DOWNLOAD_STATE_QUEUED to Simple("Queued — waiting for network or retry backoff…"),
+        StringKeys.DOWNLOAD_STATE_STARTING to Simple("Starting…"),
+        StringKeys.DOWNLOAD_STATE_COMPLETED to Simple("✓ Model is ready."),
+        // %1$s = percent, %2$s = downloaded size, %3$s = total size.
+        StringKeys.DOWNLOAD_PROGRESS to Simple("%1\$s%% — %2\$s of %3\$s"),
+        StringKeys.DOWNLOAD_FAILED to Simple("Download failed: %1\$s"),
+        StringKeys.DOWNLOAD_ACTION_WIFI to Simple("Download (WiFi only)"),
+        StringKeys.DOWNLOAD_ACTION_CELLULAR to Simple("Allow cellular"),
+        StringKeys.DOWNLOAD_ACTION_PAUSE to Simple("Pause"),
+        StringKeys.DOWNLOAD_ACTION_RETRY_WIFI to Simple("Retry (WiFi)"),
+        StringKeys.DOWNLOAD_ACTION_RETRY_CELLULAR to Simple("Retry (allow cellular)"),
+        StringKeys.DOWNLOAD_ERROR_NETWORK to Simple("Network error — check your connection."),
+        StringKeys.DOWNLOAD_ERROR_HTTP_CLIENT to Simple("Server rejected the request. Please try again later."),
+        StringKeys.DOWNLOAD_ERROR_HTTP_SERVER to Simple("Server problem — please try again later."),
+        StringKeys.DOWNLOAD_ERROR_STORAGE to Simple("Not enough free storage."),
+        StringKeys.DOWNLOAD_ERROR_CHECKSUM to Simple("The file didn't match its expected checksum and was discarded."),
+        StringKeys.DOWNLOAD_ERROR_MISCONFIGURED to Simple("Model spec missing — see settings."),
 
         // ── Memory ──
         StringKeys.MEMORY_TITLE to Simple("Memory"),
@@ -758,8 +728,7 @@ object EnglishStrings {
 
         // ── Search sources (UI) ──
         StringKeys.SEARCH_SOURCES_TITLE to Simple("Search sources"),
-        StringKeys.SEARCH_SOURCES_NO_LOCATION to Simple("no location set"),
-        StringKeys.SEARCH_SOURCES_DEFAULTS_FROM to Simple("Defaults seeded from: %1\$s"),
+        StringKeys.SEARCH_SOURCES_COUNTRY_LABEL to Simple("Default country"),
         StringKeys.SEARCH_SOURCES_GENERAL to Simple("General search"),
         StringKeys.SEARCH_SOURCES_NEWS to Simple("News"),
         StringKeys.SEARCH_SOURCES_WEATHER to Simple("Weather"),

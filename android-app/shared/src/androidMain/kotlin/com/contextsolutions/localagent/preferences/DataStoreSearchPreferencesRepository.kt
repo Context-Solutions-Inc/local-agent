@@ -75,6 +75,16 @@ class DataStoreSearchPreferencesRepository(
         }
     }
 
+    override suspend fun resetToCountryDefaults(country: String) {
+        dataStore.edit { prefs ->
+            prefs[LOCATION_KEY] = json.encodeToString(UserLocation.serializer(), UserLocation(country, "", ""))
+            // Full overwrite — no merge() — so the picker fully resets all five
+            // verticals to the new country's defaults.
+            val defaults = resolver.defaultsFor(country)
+            prefs[VERTICAL_PREFS_KEY] = json.encodeToString(VerticalPreferences.serializer(), defaults)
+        }
+    }
+
     override suspend fun isOnboarded(): Boolean =
         dataStore.data.first()[LOCATION_KEY] != null
 

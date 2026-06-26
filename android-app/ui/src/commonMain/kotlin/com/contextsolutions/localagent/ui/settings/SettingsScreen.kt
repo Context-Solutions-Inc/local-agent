@@ -106,8 +106,6 @@ fun SettingsScreen(
     val themeMode by themeModeViewModel.mode.collectAsState()
     var keyInput by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
-    var hfTokenInput by remember { mutableStateOf("") }
-    var showHfToken by remember { mutableStateOf(false) }
 
     // PR #56 — Ollama server editable fields, re-seeded from the persisted config
     // (so an external save/clear or reload reflects here). Editing the text
@@ -130,13 +128,6 @@ fun SettingsScreen(
         if (state.keyJustSaved) {
             keyInput = ""
             viewModel.acknowledgeKeySaved()
-        }
-    }
-
-    LaunchedEffect(state.hfTokenJustSaved) {
-        if (state.hfTokenJustSaved) {
-            hfTokenInput = ""
-            viewModel.acknowledgeHfTokenSaved()
         }
     }
 
@@ -481,66 +472,6 @@ fun SettingsScreen(
                 }
                 OutlinedButton(onClick = { showKey = !showKey }) {
                     Text(if (showKey) tr(StringKeys.COMMON_MASK) else tr(StringKeys.COMMON_REVEAL))
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
-
-            SectionHeader(tr(StringKeys.SETTINGS_HF_HEADER))
-            val hfTokensUrl = "https://huggingface.co/settings/tokens"
-            val hfModelCardUrl = "https://huggingface.co/google/gemma-4-E2B-it"
-            Text(
-                buildAnnotatedString {
-                    append(tr(StringKeys.SETTINGS_HF_DESC_PRE))
-                    withLink(LinkAnnotation.Url(hfTokensUrl, linkStyles)) { append(hfTokensUrl) }
-                    append(tr(StringKeys.SETTINGS_HF_DESC_MID))
-                    withLink(LinkAnnotation.Url(hfModelCardUrl, linkStyles)) { append(hfModelCardUrl) }
-                    append(tr(StringKeys.SETTINGS_HF_DESC_POST))
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            HfTokenStatusRow(state)
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = hfTokenInput,
-                onValueChange = { hfTokenInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(tr(StringKeys.SETTINGS_HF_FIELD_LABEL)) },
-                placeholder = {
-                    Text(
-                        if (state.hasUserHfToken) {
-                            tr(StringKeys.SETTINGS_HF_PLACEHOLDER_REPLACE)
-                        } else {
-                            tr(StringKeys.SETTINGS_HF_PLACEHOLDER_PASTE)
-                        },
-                    )
-                },
-                singleLine = true,
-                visualTransformation = if (showHfToken) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                trailingIcon = {
-                    Text(
-                        text = if (showHfToken) tr(StringKeys.COMMON_HIDE) else tr(StringKeys.COMMON_SHOW),
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .padding(vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { viewModel.saveHfAuthToken(hfTokenInput) },
-                    enabled = hfTokenInput.isNotBlank(),
-                ) { Text(tr(StringKeys.COMMON_SAVE)) }
-                if (state.hasUserHfToken) {
-                    OutlinedButton(onClick = { viewModel.clearHfAuthToken() }) { Text(tr(StringKeys.COMMON_CLEAR)) }
-                }
-                OutlinedButton(onClick = { showHfToken = !showHfToken }) {
-                    Text(if (showHfToken) tr(StringKeys.COMMON_MASK) else tr(StringKeys.COMMON_REVEAL))
                 }
             }
 
@@ -1208,16 +1139,6 @@ private fun KeyStatusRow(state: SettingsUiState) {
         state.hasUserKey -> tr(StringKeys.SETTINGS_BRAVE_STATUS_USER) to MaterialTheme.colorScheme.primary
         state.hasDevKey -> tr(StringKeys.SETTINGS_BRAVE_STATUS_DEV) to MaterialTheme.colorScheme.outline
         else -> tr(StringKeys.SETTINGS_BRAVE_STATUS_NONE) to MaterialTheme.colorScheme.error
-    }
-    Text(label, style = MaterialTheme.typography.bodySmall, color = color)
-}
-
-@Composable
-private fun HfTokenStatusRow(state: SettingsUiState) {
-    val (label, color) = when {
-        state.hasUserHfToken -> tr(StringKeys.SETTINGS_HF_STATUS_USER) to MaterialTheme.colorScheme.primary
-        state.hasDevHfToken -> tr(StringKeys.SETTINGS_HF_STATUS_DEV) to MaterialTheme.colorScheme.outline
-        else -> tr(StringKeys.SETTINGS_HF_STATUS_NONE) to MaterialTheme.colorScheme.error
     }
     Text(label, style = MaterialTheme.typography.bodySmall, color = color)
 }

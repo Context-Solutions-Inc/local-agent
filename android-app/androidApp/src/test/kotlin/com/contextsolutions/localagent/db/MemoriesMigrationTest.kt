@@ -53,11 +53,12 @@ class MemoriesMigrationTest {
         // the desktop port's Phase 7 added 7.sqm (tasks table), PR#57 added
         // 8.sqm (conversations/memories soft-delete tombstones + memory updated_at
         // for sync), PR#70 added 9.sqm (jobs + job_runs), PR#99 added 10.sqm
-        // (rename the todos table -> mylist), and PR#4 added 11.sqm
-        // (messages.deleted_at_epoch_ms soft-delete tombstone) — current version
-        // must be 12. If this fails after a new schema change, either the
-        // SQLDelight build didn't regenerate the schema or the new .sqm is misnamed.
-        assertEquals(12L, LocalAgentDatabase.Schema.version)
+        // (rename the todos table -> mylist), PR#4 added 11.sqm
+        // (messages.deleted_at_epoch_ms soft-delete tombstone), and PR#22 added
+        // 12.sqm (mylist.deleted_at_epoch_ms soft-delete tombstone for sync) —
+        // current version must be 13. If this fails after a new schema change, either
+        // the SQLDelight build didn't regenerate the schema or the new .sqm is misnamed.
+        assertEquals(13L, LocalAgentDatabase.Schema.version)
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.contextsolutions.localagent.sync
 import com.contextsolutions.localagent.db.ConversationsQueries
 import com.contextsolutions.localagent.db.JobsQueries
 import com.contextsolutions.localagent.db.MemoriesQueries
+import com.contextsolutions.localagent.db.MyListQueries
 import com.contextsolutions.localagent.memory.EmbedderEngine
 import com.contextsolutions.localagent.memory.Memory
 import com.contextsolutions.localagent.memory.internal.EmbeddingBlob
@@ -35,6 +36,7 @@ class SqlDelightLinkSyncService(
     private val conversations: ConversationsQueries,
     private val memories: MemoriesQueries,
     private val jobs: JobsQueries,
+    private val myList: MyListQueries,
     private val jobPolicy: JobSyncPolicy,
     private val embedder: EmbedderEngine,
     private val bus: LocalChangeBus,
@@ -122,11 +124,27 @@ class SqlDelightLinkSyncService(
             },
         )
 
+        val myListRecords = myList.selectMyListChangedSince(sinceMs).executeAsList().map { row ->
+            watermark = maxOf(watermark, row.updated_at_epoch_ms)
+            MyListSyncRecord(
+                id = row.id,
+                title = row.title,
+                priority = row.priority,
+                dueDateEpochMs = row.due_date_epoch_ms,
+                completed = row.completed != 0L,
+                createdAtEpochMs = row.created_at_epoch_ms,
+                updatedAtEpochMs = row.updated_at_epoch_ms,
+                notes = row.notes,
+                deletedAtEpochMs = row.deleted_at_epoch_ms,
+            )
+        }
+
         SyncBundle(
             maxWatermarkMs = watermark,
             conversations = convRecords,
             memories = memRecords,
             jobs = jobRecords,
+            myList = myListRecords,
         )
     }
 
@@ -230,9 +248,23 @@ class SqlDelightLinkSyncService(
                 }
             }
         }
+        for (item in bundle.myList) {
+            myList.upsertMyListFromPeer(
+                id = item.id,
+                title = item.title,
+                priority = item.priority,
+                dueDate = item.dueDateEpochMs,
+                completed = if (item.completed) 1L else 0L,
+                createdAt = item.createdAtEpochMs,
+                updatedAt = item.updatedAtEpochMs,
+                notes = item.notes,
+                deletedAt = item.deletedAtEpochMs,
+            )
+        }
         logger(
             "applied: conversations=${bundle.conversations.size} memories=$embedded " +
-                "(skipped $skipped, no embedding) jobs=$jobsApplied (dropped $jobsDropped)",
+                "(skipped $skipped, no embedding) jobs=$jobsApplied (dropped $jobsDropped) " +
+                "myList=${bundle.myList.size}",
         )
     }
 }

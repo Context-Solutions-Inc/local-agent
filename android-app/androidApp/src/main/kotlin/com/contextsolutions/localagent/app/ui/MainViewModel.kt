@@ -8,7 +8,6 @@ import com.contextsolutions.localagent.app.service.AuxModelLifecycleCoordinator
 import com.contextsolutions.localagent.app.service.ModelDownloadController
 import com.contextsolutions.localagent.app.service.ModelInventory
 import com.contextsolutions.localagent.onboarding.OnboardingPreferences
-import com.contextsolutions.localagent.telemetry.TelemetryConsentManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -28,7 +27,6 @@ class MainViewModel(
     private val inventory: ModelInventory,
     private val auxModelCoordinator: AuxModelLifecycleCoordinator,
     onboardingPreferences: OnboardingPreferences,
-    telemetryConsent: TelemetryConsentManager,
     controller: ModelDownloadController,
 ) : ViewModel() {
 
@@ -40,26 +38,25 @@ class MainViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, inventory.allRequiredPresent())
 
     /**
-     * True once the user has completed every onboarding step (disclosure
-     * + brave key + HF auth token + telemetry consent). M6 Phase E added
-     * this gate before the [modelPresent] check, so a brand-new install
-     * lands on `OnboardingHost` rather than directly on the download
-     * screen.
+     * True once the user has completed every onboarding step (language +
+     * disclosure + location). M6 Phase E added this gate before the
+     * [modelPresent] check, so a brand-new install lands on `OnboardingHost`
+     * rather than directly on the download screen. PR #22 removed the
+     * Brave-key, HF-token, and telemetry-consent steps, so the gate mirrors
+     * the trimmed flow (matches `OnboardingViewModel.currentStep` == Complete).
      */
     val onboardingComplete: StateFlow<Boolean> = combine(
+        onboardingPreferences.languageDecidedFlow(),
         onboardingPreferences.disclosureAcknowledgedFlow(),
-        onboardingPreferences.braveKeyDecidedFlow(),
-        onboardingPreferences.hfAuthTokenDecidedFlow(),
-        telemetryConsent.firstRunDecidedFlow(),
-    ) { disclosure, braveKey, hfToken, telemetry ->
-        disclosure && braveKey && hfToken && telemetry
+        onboardingPreferences.locationDecidedFlow(),
+    ) { language, disclosure, location ->
+        language && disclosure && location
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        initialValue = onboardingPreferences.disclosureAcknowledged() &&
-            onboardingPreferences.braveKeyDecided() &&
-            onboardingPreferences.hfAuthTokenDecided() &&
-            telemetryConsent.firstRunDecided(),
+        initialValue = onboardingPreferences.languageDecided() &&
+            onboardingPreferences.disclosureAcknowledged() &&
+            onboardingPreferences.locationDecided(),
     )
 
     /**

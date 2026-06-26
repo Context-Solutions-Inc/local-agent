@@ -115,6 +115,15 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+        <!-- PR #22 — TimerFiringService loops the alarm sound + re-posts the
+             notification every 10s while a countdown timer is ringing (timers
+             now ring continuously like alarms). mediaPlayback FGS type matches
+             the looping ringtone playback. -->
+        <service
+            android:name=".service.clock.TimerFiringService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- PR #11 — AlarmManager fires PendingIntent broadcasts here for both
              timers (ACTION_TIMER_FIRE) and alarms (ACTION_ALARM_FIRE). The
              receiver hands timers off to a single chime notification and

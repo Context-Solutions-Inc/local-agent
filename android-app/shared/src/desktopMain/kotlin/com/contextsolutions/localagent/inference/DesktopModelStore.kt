@@ -83,18 +83,17 @@ class DesktopModelInventory(
 
     companion object {
         /**
-         * v1 desktop GGUF spec. URL points at a public Gemma GGUF; `sha256`/`sizeBytes` are
-         * left blank so [DesktopModelSpec.isConfigured] is false until the operator fills the
-         * verified values for their chosen quant (same BYO-coordinates policy as Android's
-         * `secrets.properties` MODEL_SHA256/MODEL_SIZE_BYTES). The downloader refuses to run
-         * with an unconfigured spec rather than write an unverifiable file.
+         * v1 desktop GGUF spec. PR #22 — served from the public R2 CDN (no auth) with the
+         * sha256/size pinned to the hosted artifact, like [DesktopAuxModels]; the downloader
+         * verifies both and refuses to run with an unconfigured spec.
          */
         // Desktop uses Gemma 4 **E2B** (not E4B): ~2x the decode throughput of E4B and ~3.1 GB
         // vs 5 GB, a deliberate speed trade on the desktop's modest iGPU (PR #55). Same family +
         // vision. (Android already uses E2B — E4B thrashes LMKD on the 8 GB Pixel 7.)
         val DEFAULT: DesktopModelSpec = DesktopModelSpec(
+            // PR #22 — served from the public R2 CDN (no auth), like the aux models.
             filename = "gemma-4-E2B-it-Q4_K_M.gguf",
-            downloadUrl = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+            downloadUrl = "${DesktopAuxModels.DEFAULT_BASE_URL}/gemma-4-E2B-it-Q4_K_M.gguf",
             sha256 = "9378bc471710229ef165709b62e34bfb62231420ddaf6d729e727305b5b8672d",
             sizeBytes = 3106736256L,
         )
@@ -103,15 +102,15 @@ class DesktopModelInventory(
          * Vision projector (mmproj) GGUF for the [DEFAULT] E2B model (PR #55). Passed to
          * `llama-server --mmproj` so an image turn routes through the native `mtmd`
          * pipeline — the desktop analogue of Gemma's vision tower on Android (invariant
-         * #39). F16 (~986 MB) is the accuracy/size sweet spot from the same
-         * `unsloth/gemma-4-E2B-it-GGUF` repo; sha256/size are the verified Git-LFS pointer
-         * values (same provenance as [DEFAULT]). Fetched + verified through
+         * #39). F16 (~986 MB) is the accuracy/size sweet spot; sha256/size are the verified
+         * values of the hosted artifact (same provenance as [DEFAULT]). Fetched + verified through
          * [DesktopModelDownloader] like the GGUF; loaded only when present, so it's
          * optional — text chat works without it.
          */
         val MMPROJ_DEFAULT: DesktopModelSpec = DesktopModelSpec(
+            // PR #22 — served from the public R2 CDN (no auth), like the aux models.
             filename = "gemma-4-E2B-it-mmproj-F16.gguf",
-            downloadUrl = "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf",
+            downloadUrl = "${DesktopAuxModels.DEFAULT_BASE_URL}/gemma-4-E2B-it-mmproj-F16.gguf",
             sha256 = "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa",
             sizeBytes = 985654080L,
         )
@@ -149,12 +148,11 @@ sealed interface ModelDownloadResult {
  * atomically promotes it to the final path. Suspends on [Dispatchers.IO]; honours coroutine
  * cancellation between 64 KB chunks.
  *
- * @param hfToken supplies an optional HuggingFace bearer token for gated repos (defaults to
- *   the `HF_AUTH_TOKEN` env var) — the BYOK analogue of Android's `HfAuthTokenProvider`.
+ * PR #22 — all artifacts (GGUF, mmproj, aux ONNX, Vosk) ship from the public R2 CDN, so no
+ * auth header is ever sent.
  */
 class DesktopModelDownloader(
     private val inventory: DesktopModelInventory,
-    private val hfToken: () -> String? = { System.getenv("HF_AUTH_TOKEN") },
     private val logger: (String) -> Unit = {},
 ) {
     internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
@@ -205,7 +203,6 @@ class DesktopModelDownloader(
                 connectTimeout = 30_000
                 readTimeout = 30_000
                 if (resumeAt > 0L) setRequestProperty("Range", "bytes=$resumeAt-")
-                hfToken()?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Authorization", "Bearer $it") }
             }
         } catch (e: IOException) {
             return@withContext ModelDownloadResult.Failure("Network: ${e.message}", retryable = true)

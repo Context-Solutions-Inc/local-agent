@@ -158,8 +158,6 @@ import com.contextsolutions.localagent.app.observability.MemoryPressureWatchdog
 import com.contextsolutions.localagent.app.observability.AndroidSystemMemoryStatusProvider
 import com.contextsolutions.localagent.app.observability.SystemMemoryMonitor
 import com.contextsolutions.localagent.app.service.ModelDownloader
-import com.contextsolutions.localagent.inference.DefaultHfAuthTokenProvider
-import com.contextsolutions.localagent.inference.HfAuthTokenProvider
 import com.contextsolutions.localagent.telemetry.AnalyticsSink
 import com.contextsolutions.localagent.telemetry.FirebaseAnalyticsSink
 import com.contextsolutions.localagent.telemetry.TelemetryPayloadBuilder
@@ -400,6 +398,7 @@ val androidModule: Module = module {
             conversations = get(),
             memories = get(),
             jobs = get(),
+            myList = get(),
             jobPolicy = get(),
             embedder = get(),
             bus = get(),
@@ -535,7 +534,7 @@ val androidModule: Module = module {
             keyProvider = get(),
             client = get(),
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             counters = get(),
             cacheNamespace = "ctx:",
         )
@@ -545,7 +544,7 @@ val androidModule: Module = module {
             keyProvider = get(),
             client = KtorBraveLlmContextClient(get(), maxUrls = 1, logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             counters = get(),
             cacheNamespace = "sports:",
         )
@@ -555,7 +554,7 @@ val androidModule: Module = module {
             keyProvider = get(),
             client = KtorBraveLlmContextClient(get(), maxUrls = 10, logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             counters = get(),
             cacheNamespace = "news:",
         )
@@ -565,7 +564,7 @@ val androidModule: Module = module {
             keyProvider = get(),
             client = KtorBraveSearchClient(get(), logQueries = VERBOSE_DIAGNOSTICS) { Log.i(BRAVE_TAG, it) },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             counters = get(),
             cacheNamespace = "fin:",
         )
@@ -644,7 +643,7 @@ val androidModule: Module = module {
     single<AgentLogger> { AgentLogger(diagLog("AgentLoop")) }
 
     // -- My List subsystem (agent tool). --
-    single<MyListRepository> { SqlDelightMyListRepository(get()) }
+    single<MyListRepository> { SqlDelightMyListRepository(get(), get()) }
     single { MyListIntentDetector() }
     single { MyListCommandParser() }
     single { MyListResponseFormatter() }
@@ -737,14 +736,8 @@ val androidModule: Module = module {
             .retryOnConnectionFailure(true)
             .build()
     }
-    // HF token for the gated Gemma download (BYOK; internal builds get a dev fallback).
-    single<HfAuthTokenProvider> {
-        DefaultHfAuthTokenProvider(
-            get(),
-            if (BuildConfig.INTERNAL_BUILD) BuildConfig.HF_AUTH_TOKEN else null,
-        )
-    }
-    single { ModelDownloader(inventory = get(), httpClient = get(named("modelDownloadHttp")), hfAuthTokenProvider = get()) }
+    // PR #22 — all models download from the public R2 CDN with no auth.
+    single { ModelDownloader(inventory = get(), httpClient = get(named("modelDownloadHttp"))) }
 
     // Telemetry upload pipeline (opt-in; Firebase analytics sink lives in androidApp, #23).
     single<AnalyticsSink> { FirebaseAnalyticsSink(androidContext()) }

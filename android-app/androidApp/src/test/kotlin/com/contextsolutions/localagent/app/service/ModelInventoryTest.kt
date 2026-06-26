@@ -66,22 +66,19 @@ class ModelInventoryTest {
     }
 
     @Test
-    fun `ModelSpec requiresHfAuth defaults to false`() {
-        assertFalse(ModelSpec("f", "https://x/y", "abc", 1L).requiresHfAuth)
+    fun `Gemma spec is CDN-hosted and configured`() {
+        // PR #22 — Gemma now ships from the public R2 CDN with no auth, pinned
+        // like the aux models.
+        assertTrue(ModelInventory.SPEC.isConfigured)
+        assertEquals("${AndroidAuxModels.BASE_URL}/gemma-4-E2B-it.litertlm", ModelInventory.SPEC.downloadUrl)
+        assertEquals(64, ModelInventory.SPEC.sha256.length)
+        assertTrue(ModelInventory.SPEC.sizeBytes > 0L)
     }
 
     @Test
-    fun `Gemma spec requires HF auth`() {
-        // The HF-hosted Gemma artifact carries the bearer token; the CDN aux
-        // models must not (PR #3).
-        assertTrue(ModelInventory.SPEC.requiresHfAuth)
-    }
-
-    @Test
-    fun `aux specs are CDN-hosted, configured, and never carry HF auth`() {
+    fun `aux specs are CDN-hosted and configured`() {
         for (spec in AndroidAuxModels.SPECS) {
             assertTrue(spec.isConfigured)
-            assertFalse(spec.requiresHfAuth)
             assertEquals("${AndroidAuxModels.BASE_URL}/${spec.filename}", spec.downloadUrl)
             assertEquals(64, spec.sha256.length)
             assertTrue(spec.sizeBytes > 0L)

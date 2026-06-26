@@ -2,7 +2,6 @@ package com.contextsolutions.localagent.app.service
 
 import android.content.Context
 import androidx.annotation.WorkerThread
-import com.contextsolutions.localagent.app.BuildConfig
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
@@ -100,11 +99,13 @@ class ModelInventory(
     companion object {
         @JvmStatic
         val SPEC: ModelSpec = ModelSpec(
+            // PR #22 — served from the public R2 CDN (no auth), pinned like the
+            // aux models in AndroidAuxModels. sha256 + size verified against the
+            // hosted artifact; re-pin on a deliberate re-upload.
             filename = "gemma-4-E2B-it.litertlm",
-            downloadUrl = BuildConfig.MODEL_DOWNLOAD_URL,
-            sha256 = BuildConfig.MODEL_SHA256,
-            sizeBytes = BuildConfig.MODEL_SIZE_BYTES,
-            requiresHfAuth = true,
+            downloadUrl = "${AndroidAuxModels.BASE_URL}/gemma-4-E2B-it.litertlm",
+            sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+            sizeBytes = 2_588_147_712L,
         )
 
         /**
@@ -139,16 +140,14 @@ class ModelInventory(
  * (URL, checksum, expected size) and the inference path (filename →
  * [ModelInventory.localFile]).
  *
- * [requiresHfAuth] gates the `Authorization: Bearer <HF token>` header: the
- * Gemma artifact is served from HuggingFace (true), the aux models from the
- * public CDN (false), so an HF token is never leaked to the CDN.
+ * PR #22 — all artifacts ship from the public R2 CDN with no auth, so there's
+ * no per-spec auth gating any more.
  */
 data class ModelSpec(
     val filename: String,
     val downloadUrl: String,
     val sha256: String,
     val sizeBytes: Long,
-    val requiresHfAuth: Boolean = false,
 ) {
     /** True if all fields look usable (URL + checksum + size all configured). */
     val isConfigured: Boolean = downloadUrl.isNotBlank() && sha256.isNotBlank() && sizeBytes > 0L

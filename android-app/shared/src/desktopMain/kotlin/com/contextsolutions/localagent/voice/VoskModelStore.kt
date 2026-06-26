@@ -7,7 +7,6 @@ import com.contextsolutions.localagent.inference.DesktopModelInventory
 import com.contextsolutions.localagent.inference.DesktopModelSpec
 import com.contextsolutions.localagent.inference.ModelDownloadResult
 import java.io.File
-import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -85,51 +84,36 @@ class VoskModelStore(
     }
 
     /**
-     * Unzip the archive into `models/` (yielding `models/$ARCHIVE_ROOT/`) and promote it to
-     * `models/vosk`. Uses [ZipInputStream] rather than the system `tar`: the model ships as a
-     * `.zip`, which GNU tar on Linux can't read (only bsdtar/Windows can), and a model dir is
-     * plain files with no symlinks to preserve — so the JDK unzip is correct on every platform.
+     * Extract the `.tar.gz` into `models/`. The archive contains a single `vosk/` root that
+     * already matches [MODEL_DIR_NAME], so extracting into `models/` yields `models/vosk`
+     * directly — no separate promote step. Uses the system `tar` (GNU on Linux, bsdtar on
+     * macOS/Windows 10+), which autodetects gzip; `java.util.zip` can't read a `.tar.gz`.
      */
     private fun extractAndPromote(archive: File) {
-        val extractedRoot = File(modelsDir, ARCHIVE_ROOT)
-        extractedRoot.deleteRecursively()
-        val canonicalModels = modelsDir.canonicalFile
-        ZipInputStream(archive.inputStream().buffered()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                val target = File(modelsDir, entry.name)
-                // Zip-slip guard: every entry must resolve inside modelsDir.
-                check(target.canonicalFile.toPath().startsWith(canonicalModels.toPath())) {
-                    "unsafe zip entry: ${entry.name}"
-                }
-                if (entry.isDirectory) {
-                    target.mkdirs()
-                } else {
-                    target.parentFile?.mkdirs()
-                    target.outputStream().use { zip.copyTo(it) }
-                }
-                zip.closeEntry()
-            }
-        }
-        archive.delete()
-        check(isModelDir(extractedRoot)) { "extracted archive missing model files at ${extractedRoot.path}" }
+        // Clear any stale model dir so the extract can't merge with old files.
         modelDir.deleteRecursively()
-        check(extractedRoot.renameTo(modelDir)) { "could not promote ${extractedRoot.path} → ${modelDir.path}" }
+        val proc = ProcessBuilder("tar", "-xf", archive.absolutePath, "-C", modelsDir.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val out = proc.inputStream.bufferedReader().readText()
+        val code = proc.waitFor()
+        check(code == 0) { "tar extract failed (exit=$code): ${out.take(500)}" }
+        archive.delete()
+        check(isModelDir(modelDir)) { "extracted archive missing model files at ${modelDir.path}" }
     }
 
     private companion object {
         const val ENV_OVERRIDE = "LOCALAGENT_VOSK_MODEL"
         const val MODEL_DIR_NAME = "vosk"
 
-        // Pinned small English model from the official Vosk model index
-        // (https://alphacephei.com/vosk/models). Small (~40 MB) keeps the first-run
-        // download quick; sha256/size are the verified values of the published zip.
-        const val ARCHIVE_ROOT = "vosk-model-small-en-us-0.15"
+        // Small English Vosk model (~40 MB) mirrored to the public R2 CDN (PR #22), no auth.
+        // The archive packs a single `vosk/` root (matching MODEL_DIR_NAME); sha256/size are
+        // the verified values of the hosted `vosk.tar.gz`.
         val SMALL_EN = DesktopModelSpec(
-            filename = "$ARCHIVE_ROOT.zip",
-            downloadUrl = "https://alphacephei.com/vosk/models/$ARCHIVE_ROOT.zip",
-            sha256 = "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498",
-            sizeBytes = 41_205_931,
+            filename = "vosk.tar.gz",
+            downloadUrl = "${com.contextsolutions.localagent.inference.DesktopAuxModels.DEFAULT_BASE_URL}/vosk.tar.gz",
+            sha256 = "c1d9bfb8e0f27bebb7676b24cbfbf276572a2a74b5f0edbca90aea582b708e63",
+            sizeBytes = 41_207_126,
         )
     }
 }

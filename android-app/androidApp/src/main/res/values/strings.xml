@@ -35,6 +35,8 @@
     <string name="clock_alarm_channel_desc">Ongoing notification while a user-set alarm is ringing.</string>
     <string name="clock_timer_channel">Timer</string>
     <string name="clock_timer_channel_desc">Posted once when a countdown timer ends.</string>
+    <string name="clock_timer_firing_channel">Timer ringing</string>
+    <string name="clock_timer_firing_channel_desc">Ongoing notification while a countdown timer is ringing.</string>
     <string name="clock_alarm_firing_title">Alarm</string>
     <string name="clock_alarm_firing_text_default">Alarm ringing</string>
     <string name="clock_timer_fired_title">Timer done</string>
@@ -42,4 +44,6 @@
     <string name="clock_action_snooze">Snooze 10 min</string>
     <string name="clock_action_off_for_today">Off for today</string>
     <string name="clock_action_dismiss">Dismiss</string>
+    <string name="clock_action_stop">Stop</string>
+    <string name="clock_action_add_minute">+1 minute</string>
 </resources>

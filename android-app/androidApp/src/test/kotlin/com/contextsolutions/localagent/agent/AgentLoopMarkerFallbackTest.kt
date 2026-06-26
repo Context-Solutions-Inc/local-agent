@@ -60,7 +60,7 @@ class AgentLoopMarkerFallbackTest {
         LocalAgentDatabase.Schema.create(driver)
         db = LocalAgentDatabase(driver)
         dao = SearchCacheDao(db.searchCacheQueries, nowEpochMs = { 1_000L })
-        myListRepo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
+        myListRepo = SqlDelightMyListRepository(db.myListQueries, com.contextsolutions.localagent.sync.LocalChangeBus(), ioDispatcher = Dispatchers.Unconfined)
         handler = MyListToolHandler(myListRepo)
     }
 

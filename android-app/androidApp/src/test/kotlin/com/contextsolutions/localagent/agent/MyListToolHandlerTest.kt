@@ -46,7 +46,7 @@ class MyListToolHandlerTest {
         driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         LocalAgentDatabase.Schema.create(driver)
         db = LocalAgentDatabase(driver)
-        repo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
+        repo = SqlDelightMyListRepository(db.myListQueries, com.contextsolutions.localagent.sync.LocalChangeBus(), ioDispatcher = Dispatchers.Unconfined)
         handler = MyListToolHandler(repo, fakeClock)
     }
 

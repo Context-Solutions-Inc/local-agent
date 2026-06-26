@@ -376,6 +376,7 @@ val desktopModule: Module = module {
             conversations = get(),
             memories = get(),
             jobs = get(),
+            myList = get(),
             jobPolicy = get(),
             embedder = get(),
             bus = get(),
@@ -436,7 +437,7 @@ val desktopModule: Module = module {
     single { DesktopAuxModelStore(logger = { DesktopDiag.log("[AuxModels] $it") }) }
     single<HttpEngineFactory> { DesktopHttpEngineFactory() }
 
-    // Secrets (Brave key, HF token, search-enabled flag) in a PKCS#12 keystore at
+    // Secrets (Brave key, search-enabled flag) in a PKCS#12 keystore at
     // <app-data>/secrets.p12 (Phase 6). The search-enabled BraveKeyProvider that
     // reads this lands in the search-on increment.
     single<SecureStorage> { DesktopSecureStorage.create() }
@@ -635,13 +636,13 @@ val desktopModule: Module = module {
 
     // Four SearchService variants (invariant #37: per-vertical URL budget + cache
     // namespace). Search-enabled gate reads SecureStorage SEARCH_ENABLED (default
-    // on); mirrors androidModule exactly.
+    // OFF, PR #22 — opt-in, needs a Brave key); mirrors androidModule exactly.
     single<SearchService> {
         SearchService(
             keyProvider = get(),
             client = get(),
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             cacheNamespace = "ctx:",
         )
     }
@@ -650,7 +651,7 @@ val desktopModule: Module = module {
             keyProvider = get(),
             client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 1, logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             cacheNamespace = "sports:",
         )
     }
@@ -659,7 +660,7 @@ val desktopModule: Module = module {
             keyProvider = get(),
             client = KtorBraveLlmContextClient(get<HttpEngineFactory>(), maxUrls = 10, logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             cacheNamespace = "news:",
         )
     }
@@ -668,7 +669,7 @@ val desktopModule: Module = module {
             keyProvider = get(),
             client = KtorBraveSearchClient(get<HttpEngineFactory>(), logQueries = DesktopDiag.verbose) { DesktopDiag.log("[BraveApi] $it") },
             cache = get(),
-            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) != "false" },
+            isEnabled = { get<SecureStorage>().get(SecureStorageKeys.SEARCH_ENABLED) == "true" },
             cacheNamespace = "fin:",
         )
     }
@@ -878,7 +879,7 @@ val desktopModule: Module = module {
     }
 
     // -- My List subsystem (agent tool). --
-    single<MyListRepository> { SqlDelightMyListRepository(get()) }
+    single<MyListRepository> { SqlDelightMyListRepository(get(), get()) }
     single { MyListIntentDetector() }
     single { MyListCommandParser() }
     single { MyListResponseFormatter() }

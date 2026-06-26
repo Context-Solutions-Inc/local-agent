@@ -2,7 +2,6 @@ package com.contextsolutions.localagent.app.service
 
 import android.os.StatFs
 import android.util.Log
-import com.contextsolutions.localagent.inference.HfAuthTokenProvider
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -41,7 +40,6 @@ import okhttp3.Request
 class ModelDownloader(
     private val inventory: ModelInventory,
     private val httpClient: OkHttpClient,
-    private val hfAuthTokenProvider: HfAuthTokenProvider,
 ) {
 
     /** Mutable for tests; defaults to IO. */
@@ -63,9 +61,8 @@ class ModelDownloader(
 
     /**
      * Downloads a specific [spec] (Gemma LLM or an aux model — PR #3). Resolves
-     * the partial/final files from [inventory] per spec, and only sends the HF
-     * `Authorization` header when [ModelSpec.requiresHfAuth] is set (the CDN aux
-     * models are public, so the token never leaves the device for them).
+     * the partial/final files from [inventory] per spec. PR #22 — every artifact
+     * is served from the public R2 CDN, so no auth header is ever sent.
      */
     suspend fun download(
         spec: ModelSpec,
@@ -115,16 +112,12 @@ class ModelDownloader(
         }
 
         val attemptResumeAt = if (partial.exists()) partial.length() else 0L
-        // Only HF-hosted artifacts (Gemma) carry the bearer token; the CDN aux
-        // models are public, so we never leak the token to the CDN (PR #3).
-        val hfToken = if (spec.requiresHfAuth) hfAuthTokenProvider.currentToken() else null
+        // PR #22 — all artifacts (Gemma + aux) ship from the public R2 CDN; no
+        // auth header is ever sent.
         val request = Request.Builder()
             .url(spec.downloadUrl)
             .apply {
                 if (attemptResumeAt > 0L) header("Range", "bytes=$attemptResumeAt-")
-                if (!hfToken.isNullOrBlank()) {
-                    header("Authorization", "Bearer $hfToken")
-                }
             }
             .build()
 

@@ -1,6 +1,7 @@
 package com.contextsolutions.localagent.app.ui.settings
 
 import com.contextsolutions.localagent.ui.settings.SearchSourcesViewModel
+import com.contextsolutions.localagent.preferences.LocationCatalog
 import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.localagent.preferences.SiteConfig
 import com.contextsolutions.localagent.preferences.SourceKind
@@ -27,6 +28,10 @@ class SearchSourcesViewModelTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
 
+    private val catalog = LocationCatalog(
+        """{"countries":[{"code":"US","name":"United States"},{"code":"CA","name":"Canada"}]}""",
+    )
+
     @Before
     fun setUp() = Dispatchers.setMain(testDispatcher)
 
@@ -38,7 +43,7 @@ class SearchSourcesViewModelTest {
         val repo = FakeRepo(
             news = listOf(rss("a.com"), rss("b.com"), rss("c.com")),
         )
-        val vm = SearchSourcesViewModel(repo)
+        val vm = SearchSourcesViewModel(repo, catalog)
         advanceUntilIdle()
 
         vm.editSite(
@@ -62,7 +67,7 @@ class SearchSourcesViewModelTest {
     @Test
     fun `editSite defaults a blank endpoint by kind`() = runTest {
         val repo = FakeRepo(news = listOf(rss("a.com")))
-        val vm = SearchSourcesViewModel(repo)
+        val vm = SearchSourcesViewModel(repo, catalog)
         advanceUntilIdle()
 
         vm.editSite(SearchSubtype.NEWS, "a.com", "a.com", "", SourceKind.BRAVE_SITE_FILTER, "")
@@ -79,7 +84,7 @@ class SearchSourcesViewModelTest {
     @Test
     fun `editSite rename onto another entry drops the older duplicate`() = runTest {
         val repo = FakeRepo(news = listOf(rss("a.com"), rss("b.com")))
-        val vm = SearchSourcesViewModel(repo)
+        val vm = SearchSourcesViewModel(repo, catalog)
         advanceUntilIdle()
 
         // Rename a.com -> b.com; the pre-existing b.com is dropped, edited wins.
@@ -94,7 +99,7 @@ class SearchSourcesViewModelTest {
     @Test
     fun `editSite on a missing domain is a no-op`() = runTest {
         val repo = FakeRepo(news = listOf(rss("a.com")))
-        val vm = SearchSourcesViewModel(repo)
+        val vm = SearchSourcesViewModel(repo, catalog)
         advanceUntilIdle()
 
         vm.editSite(SearchSubtype.NEWS, "ghost.com", "x.com", "X", SourceKind.RSS, "")
@@ -113,6 +118,7 @@ class SearchSourcesViewModelTest {
         override fun flow(): Flow<VerticalPreferences> = prefs
         override suspend fun location(): UserLocation? = null
         override suspend fun setLocation(location: UserLocation) = Unit
+        override suspend fun resetToCountryDefaults(country: String) = Unit
         override suspend fun isOnboarded(): Boolean = true
 
         override suspend fun setSites(subtype: SearchSubtype, sites: List<SiteConfig>) {

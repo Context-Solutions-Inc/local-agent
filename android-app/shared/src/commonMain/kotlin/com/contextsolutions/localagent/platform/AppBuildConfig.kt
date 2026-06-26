@@ -18,9 +18,6 @@ interface AppBuildConfig {
     /** True when an internal build bundles a Brave dev API key. */
     val hasBraveDevKey: Boolean
 
-    /** True when an internal build bundles a Hugging Face dev auth token. */
-    val hasHfDevToken: Boolean
-
     /** Human-readable app version (e.g. "1.0.0"), recorded in memory-backup metadata. */
     val versionName: String
 

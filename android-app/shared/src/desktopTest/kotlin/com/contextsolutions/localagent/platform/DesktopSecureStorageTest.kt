@@ -53,9 +53,9 @@ class DesktopSecureStorageTest {
 
     @Test
     fun persists_across_reopen() {
-        newStore().put("hf_auth_token", "hf_xyz")
+        newStore().put("ollama_api_key", "sk-xyz")
         // A fresh instance over the same file + password must see the secret.
-        assertEquals("hf_xyz", newStore().get("hf_auth_token"))
+        assertEquals("sk-xyz", newStore().get("ollama_api_key"))
     }
 
     @Test

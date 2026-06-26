@@ -1,6 +1,7 @@
 -- "My List" — the user's personal checklist (PR #15, renamed from `todos`
 -- to `mylist` in PR #99 because STT mis-hears "todo"). Table introduced at
--- schema v5 via 4.sqm; renamed `todos` -> `mylist` at v11 via 10.sqm.
+-- schema v5 via 4.sqm; renamed `todos` -> `mylist` at v11 via 10.sqm;
+-- `deleted_at_epoch_ms` added at v13 via 12.sqm (PR #22) for mobile↔desktop sync.
 --
 -- Conventions follow Memories.sq / Conversations.sq: timestamps as
 -- *_epoch_ms INTEGER, booleans as 0/1 INTEGER, nullable fields with no
@@ -11,6 +12,11 @@
 -- `priority` is stored as TEXT ('LOW' | 'MEDIUM' | 'HIGH') rather than an
 -- ordinal int so the CASE-based ordering below is self-documenting and the
 -- column survives a future re-ordering of the Kotlin enum.
+--
+-- Sync (PR #22): `deleted_at_epoch_ms` is the soft-delete tombstone (NULL =
+-- live). Read queries filter `deleted_at_epoch_ms IS NULL`; `updated_at_epoch_ms`
+-- is the last-write-wins key. `selectMyListChangedSince` (change feed) INCLUDES
+-- tombstones so deletes propagate; `upsertMyListFromPeer` merges LWW.
 
 CREATE TABLE mylist (
     id TEXT NOT NULL PRIMARY KEY,
@@ -20,7 +26,8 @@ CREATE TABLE mylist (
     completed INTEGER NOT NULL DEFAULT 0,
     created_at_epoch_ms INTEGER NOT NULL,
     updated_at_epoch_ms INTEGER NOT NULL,
-    notes TEXT
+    notes TEXT,
+    deleted_at_epoch_ms INTEGER               -- 12.sqm (PR #22): soft-delete tombstone; NULL = live
 );
 
 CREATE INDEX mylist_by_completed_due ON mylist(completed, due_date_epoch_ms);
@@ -39,9 +46,10 @@ VALUES (?, ?, ?, ?, 0, ?, ?, ?);
 -- Full ordered list for the management screen. Completed rows sink to the
 -- bottom; within each completion group HIGH > MEDIUM > LOW; within each
 -- priority dated rows precede undated, soonest-due first; ties break on
--- created_at.
+-- created_at. Tombstoned rows are excluded.
 selectAll:
 SELECT * FROM mylist
+WHERE deleted_at_epoch_ms IS NULL
 ORDER BY completed ASC,
          CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END ASC,
          CASE WHEN due_date_epoch_ms IS NULL THEN 1 ELSE 0 END ASC,
@@ -51,17 +59,17 @@ ORDER BY completed ASC,
 -- Active-only list — used by the chat show_mylist tool so completed rows
 -- don't crowd the reply.
 selectActive:
-SELECT * FROM mylist WHERE completed = 0
+SELECT * FROM mylist WHERE completed = 0 AND deleted_at_epoch_ms IS NULL
 ORDER BY CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END ASC,
          CASE WHEN due_date_epoch_ms IS NULL THEN 1 ELSE 0 END ASC,
          due_date_epoch_ms ASC,
          created_at_epoch_ms ASC;
 
 selectById:
-SELECT * FROM mylist WHERE id = ?;
+SELECT * FROM mylist WHERE id = ? AND deleted_at_epoch_ms IS NULL;
 
 countActive:
-SELECT COUNT(*) FROM mylist WHERE completed = 0;
+SELECT COUNT(*) FROM mylist WHERE completed = 0 AND deleted_at_epoch_ms IS NULL;
 
 -- -- Mutations -------------------------------------------------------------
 
@@ -73,8 +81,38 @@ WHERE id = ?;
 setCompleted:
 UPDATE mylist SET completed = ?, updated_at_epoch_ms = ? WHERE id = ?;
 
-deleteById:
-DELETE FROM mylist WHERE id = ?;
+-- PR #22 sync: soft-delete (tombstone) so the delete propagates to the peer.
+-- Bumps updated_at so it rides the change feed.
+softDeleteItem:
+UPDATE mylist SET deleted_at_epoch_ms = :nowEpochMs, updated_at_epoch_ms = :nowEpochMs WHERE id = :id;
 
-deleteCompleted:
-DELETE FROM mylist WHERE completed = 1;
+-- PR #22 sync: soft-delete every completed (live) row.
+softDeleteCompleted:
+UPDATE mylist SET deleted_at_epoch_ms = :nowEpochMs, updated_at_epoch_ms = :nowEpochMs
+WHERE completed = 1 AND deleted_at_epoch_ms IS NULL;
+
+-- -- Sync (PR #22) ---------------------------------------------------------
+
+-- Change feed (includes tombstoned rows so deletes propagate).
+selectMyListChangedSince:
+SELECT * FROM mylist
+WHERE updated_at_epoch_ms > :since
+ORDER BY updated_at_epoch_ms ASC;
+
+-- Last-write-wins upsert from a peer. created_at is never overwritten; the
+-- WHERE guard only applies the peer's row when it is strictly newer.
+upsertMyListFromPeer:
+INSERT INTO mylist(
+    id, title, priority, due_date_epoch_ms, completed,
+    created_at_epoch_ms, updated_at_epoch_ms, notes, deleted_at_epoch_ms
+)
+VALUES (:id, :title, :priority, :dueDate, :completed, :createdAt, :updatedAt, :notes, :deletedAt)
+ON CONFLICT(id) DO UPDATE SET
+    title = excluded.title,
+    priority = excluded.priority,
+    due_date_epoch_ms = excluded.due_date_epoch_ms,
+    completed = excluded.completed,
+    updated_at_epoch_ms = excluded.updated_at_epoch_ms,
+    notes = excluded.notes,
+    deleted_at_epoch_ms = excluded.deleted_at_epoch_ms
+WHERE excluded.updated_at_epoch_ms > mylist.updated_at_epoch_ms;

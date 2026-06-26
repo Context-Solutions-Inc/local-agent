@@ -35,7 +35,7 @@ class SqlDelightMyListRepositoryTest {
         driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         LocalAgentDatabase.Schema.create(driver)
         db = LocalAgentDatabase(driver)
-        repo = SqlDelightMyListRepository(db.myListQueries, ioDispatcher = Dispatchers.Unconfined)
+        repo = SqlDelightMyListRepository(db.myListQueries, com.contextsolutions.localagent.sync.LocalChangeBus(), ioDispatcher = Dispatchers.Unconfined)
     }
 
     @After
@@ -142,12 +142,12 @@ class SqlDelightMyListRepositoryTest {
     }
 
     @Test
-    fun flow_seed_matches_snapshot_after_each_mutation() = runTest {
+    fun snapshot_reflects_each_mutation() = runTest {
         repo.create("a", "a", MyListItemPriority.LOW, null, null, 100L)
-        assertEquals(listOf("a"), repo.flow().value.map { it.id })
+        assertEquals(listOf("a"), repo.snapshot().map { it.id })
         repo.create("b", "b", MyListItemPriority.HIGH, null, null, 100L)
-        assertEquals(listOf("b", "a"), repo.flow().value.map { it.id })
+        assertEquals(listOf("b", "a"), repo.snapshot().map { it.id })
         repo.setCompleted("b", true, 110L)
-        assertEquals(listOf("a", "b"), repo.flow().value.map { it.id })
+        assertEquals(listOf("a", "b"), repo.snapshot().map { it.id })
     }
 }

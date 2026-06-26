@@ -1014,6 +1014,7 @@ class AgentLoopPreflightTest {
         override suspend fun location(): UserLocation = UserLocation(country, "", "")
         override suspend fun setLocation(location: UserLocation) = Unit
         override suspend fun setSites(subtype: SearchSubtype, sites: List<SiteConfig>) = Unit
+        override suspend fun resetToCountryDefaults(country: String) = Unit
         override suspend fun isOnboarded(): Boolean = true
     }
 

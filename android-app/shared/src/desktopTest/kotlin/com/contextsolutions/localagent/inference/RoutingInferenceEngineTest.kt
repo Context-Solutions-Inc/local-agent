@@ -18,7 +18,9 @@ import kotlinx.coroutines.runBlocking
  */
 class RoutingInferenceEngineTest {
 
-    private val configured = OllamaConfig(host = "1.2.3.4", port = 11434, chatModel = "m")
+    // enabled = true: PR #22 made the remote connection opt-in (default off), so an
+    // "active" config must flip the switch on explicitly.
+    private val configured = OllamaConfig(host = "1.2.3.4", port = 11434, chatModel = "m", enabled = true)
 
     @Test
     fun unconfiguredRoutesToLocal() = runBlocking {

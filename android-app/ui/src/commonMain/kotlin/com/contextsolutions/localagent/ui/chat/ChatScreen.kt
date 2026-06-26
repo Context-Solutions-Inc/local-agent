@@ -491,15 +491,16 @@ fun ChatScreen(
                     }
                     // PR #15 — My List entry point. Count is folded into the
                     // accessibility label only; the visual badge was
-                    // removed in PR #26.
-                    // PR #57 — my-list/timers/alarms are mobile-only for now, so
-                    // these entry points are hidden on the desktop app.
+                    // removed in PR #26. PR #22 — shown on BOTH platforms now
+                    // that My List syncs mobile↔desktop.
+                    ClockIconButton(
+                        icon = Icons.Filled.Checklist,
+                        contentDescription = tr(StringKeys.CHAT_CD_MYLIST, activeMyListCount),
+                        onClick = onOpenMyList,
+                    )
+                    // PR #57 — timers/alarms stay mobile-only (Android clock
+                    // services), so these entry points are hidden on desktop.
                     if (!isDesktopPlatform) {
-                        ClockIconButton(
-                            icon = Icons.Filled.Checklist,
-                            contentDescription = tr(StringKeys.CHAT_CD_MYLIST, activeMyListCount),
-                            onClick = onOpenMyList,
-                        )
                         // PR #11 — clock entry points. Always shown so the user
                         // can create the first timer/alarm.
                         ClockIconButton(
@@ -1245,24 +1246,47 @@ private fun CitationChips(citations: List<SearchSource>) {
 
 @Composable
 private fun SessionBanner(state: SessionState) {
-    val info: Pair<String, Boolean>? = when (state) {
-        is SessionState.Unloaded ->
-            tr(StringKeys.CHAT_SESSION_UNLOADED) to false
-        is SessionState.Downloading -> {
-            val pct = state.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
-            tr(StringKeys.CHAT_SESSION_DOWNLOADING, pct) to false
+    // PR #22 — mobile shows a small fixed set of states (downloading%/loading/
+    // loaded on GPU/loaded on CPU/unloaded). Desktop keeps the accurate
+    // per-accelerator banner (it runs on CPU/Vulkan/remote, where "GPU" would lie).
+    val info: Pair<String, Boolean>? = if (isDesktopPlatform) {
+        when (state) {
+            is SessionState.Unloaded ->
+                tr(StringKeys.CHAT_SESSION_UNLOADED) to false
+            is SessionState.Downloading -> {
+                val pct = state.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+                tr(StringKeys.CHAT_SESSION_DOWNLOADING, pct) to false
+            }
+            is SessionState.Loading ->
+                tr(StringKeys.CHAT_SESSION_LOADING) to false
+            is SessionState.Loaded -> when (state.activeAccelerator) {
+                // PR #56 — generation runs on a remote Ollama server; the on-device
+                // accelerator banner ("Loaded on CPU/GPU…") doesn't apply, so omit it.
+                Accelerator.REMOTE -> null
+                Accelerator.CPU -> tr(StringKeys.CHAT_SESSION_LOADED_CPU) to true
+                else -> tr(StringKeys.CHAT_SESSION_LOADED, state.activeAccelerator.name) to false
+            }
+            is SessionState.Failed ->
+                tr(StringKeys.CHAT_SESSION_FAILED, state.message) to true
         }
-        is SessionState.Loading ->
-            tr(StringKeys.CHAT_SESSION_LOADING) to false
-        is SessionState.Loaded -> when (state.activeAccelerator) {
-            // PR #56 — generation runs on a remote Ollama server; the on-device
-            // accelerator banner ("Loaded on CPU/GPU…") doesn't apply, so omit it.
-            Accelerator.REMOTE -> null
-            Accelerator.CPU -> tr(StringKeys.CHAT_SESSION_LOADED_CPU) to true
-            else -> tr(StringKeys.CHAT_SESSION_LOADED, state.activeAccelerator.name) to false
+    } else {
+        when (state) {
+            // Failed collapses to "Model unloaded" — the next prompt cold-loads/retries;
+            // keep the error string out of this banner.
+            is SessionState.Unloaded, is SessionState.Failed ->
+                tr(StringKeys.CHAT_SESSION_MOBILE_UNLOADED) to false
+            is SessionState.Downloading -> {
+                val pct = state.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+                tr(StringKeys.CHAT_SESSION_MOBILE_DOWNLOADING, pct) to false
+            }
+            is SessionState.Loading ->
+                tr(StringKeys.CHAT_SESSION_MOBILE_LOADING) to false
+            is SessionState.Loaded -> when (state.activeAccelerator) {
+                Accelerator.REMOTE -> null
+                Accelerator.CPU -> tr(StringKeys.CHAT_SESSION_MOBILE_LOADED_CPU) to false
+                else -> tr(StringKeys.CHAT_SESSION_MOBILE_LOADED_GPU) to false
+            }
         }
-        is SessionState.Failed ->
-            tr(StringKeys.CHAT_SESSION_FAILED, state.message) to true
     }
     if (info == null) return
     val (text, isWarning) = info

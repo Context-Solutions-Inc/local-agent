@@ -93,13 +93,13 @@ data class OllamaConfig(
     val serverType: RemoteServerType = RemoteServerType.OLLAMA,
     val useSsl: Boolean = false,
     /**
-     * User on/off switch for the remote connection (PR #73). Defaults `true` so an
-     * existing saved config (persisted before this field existed) keeps routing
-     * remotely after upgrade. When `false`, chat stays on-device even though the
-     * server details are still saved — the user can flip it back on without
-     * re-entering anything. Routing gates on [isActive], not [isConfigured].
+     * User on/off switch for the remote connection (PR #73). Defaults `false`
+     * (PR #22) — the remote LLM is opt-in; chat stays on-device until the user
+     * both configures a server AND flips this switch on. When `false`, any saved
+     * server details are retained but unused, so the user can flip it back on
+     * without re-entering anything. Routing gates on [isActive], not [isConfigured].
      */
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
 ) {
     /**
      * True once the server + chat model are set. Ollama needs host + port; an

@@ -18,9 +18,11 @@ data class SyncBundle(
     val memories: List<MemorySyncRecord> = emptyList(),
     val settings: List<SettingSyncRecord> = emptyList(),
     val jobs: List<JobSyncRecord> = emptyList(),
+    val myList: List<MyListSyncRecord> = emptyList(),
 ) {
     val isEmpty: Boolean
-        get() = conversations.isEmpty() && memories.isEmpty() && settings.isEmpty() && jobs.isEmpty()
+        get() = conversations.isEmpty() && memories.isEmpty() && settings.isEmpty() &&
+            jobs.isEmpty() && myList.isEmpty()
 }
 
 @Serializable
@@ -91,6 +93,24 @@ data class JobSyncRecord(
     val lastRunAtEpochMs: Long? = null,
     val lastRunSummary: String? = null,
     val lastRunConversationId: String? = null,
+)
+
+/**
+ * A synced My List item (PR #22). LWW per record on [updatedAtEpochMs] with a
+ * [deletedAtEpochMs] tombstone so deletes propagate. Symmetric both directions —
+ * unlike jobs, there's no trust boundary (either device may create/edit/delete).
+ */
+@Serializable
+data class MyListSyncRecord(
+    val id: String,
+    val title: String,
+    val priority: String,
+    val dueDateEpochMs: Long? = null,
+    val completed: Boolean = false,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+    val notes: String? = null,
+    val deletedAtEpochMs: Long? = null,
 )
 
 /** A synced preference (allow-list only — never secrets; see [SyncedSettingsKeys]). */

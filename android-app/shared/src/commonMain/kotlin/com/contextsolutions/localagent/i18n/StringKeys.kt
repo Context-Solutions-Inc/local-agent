@@ -164,16 +164,6 @@ object StringKeys {
     const val SETTINGS_BRAVE_FIELD_LABEL = "settings.brave.field_label"
     const val SETTINGS_BRAVE_PLACEHOLDER_REPLACE = "settings.brave.placeholder_replace"
     const val SETTINGS_BRAVE_PLACEHOLDER_PASTE = "settings.brave.placeholder_paste"
-    const val SETTINGS_HF_HEADER = "settings.hf.header"
-    const val SETTINGS_HF_DESC_PRE = "settings.hf.desc_pre"
-    const val SETTINGS_HF_DESC_MID = "settings.hf.desc_mid"
-    const val SETTINGS_HF_DESC_POST = "settings.hf.desc_post"
-    const val SETTINGS_HF_STATUS_USER = "settings.hf.status_user"
-    const val SETTINGS_HF_STATUS_DEV = "settings.hf.status_dev"
-    const val SETTINGS_HF_STATUS_NONE = "settings.hf.status_none"
-    const val SETTINGS_HF_FIELD_LABEL = "settings.hf.field_label"
-    const val SETTINGS_HF_PLACEHOLDER_REPLACE = "settings.hf.placeholder_replace"
-    const val SETTINGS_HF_PLACEHOLDER_PASTE = "settings.hf.placeholder_paste"
     const val SETTINGS_LINK_DESKTOP_HEADER = "settings.link.desktop_header"
     const val SETTINGS_LINK_DESKTOP_DESC_ANYWHERE = "settings.link.desktop_desc_anywhere"
     const val SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE = "settings.link.desktop_desc_subscribe"
@@ -261,6 +251,13 @@ object StringKeys {
     const val CHAT_SESSION_LOADED_CPU = "chat.session.loaded_cpu"
     const val CHAT_SESSION_LOADED = "chat.session.loaded"
     const val CHAT_SESSION_FAILED = "chat.session.failed"
+    // Mobile-only short forms (PR #22) — a small fixed set shown on Android's chat
+    // banner. Desktop keeps the accurate per-accelerator strings above.
+    const val CHAT_SESSION_MOBILE_UNLOADED = "chat.session.mobile.unloaded"
+    const val CHAT_SESSION_MOBILE_DOWNLOADING = "chat.session.mobile.downloading"
+    const val CHAT_SESSION_MOBILE_LOADING = "chat.session.mobile.loading"
+    const val CHAT_SESSION_MOBILE_LOADED_GPU = "chat.session.mobile.loaded_gpu"
+    const val CHAT_SESSION_MOBILE_LOADED_CPU = "chat.session.mobile.loaded_cpu"
     const val CHAT_THERMAL_WARM = "chat.thermal.warm"
     const val CHAT_THERMAL_BLOCK_TITLE = "chat.thermal.block_title"
     const val CHAT_THERMAL_BLOCK_BODY = "chat.thermal.block_body"
@@ -302,30 +299,35 @@ object StringKeys {
     const val ONBOARDING_DISCLOSURE_LEAVES_HEADER = "onboarding.disclosure.leaves_header"
     const val ONBOARDING_DISCLOSURE_LEAVES_BODY = "onboarding.disclosure.leaves_body"
     const val ONBOARDING_DISCLOSURE_ACKNOWLEDGE = "onboarding.disclosure.acknowledge"
-    const val ONBOARDING_BRAVE_TITLE = "onboarding.brave.title"
-    const val ONBOARDING_BRAVE_BODY = "onboarding.brave.body"
-    const val ONBOARDING_BRAVE_FIELD_LABEL = "onboarding.brave.field_label"
-    const val ONBOARDING_BRAVE_GET_KEY = "onboarding.brave.get_key"
-    const val ONBOARDING_BRAVE_FOOTNOTE = "onboarding.brave.footnote"
-    const val ONBOARDING_HF_TITLE = "onboarding.hf.title"
-    const val ONBOARDING_HF_BODY = "onboarding.hf.body"
-    const val ONBOARDING_HF_FIELD_LABEL = "onboarding.hf.field_label"
-    const val ONBOARDING_HF_GET_TOKEN = "onboarding.hf.get_token"
-    const val ONBOARDING_HF_LICENSE_NOTE = "onboarding.hf.license_note"
-    const val ONBOARDING_HF_FOOTNOTE = "onboarding.hf.footnote"
     const val ONBOARDING_LOCATION_TITLE = "onboarding.location.title"
     const val ONBOARDING_LOCATION_BODY = "onboarding.location.body"
     const val ONBOARDING_LOCATION_COUNTRY_LABEL = "onboarding.location.country_label"
     const val ONBOARDING_LOCATION_USE_DEVICE_DEFAULT = "onboarding.location.use_device_default"
     const val ONBOARDING_LOCATION_SELECT_PLACEHOLDER = "onboarding.location.select_placeholder"
-    const val ONBOARDING_TELEMETRY_TITLE = "onboarding.telemetry.title"
-    const val ONBOARDING_TELEMETRY_BODY = "onboarding.telemetry.body"
-    const val ONBOARDING_TELEMETRY_SEND_HEADER = "onboarding.telemetry.send_header"
-    const val ONBOARDING_TELEMETRY_SEND_BODY = "onboarding.telemetry.send_body"
-    const val ONBOARDING_TELEMETRY_NEVER_HEADER = "onboarding.telemetry.never_header"
-    const val ONBOARDING_TELEMETRY_NEVER_BODY = "onboarding.telemetry.never_body"
-    const val ONBOARDING_TELEMETRY_ACCEPT = "onboarding.telemetry.accept"
-    const val ONBOARDING_TELEMETRY_DECLINE = "onboarding.telemetry.decline"
+
+    // ── Onboarding — model download (first-run "Set up the on-device models") ──
+    const val DOWNLOAD_TITLE = "download.title"
+    const val DOWNLOAD_INTRO = "download.intro"
+    const val DOWNLOAD_MODELS_HEADER = "download.models_header"
+    const val DOWNLOAD_TOTAL = "download.total"
+    const val DOWNLOAD_SPEC_INCOMPLETE = "download.spec_incomplete"
+    const val DOWNLOAD_STATE_IDLE = "download.state_idle"
+    const val DOWNLOAD_STATE_QUEUED = "download.state_queued"
+    const val DOWNLOAD_STATE_STARTING = "download.state_starting"
+    const val DOWNLOAD_STATE_COMPLETED = "download.state_completed"
+    const val DOWNLOAD_PROGRESS = "download.progress"
+    const val DOWNLOAD_FAILED = "download.failed"
+    const val DOWNLOAD_ACTION_WIFI = "download.action_wifi"
+    const val DOWNLOAD_ACTION_CELLULAR = "download.action_cellular"
+    const val DOWNLOAD_ACTION_PAUSE = "download.action_pause"
+    const val DOWNLOAD_ACTION_RETRY_WIFI = "download.action_retry_wifi"
+    const val DOWNLOAD_ACTION_RETRY_CELLULAR = "download.action_retry_cellular"
+    const val DOWNLOAD_ERROR_NETWORK = "download.error_network"
+    const val DOWNLOAD_ERROR_HTTP_CLIENT = "download.error_http_client"
+    const val DOWNLOAD_ERROR_HTTP_SERVER = "download.error_http_server"
+    const val DOWNLOAD_ERROR_STORAGE = "download.error_storage"
+    const val DOWNLOAD_ERROR_CHECKSUM = "download.error_checksum"
+    const val DOWNLOAD_ERROR_MISCONFIGURED = "download.error_misconfigured"
 
     // ── Memory (UI) ──────────────────────────────────────────────────────
     const val MEMORY_TITLE = "memory.title"
@@ -530,8 +532,7 @@ object StringKeys {
 
     // ── Search sources (UI) ──────────────────────────────────────────────
     const val SEARCH_SOURCES_TITLE = "search_sources.title"
-    const val SEARCH_SOURCES_NO_LOCATION = "search_sources.no_location"
-    const val SEARCH_SOURCES_DEFAULTS_FROM = "search_sources.defaults_from"
+    const val SEARCH_SOURCES_COUNTRY_LABEL = "search_sources.country_label"
     const val SEARCH_SOURCES_GENERAL = "search_sources.general"
     const val SEARCH_SOURCES_NEWS = "search_sources.news"
     const val SEARCH_SOURCES_WEATHER = "search_sources.weather"
@@ -663,9 +664,6 @@ object StringKeys {
         SETTINGS_BRAVE_HEADER, SETTINGS_BRAVE_DESC_PRE, SETTINGS_BRAVE_DESC_POST,
         SETTINGS_BRAVE_STATUS_USER, SETTINGS_BRAVE_STATUS_DEV, SETTINGS_BRAVE_STATUS_NONE,
         SETTINGS_BRAVE_FIELD_LABEL, SETTINGS_BRAVE_PLACEHOLDER_REPLACE, SETTINGS_BRAVE_PLACEHOLDER_PASTE,
-        SETTINGS_HF_HEADER, SETTINGS_HF_DESC_PRE, SETTINGS_HF_DESC_MID, SETTINGS_HF_DESC_POST,
-        SETTINGS_HF_STATUS_USER, SETTINGS_HF_STATUS_DEV, SETTINGS_HF_STATUS_NONE,
-        SETTINGS_HF_FIELD_LABEL, SETTINGS_HF_PLACEHOLDER_REPLACE, SETTINGS_HF_PLACEHOLDER_PASTE,
         SETTINGS_LINK_DESKTOP_HEADER, SETTINGS_LINK_DESKTOP_DESC_ANYWHERE, SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE,
         SETTINGS_LINK_SUBSCRIPTION_SETTINGS, SETTINGS_LINK_UPGRADE,
         SETTINGS_LINK_MOBILE_HEADER, SETTINGS_LINK_MOBILE_DESC,
@@ -702,6 +700,8 @@ object StringKeys {
         CHAT_CATEGORY_INTEREST, CHAT_CATEGORY_RELATIONSHIP, CHAT_CATEGORY_TEMPORARY_CONTEXT,
         CHAT_SESSION_UNLOADED, CHAT_SESSION_DOWNLOADING, CHAT_SESSION_LOADING,
         CHAT_SESSION_LOADED_CPU, CHAT_SESSION_LOADED, CHAT_SESSION_FAILED,
+        CHAT_SESSION_MOBILE_UNLOADED, CHAT_SESSION_MOBILE_DOWNLOADING, CHAT_SESSION_MOBILE_LOADING,
+        CHAT_SESSION_MOBILE_LOADED_GPU, CHAT_SESSION_MOBILE_LOADED_CPU,
         CHAT_THERMAL_WARM, CHAT_THERMAL_BLOCK_TITLE, CHAT_THERMAL_BLOCK_BODY,
         CHAT_CD_NEW_CHAT, CHAT_CD_MYLIST, CHAT_CD_TIMERS, CHAT_CD_ALARMS,
         CHAT_CD_JOBS, CHAT_CD_SETTINGS, CHAT_CD_JUMP_TO_LATEST,
@@ -718,16 +718,16 @@ object StringKeys {
         ONBOARDING_DISCLOSURE_TITLE, ONBOARDING_DISCLOSURE_BODY,
         ONBOARDING_DISCLOSURE_LEAVES_HEADER, ONBOARDING_DISCLOSURE_LEAVES_BODY,
         ONBOARDING_DISCLOSURE_ACKNOWLEDGE,
-        ONBOARDING_BRAVE_TITLE, ONBOARDING_BRAVE_BODY, ONBOARDING_BRAVE_FIELD_LABEL,
-        ONBOARDING_BRAVE_GET_KEY, ONBOARDING_BRAVE_FOOTNOTE,
-        ONBOARDING_HF_TITLE, ONBOARDING_HF_BODY, ONBOARDING_HF_FIELD_LABEL,
-        ONBOARDING_HF_GET_TOKEN, ONBOARDING_HF_LICENSE_NOTE, ONBOARDING_HF_FOOTNOTE,
         ONBOARDING_LOCATION_TITLE, ONBOARDING_LOCATION_BODY, ONBOARDING_LOCATION_COUNTRY_LABEL,
         ONBOARDING_LOCATION_USE_DEVICE_DEFAULT, ONBOARDING_LOCATION_SELECT_PLACEHOLDER,
-        ONBOARDING_TELEMETRY_TITLE, ONBOARDING_TELEMETRY_BODY,
-        ONBOARDING_TELEMETRY_SEND_HEADER, ONBOARDING_TELEMETRY_SEND_BODY,
-        ONBOARDING_TELEMETRY_NEVER_HEADER, ONBOARDING_TELEMETRY_NEVER_BODY,
-        ONBOARDING_TELEMETRY_ACCEPT, ONBOARDING_TELEMETRY_DECLINE,
+        // ── Onboarding — model download ──
+        DOWNLOAD_TITLE, DOWNLOAD_INTRO, DOWNLOAD_MODELS_HEADER, DOWNLOAD_TOTAL,
+        DOWNLOAD_SPEC_INCOMPLETE, DOWNLOAD_STATE_IDLE, DOWNLOAD_STATE_QUEUED,
+        DOWNLOAD_STATE_STARTING, DOWNLOAD_STATE_COMPLETED, DOWNLOAD_PROGRESS, DOWNLOAD_FAILED,
+        DOWNLOAD_ACTION_WIFI, DOWNLOAD_ACTION_CELLULAR, DOWNLOAD_ACTION_PAUSE,
+        DOWNLOAD_ACTION_RETRY_WIFI, DOWNLOAD_ACTION_RETRY_CELLULAR,
+        DOWNLOAD_ERROR_NETWORK, DOWNLOAD_ERROR_HTTP_CLIENT, DOWNLOAD_ERROR_HTTP_SERVER,
+        DOWNLOAD_ERROR_STORAGE, DOWNLOAD_ERROR_CHECKSUM, DOWNLOAD_ERROR_MISCONFIGURED,
         // ── Memory (UI) ──
         MEMORY_TITLE, MEMORY_CONVERSATION_TITLE, MEMORY_EMPTY, MEMORY_CONVERSATION_EMPTY,
         MEMORY_LOADING, MEMORY_CREATION_TOGGLE, MEMORY_CLEAR_ALL, MEMORY_CLEAR_ALL_BODY,
@@ -791,7 +791,7 @@ object StringKeys {
         JOBS_INIT_SETTING_UP, JOBS_INIT_AWAIT_USER, JOBS_INIT_FAILED_TITLE,
         JOBS_INIT_INTRO, JOBS_INIT_NONE, JOBS_INIT_APPROVE,
         // ── Search sources (UI) ──
-        SEARCH_SOURCES_TITLE, SEARCH_SOURCES_NO_LOCATION, SEARCH_SOURCES_DEFAULTS_FROM,
+        SEARCH_SOURCES_TITLE, SEARCH_SOURCES_COUNTRY_LABEL,
         SEARCH_SOURCES_GENERAL, SEARCH_SOURCES_NEWS, SEARCH_SOURCES_WEATHER,
         SEARCH_SOURCES_SPORTS, SEARCH_SOURCES_FINANCE,
         SEARCH_SOURCES_NONE_CONFIGURED, SEARCH_SOURCES_ADD,

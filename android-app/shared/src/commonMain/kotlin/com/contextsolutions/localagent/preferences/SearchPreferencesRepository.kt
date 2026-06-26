@@ -45,6 +45,16 @@ interface SearchPreferencesRepository {
      */
     suspend fun setSites(subtype: SearchSubtype, sites: List<SiteConfig>)
 
+    /**
+     * Switch the default country (PR #22 — Settings → Search sources picker):
+     * persist [country] as the location AND **overwrite** all five vertical
+     * source lists with that country's defaults from [DefaultSiteResolver].
+     * Unlike [setLocation], this discards any prior user customisations (the
+     * picker is an explicit "reset to this country's defaults" action). Region /
+     * city are cleared — they're resolved per-query for weather.
+     */
+    suspend fun resetToCountryDefaults(country: String)
+
     /** True once onboarding has captured a location (sites may still be defaults). */
     suspend fun isOnboarded(): Boolean
 }

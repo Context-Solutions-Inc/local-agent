@@ -46,7 +46,7 @@ class DesktopLinkRelayRoutingTest {
 
     @Test
     fun relayChatUsesRemoteLlmWhenDesktopHasOneConfigured() = runBlocking {
-        val served = serveRelayChat(remote = OllamaConfig(host = "1.2.3.4", port = 11434, chatModel = "m"))
+        val served = serveRelayChat(remote = OllamaConfig(host = "1.2.3.4", port = 11434, chatModel = "m", enabled = true))
         assertTrue("ollama" in served, "expected the remote backend to serve, got: $served")
     }
 

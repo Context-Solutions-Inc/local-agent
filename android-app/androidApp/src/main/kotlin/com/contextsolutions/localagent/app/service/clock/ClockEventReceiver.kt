@@ -31,7 +31,6 @@ import org.koin.core.component.inject
 class ClockEventReceiver : BroadcastReceiver(), KoinComponent {
 
     private val clockService: ClockService by inject()
-    private val clockNotifications: ClockNotifications by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(EXTRA_ID) ?: return
@@ -43,16 +42,24 @@ class ClockEventReceiver : BroadcastReceiver(), KoinComponent {
     }
 
     private fun onTimerFire(context: Context, id: String) {
+        // PR #22 — timers now ring continuously like alarms: hand off to
+        // TimerFiringService (loops the alarm sound + re-posts) instead of a
+        // single chime. Read the label before onTimerFired deletes the row.
         val timer = clockService.timersSnapshot().firstOrNull { it.id == id }
         clockService.onTimerFired(id)
-        // Briefly hold a wake lock so the notification + sound have a chance
-        // to start even if the device was deep-sleeping. setExactAndAllowWhileIdle
-        // delivers in Doze but the post-delivery window is short.
+        // Briefly hold a wake lock so the service + sound have a chance to start
+        // even if the device was deep-sleeping. setExactAndAllowWhileIdle delivers
+        // in Doze but the post-delivery window is short.
         val wake = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "localagent:timer-fire")
         wake.acquire(WAKELOCK_MS)
         try {
-            clockNotifications.postTimerFiredNotification(id, timer?.label)
+            val service = Intent(context, TimerFiringService::class.java).apply {
+                action = TimerFiringService.ACTION_START
+                putExtra(TimerFiringService.EXTRA_TIMER_ID, id)
+                putExtra(TimerFiringService.EXTRA_TIMER_LABEL, timer?.label)
+            }
+            context.startForegroundService(service)
         } finally {
             if (wake.isHeld) wake.release()
         }

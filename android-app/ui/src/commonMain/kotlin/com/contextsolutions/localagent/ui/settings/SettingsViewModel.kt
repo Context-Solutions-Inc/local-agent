@@ -224,27 +224,6 @@ class SettingsViewModel(
         _state.update { it.copy(keyJustSaved = false) }
     }
 
-    fun saveHfAuthToken(token: String) {
-        val trimmed = token.trim()
-        if (trimmed.isEmpty()) {
-            secureStorage.remove(SecureStorageKeys.HF_AUTH_TOKEN)
-        } else {
-            secureStorage.put(SecureStorageKeys.HF_AUTH_TOKEN, trimmed)
-        }
-        _state.update {
-            it.copy(hasUserHfToken = trimmed.isNotEmpty(), hfTokenJustSaved = true)
-        }
-    }
-
-    fun clearHfAuthToken() {
-        secureStorage.remove(SecureStorageKeys.HF_AUTH_TOKEN)
-        _state.update { it.copy(hasUserHfToken = false, hfTokenJustSaved = false) }
-    }
-
-    fun acknowledgeHfTokenSaved() {
-        _state.update { it.copy(hfTokenJustSaved = false) }
-    }
-
     fun setSearchEnabled(enabled: Boolean) {
         secureStorage.put(SecureStorageKeys.SEARCH_ENABLED, if (enabled) "true" else "false")
         _state.update { it.copy(searchEnabled = enabled) }
@@ -476,16 +455,12 @@ class SettingsViewModel(
     private fun initialState(): SettingsUiState {
         val hasUser = secureStorage.contains(SecureStorageKeys.BRAVE_API_KEY) &&
             !secureStorage.get(SecureStorageKeys.BRAVE_API_KEY).isNullOrBlank()
-        val hasUserHf = secureStorage.contains(SecureStorageKeys.HF_AUTH_TOKEN) &&
-            !secureStorage.get(SecureStorageKeys.HF_AUTH_TOKEN).isNullOrBlank()
         val hasOllamaKey = secureStorage.contains(SecureStorageKeys.OLLAMA_API_KEY) &&
             !secureStorage.get(SecureStorageKeys.OLLAMA_API_KEY).isNullOrBlank()
-        val searchEnabled = secureStorage.get(SecureStorageKeys.SEARCH_ENABLED) != "false"
+        val searchEnabled = secureStorage.get(SecureStorageKeys.SEARCH_ENABLED) == "true"
         return SettingsUiState(
             hasUserKey = hasUser,
             hasDevKey = buildConfig.hasBraveDevKey,
-            hasUserHfToken = hasUserHf,
-            hasDevHfToken = buildConfig.hasHfDevToken,
             searchEnabled = searchEnabled,
             cacheCount = -1L,
             telemetryEnabled = telemetryConsent.enabled(),
@@ -514,15 +489,12 @@ class SettingsViewModel(
 data class SettingsUiState(
     val hasUserKey: Boolean,
     val hasDevKey: Boolean,
-    val hasUserHfToken: Boolean,
-    val hasDevHfToken: Boolean,
     val searchEnabled: Boolean,
     /** -1 = not yet loaded. */
     val cacheCount: Long,
     val telemetryEnabled: Boolean = false,
     val preferredLanguage: PreferredLanguage = PreferredLanguage.DEFAULT,
     val keyJustSaved: Boolean = false,
-    val hfTokenJustSaved: Boolean = false,
     val cacheJustCleared: Boolean = false,
     /** True for a debuggable build — gates debug-only affordances on the screen. */
     val isDebugBuild: Boolean = false,

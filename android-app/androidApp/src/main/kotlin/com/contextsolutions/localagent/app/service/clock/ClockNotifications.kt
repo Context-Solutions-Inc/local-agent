@@ -18,14 +18,14 @@ import kotlin.math.abs
  *  - **alarm_fired** (IMPORTANCE_HIGH, alarm-stream sound, bypass-DND on
  *    devices that allow it) — used by [AlarmFiringService] while an alarm
  *    is actively ringing.
- *  - **timer_fired** (IMPORTANCE_HIGH, default notification sound) — single
- *    chime when a countdown timer elapses.
+ *  - **timer_firing** (IMPORTANCE_HIGH, alarm-stream sound, bypass-DND) —
+ *    used by [TimerFiringService] while a countdown timer is ringing (PR #22;
+ *    timers ring continuously like alarms now, not a single chime).
  *
- * Sound for the alarm channel is set on the *channel*, not the
- * notification, because Android 8+ ignores per-notification sound when a
- * channel is in use. AlarmFiringService also drives a [MediaPlayer] for
- * the looping sound + a [Vibrator] pattern — channel sound alone is
- * single-shot.
+ * Sound for these channels is set on the *channel*, not the notification,
+ * because Android 8+ ignores per-notification sound when a channel is in use.
+ * The firing services also drive a [MediaPlayer] for the looping sound + a
+ * [Vibrator] pattern — channel sound alone is single-shot.
  */
 class ClockNotifications(
     private val context: Context,
@@ -86,26 +86,42 @@ class ClockNotifications(
             .build()
     }
 
-    fun postTimerFiredNotification(timerId: String, label: String?) {
+    /**
+     * Build the timer-firing notification (PR #22). Like the alarm firing
+     * notification, it's ongoing and re-built every 10 s by [TimerFiringService]
+     * so the channel sound re-asserts on OEM skins. Two action buttons: Stop and
+     * "+1 minute" (which re-arms a fresh 60 s timer rather than snoozing).
+     */
+    fun buildTimerFiringNotification(
+        timerId: String,
+        label: String?,
+    ): android.app.Notification {
         val title = context.getString(R.string.clock_timer_fired_title)
         val text = label?.takeIf { it.isNotBlank() }
             ?: context.getString(R.string.clock_timer_fired_text_default)
-        val dismissAction = NotificationCompat.Action(
+        val stopAction = NotificationCompat.Action(
             0,
-            context.getString(R.string.clock_action_dismiss),
-            actionPendingIntent(ClockActionReceiver.ACTION_DISMISS_TIMER, timerId),
+            context.getString(R.string.clock_action_stop),
+            actionPendingIntent(ClockActionReceiver.ACTION_STOP_TIMER, timerId),
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_TIMER_FIRED)
+        val addMinuteAction = NotificationCompat.Action(
+            0,
+            context.getString(R.string.clock_action_add_minute),
+            actionPendingIntent(ClockActionReceiver.ACTION_ADD_MINUTE, timerId),
+        )
+        return NotificationCompat.Builder(context, CHANNEL_TIMER_FIRING)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(false) // re-alert on every re-post
             .setContentIntent(launchAppPendingIntent())
-            .addAction(dismissAction)
+            .addAction(stopAction)
+            .addAction(addMinuteAction)
             .build()
-        manager.notify(timerNotificationId(timerId), notification)
     }
 
     private fun ensureChannels() {
@@ -129,14 +145,26 @@ class ClockNotifications(
             }
             manager.createNotificationChannel(channel)
         }
-        if (manager.getNotificationChannel(CHANNEL_TIMER_FIRED) == null) {
+        // PR #22 — timers now ring continuously like alarms, so the firing
+        // notification rides a high-importance channel with the alarm sound +
+        // DND bypass (the looping MediaPlayer in TimerFiringService is the real
+        // sound; this matches the alarm channel so OEM re-posts re-assert).
+        if (manager.getNotificationChannel(CHANNEL_TIMER_FIRING) == null) {
+            val alarmSound: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
             val channel = NotificationChannel(
-                CHANNEL_TIMER_FIRED,
-                context.getString(R.string.clock_timer_channel),
+                CHANNEL_TIMER_FIRING,
+                context.getString(R.string.clock_timer_firing_channel),
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
-                description = context.getString(R.string.clock_timer_channel_desc)
+                description = context.getString(R.string.clock_timer_firing_channel_desc)
+                setSound(alarmSound, attrs)
                 enableVibration(true)
+                setBypassDnd(true)
                 setShowBadge(false)
             }
             manager.createNotificationChannel(channel)
@@ -170,7 +198,7 @@ class ClockNotifications(
 
     companion object {
         const val CHANNEL_ALARM_FIRED = "clock_alarm_fired"
-        const val CHANNEL_TIMER_FIRED = "clock_timer_fired"
+        const val CHANNEL_TIMER_FIRING = "clock_timer_firing"
         // Notification id namespacing — keeps clock IDs distinct from
         // InferenceForegroundService (1001) and ModelDownloadWorker.
         const val ALARM_NOTIFICATION_ID_BASE = 2_000_000

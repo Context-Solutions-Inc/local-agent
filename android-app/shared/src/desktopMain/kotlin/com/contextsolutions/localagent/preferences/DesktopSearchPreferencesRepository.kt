@@ -50,6 +50,14 @@ class DesktopSearchPreferencesRepository(
         merged.value = computeMerged()
     }
 
+    override suspend fun resetToCountryDefaults(country: String) {
+        store.putString(LOCATION_KEY, json.encodeToString(UserLocation.serializer(), UserLocation(country, "", "")))
+        // Full overwrite — no merge() — so the picker fully resets all five
+        // verticals to the new country's defaults.
+        store.putString(VERTICAL_PREFS_KEY, json.encodeToString(VerticalPreferences.serializer(), resolver.defaultsFor(country)))
+        merged.value = computeMerged()
+    }
+
     override suspend fun isOnboarded(): Boolean = store.getString(LOCATION_KEY) != null
 
     private fun computeMerged(): VerticalPreferences {

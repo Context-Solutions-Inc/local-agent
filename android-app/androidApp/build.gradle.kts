@@ -55,16 +55,16 @@ kotlin {
 // in Settings.
 val secretsFile = rootProject.file("secrets.properties")
 
-// Fail a debug DEVICE build when secrets.properties is missing. Every getProperty
-// below has a default, so without this guard `assembleDebug`/`installDebug` silently
-// produce an app with no bundled dev Brave key / HF token / model checksums — it
-// installs but can't search or auto-download the model on-device. Scoped to the two
-// debug device tasks (mirrors the build-identity banner wiring below): release builds
-// ship empty keys by design (BYOK), and unit tests / the desktop build / CI never
-// touch this file, so they stay green. Gated on the REQUESTED task names so it fails
-// fast at configuration time, before the long compile, and only for an actual device
-// build. Fix: copy android-app/secrets.properties.example to
-// android-app/secrets.properties and fill it in.
+// Fail a debug DEVICE build when secrets.properties is missing. The BRAVE_DEV_KEY
+// getProperty below has a default, so without this guard `assembleDebug`/`installDebug`
+// silently produce an app with no bundled dev Brave key — it installs but can't search
+// on-device without the user supplying their own key. (Models now download from the
+// public CDN with no secrets, PR #22.) Scoped to the two debug device tasks (mirrors
+// the build-identity banner wiring below): release builds ship empty keys by design
+// (BYOK), and unit tests / the desktop build / CI never touch this file, so they stay
+// green. Gated on the REQUESTED task names so it fails fast at configuration time,
+// before the long compile, and only for an actual device build. Fix: copy
+// android-app/secrets.properties.example to android-app/secrets.properties and fill it in.
 val deviceBuildRequested = gradle.startParameter.taskNames.any {
     val taskName = it.substringAfterLast(':')
     taskName == "assembleDebug" || taskName == "installDebug"
@@ -77,8 +77,8 @@ if (deviceBuildRequested && !secretsFile.exists()) {
           ${secretsFile.absolutePath}
 
         It is required for a debug device build (assembleDebug/installDebug) — it bundles
-        the dev Brave Search key, HuggingFace token, and Gemma model checksums. Without it
-        the installed app can't search or download the model.
+        the dev Brave Search key. Without it the installed app can't search on-device
+        unless the user supplies their own Brave key.
 
         Fix: copy android-app/secrets.properties.example to android-app/secrets.properties
         and fill in the values.
@@ -92,22 +92,11 @@ val secrets: Properties = Properties().apply {
 }
 val devBraveKey: String = secrets.getProperty("BRAVE_DEV_KEY", "")
 
-// Gemma 4 download spec. URL is the HuggingFace direct-download form (see
-// secrets.properties.example). SHA-256 + size are the checksum-pinned values
-// committed alongside the URL; the worker fail-fast verifies both. HF gates the
-// repo, so an HF_AUTH_TOKEN is forwarded as a Bearer Authorization header. On
-// debug builds the token from secrets.properties is baked in as a dev-default
-// fallback; on release the BuildConfig field stays empty and production users
-// supply their own token via the onboarding flow / Settings (resolved at runtime
-// by HfAuthTokenProvider — same BYOK pattern as Brave Search). Hosting story for
-// an ungated mirror is still tracked in PHASE1_PLAN.
-val modelDownloadUrl: String = secrets.getProperty(
-    "MODEL_DOWNLOAD_URL",
-    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
-)
-val modelSha256: String = secrets.getProperty("MODEL_SHA256", "")
-val modelSizeBytes: String = secrets.getProperty("MODEL_SIZE_BYTES", "0")
-val hfAuthToken: String = secrets.getProperty("HF_AUTH_TOKEN", "")
+// PR #22 — the Gemma 4 artifact now downloads from the public R2 CDN with no
+// auth (URL + sha256 + size are pinned directly in ModelInventory.SPEC, like the
+// aux models in AndroidAuxModels). The old HuggingFace BuildConfig fields
+// (MODEL_DOWNLOAD_URL / MODEL_SHA256 / MODEL_SIZE_BYTES / HF_AUTH_TOKEN) and the
+// HfAuthTokenProvider plumbing are gone — all models ship from the CDN.
 
 // Release signing. For distribution supply a private keystore via secrets.properties
 // (RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD).
@@ -256,10 +245,6 @@ android {
             buildConfigField("String", "BRAVE_DEV_KEY", "\"$devBraveKey\"")
             buildConfigField("boolean", "INTERNAL_BUILD", "true")
             buildConfigField("boolean", "USE_STUB_ENGINE", useStubEngine)
-            buildConfigField("String", "MODEL_DOWNLOAD_URL", "\"$modelDownloadUrl\"")
-            buildConfigField("String", "MODEL_SHA256", "\"$modelSha256\"")
-            buildConfigField("long", "MODEL_SIZE_BYTES", "${modelSizeBytes}L")
-            buildConfigField("String", "HF_AUTH_TOKEN", "\"$hfAuthToken\"")
         }
         release {
             isMinifyEnabled = true
@@ -276,14 +261,6 @@ android {
             buildConfigField("boolean", "INTERNAL_BUILD", "false")
             // Production never uses the stub.
             buildConfigField("boolean", "USE_STUB_ENGINE", "false")
-            // The URL/SHA/size go to release too — the model artifact is public-
-            // ish (gated, but fine for an installed app to fetch). HF token is
-            // empty on release; production users provide one via onboarding /
-            // Settings and HfAuthTokenProvider reads it from SecureStorage.
-            buildConfigField("String", "MODEL_DOWNLOAD_URL", "\"$modelDownloadUrl\"")
-            buildConfigField("String", "MODEL_SHA256", "\"$modelSha256\"")
-            buildConfigField("long", "MODEL_SIZE_BYTES", "${modelSizeBytes}L")
-            buildConfigField("String", "HF_AUTH_TOKEN", "\"\"")
         }
     }
 

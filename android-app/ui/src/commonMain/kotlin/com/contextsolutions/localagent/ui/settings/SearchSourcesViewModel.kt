@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.contextsolutions.localagent.preferences.LocationCatalog
 import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.localagent.preferences.SiteConfig
 import com.contextsolutions.localagent.preferences.SourceKind
@@ -22,10 +23,14 @@ import kotlinx.coroutines.launch
  */
 class SearchSourcesViewModel(
     private val repository: SearchPreferencesRepository,
+    locationCatalog: LocationCatalog,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
+
+    /** Countries the user can pick as their search-defaults country (PR #22). */
+    val countries: List<LocationCatalog.CountryEntry> = locationCatalog.countries()
 
     init {
         repository.flow()
@@ -34,6 +39,17 @@ class SearchSourcesViewModel(
                 _state.value = _state.value.copy(prefs = prefs, location = location)
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Change the default country: overwrites ALL five vertical source lists with
+     * the chosen country's defaults (PR #22). Destructive by design — the picker
+     * is a "reset to this country's defaults" action.
+     */
+    fun changeCountry(code: String) {
+        viewModelScope.launch {
+            repository.resetToCountryDefaults(code)
+        }
     }
 
     fun removeSite(subtype: SearchSubtype, domain: String) {

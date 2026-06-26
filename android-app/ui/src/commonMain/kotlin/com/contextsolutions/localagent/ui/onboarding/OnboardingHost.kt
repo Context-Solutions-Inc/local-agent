@@ -39,22 +39,10 @@ fun OnboardingHost(
         OnboardingStep.Disclosure -> DisclosureScreen(
             onContinue = viewModel::acknowledgeDisclosure,
         )
-        OnboardingStep.BraveKey -> BraveKeyScreen(
-            onSave = viewModel::saveBraveKey,
-            onSkip = viewModel::skipBraveKey,
-        )
-        OnboardingStep.HfAuthToken -> HfAuthTokenScreen(
-            onSave = viewModel::saveHfAuthToken,
-            onSkip = viewModel::skipHfAuthToken,
-        )
         OnboardingStep.Location -> LocationPickerScreen(
             catalog = viewModel.locationCatalog,
             onSave = viewModel::saveLocation,
             onSkip = viewModel::skipLocation,
-        )
-        OnboardingStep.TelemetryConsent -> TelemetryConsentScreen(
-            onAccept = { viewModel.setTelemetryConsent(true) },
-            onDecline = { viewModel.setTelemetryConsent(false) },
         )
         OnboardingStep.Complete -> {
             // No-op — LaunchedEffect above routes us out of the host.

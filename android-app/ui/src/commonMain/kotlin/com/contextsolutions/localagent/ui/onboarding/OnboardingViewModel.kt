@@ -5,12 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.contextsolutions.localagent.language.LanguagePreferences
 import com.contextsolutions.localagent.language.PreferredLanguage
 import com.contextsolutions.localagent.onboarding.OnboardingPreferences
-import com.contextsolutions.localagent.platform.SecureStorage
-import com.contextsolutions.localagent.platform.SecureStorageKeys
 import com.contextsolutions.localagent.preferences.LocationCatalog
 import com.contextsolutions.localagent.preferences.SearchPreferencesRepository
 import com.contextsolutions.localagent.preferences.UserLocation
-import com.contextsolutions.localagent.telemetry.TelemetryConsentManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,28 +22,24 @@ import kotlinx.coroutines.launch
  * Drives the first-run onboarding flow (M6 Phase E, PRD §6.1; PR #23 adds
  * the Location step).
  *
- * Step state is derived from six persisted booleans (the language gate is
+ * Step state is derived from three persisted booleans (the language gate is
  * first so the rest of onboarding renders in the chosen language):
  *  - [OnboardingPreferences.languageDecided]
  *  - [OnboardingPreferences.disclosureAcknowledged]
- *  - [OnboardingPreferences.braveKeyDecided]
- *  - [OnboardingPreferences.hfAuthTokenDecided]
  *  - [OnboardingPreferences.locationDecided]
- *  - [TelemetryConsentManager.firstRunDecided]
  *
  * The first one that isn't true determines the active step. When all
- * six are true, the host emits [OnboardingStep.Complete] and
+ * three are true, the host emits [OnboardingStep.Complete] and
  * `MainScreen` routes away from `OnboardingHost`.
  *
- * Brave key + HF token entries are wired straight to [SecureStorage] (same
- * paths the corresponding `SettingsViewModel` calls use). Location is
- * written to [SearchPreferencesRepository] which auto-seeds per-vertical
- * default sources from the country code.
+ * PR #22 dropped the Brave-key, HuggingFace-token, and telemetry-consent
+ * onboarding steps: web search + telemetry are now opt-in from Settings, and
+ * model downloads no longer need an HF token (all models ship from the public
+ * CDN). Location is written to [SearchPreferencesRepository] which auto-seeds
+ * per-vertical default sources from the country code.
  */
 class OnboardingViewModel(
     private val onboardingPreferences: OnboardingPreferences,
-    private val telemetryConsent: TelemetryConsentManager,
-    private val secureStorage: SecureStorage,
     private val searchPreferences: SearchPreferencesRepository,
     private val languagePreferences: LanguagePreferences,
     val locationCatalog: LocationCatalog,
@@ -65,18 +58,12 @@ class OnboardingViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, languagePreferences.preferredLanguage())
 
     init {
-        // Re-derive the step whenever any underlying flag changes — covers
-        // the case where the consent screen advances the telemetry flag,
-        // for instance. All six gates are `Flow<Boolean>`, so this resolves to
-        // the vararg `combine` (the typed overloads stop at five).
+        // Re-derive the step whenever any underlying flag changes.
         combine(
             onboardingPreferences.languageDecidedFlow(),
             onboardingPreferences.disclosureAcknowledgedFlow(),
-            onboardingPreferences.braveKeyDecidedFlow(),
-            onboardingPreferences.hfAuthTokenDecidedFlow(),
             onboardingPreferences.locationDecidedFlow(),
-            telemetryConsent.firstRunDecidedFlow(),
-        ) { _ -> currentStep() }
+        ) { _, _, _ -> currentStep() }
             .onEach { _step.value = it }
             .launchIn(viewModelScope)
     }
@@ -97,34 +84,6 @@ class OnboardingViewModel(
 
     fun acknowledgeDisclosure() {
         onboardingPreferences.markDisclosureAcknowledged()
-    }
-
-    /** Save the user's Brave Search key + mark the step decided. */
-    fun saveBraveKey(key: String) {
-        val trimmed = key.trim()
-        if (trimmed.isNotEmpty()) {
-            secureStorage.put(SecureStorageKeys.BRAVE_API_KEY, trimmed)
-        }
-        onboardingPreferences.markBraveKeyDecided()
-    }
-
-    /** Skip the Brave key entry — user can add one later from Settings. */
-    fun skipBraveKey() {
-        onboardingPreferences.markBraveKeyDecided()
-    }
-
-    /** Save the user's HuggingFace API token + mark the step decided. */
-    fun saveHfAuthToken(token: String) {
-        val trimmed = token.trim()
-        if (trimmed.isNotEmpty()) {
-            secureStorage.put(SecureStorageKeys.HF_AUTH_TOKEN, trimmed)
-        }
-        onboardingPreferences.markHfAuthTokenDecided()
-    }
-
-    /** Skip the HF token entry — user can add one later from Settings. */
-    fun skipHfAuthToken() {
-        onboardingPreferences.markHfAuthTokenDecided()
     }
 
     /**
@@ -160,18 +119,10 @@ class OnboardingViewModel(
         }
     }
 
-    fun setTelemetryConsent(enabled: Boolean) {
-        telemetryConsent.setEnabled(enabled)
-        telemetryConsent.markFirstRunDecided()
-    }
-
     private fun currentStep(): OnboardingStep = when {
         !onboardingPreferences.languageDecided() -> OnboardingStep.Language
         !onboardingPreferences.disclosureAcknowledged() -> OnboardingStep.Disclosure
-        !onboardingPreferences.braveKeyDecided() -> OnboardingStep.BraveKey
-        !onboardingPreferences.hfAuthTokenDecided() -> OnboardingStep.HfAuthToken
         !onboardingPreferences.locationDecided() -> OnboardingStep.Location
-        !telemetryConsent.firstRunDecided() -> OnboardingStep.TelemetryConsent
         else -> OnboardingStep.Complete
     }
 }
@@ -180,9 +131,6 @@ class OnboardingViewModel(
 sealed interface OnboardingStep {
     data object Language : OnboardingStep
     data object Disclosure : OnboardingStep
-    data object BraveKey : OnboardingStep
-    data object HfAuthToken : OnboardingStep
     data object Location : OnboardingStep
-    data object TelemetryConsent : OnboardingStep
     data object Complete : OnboardingStep
 }

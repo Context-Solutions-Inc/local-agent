@@ -13,8 +13,6 @@ class AndroidAppBuildConfig : AppBuildConfig {
     override val isInternalBuild: Boolean = BuildConfig.INTERNAL_BUILD
     override val hasBraveDevKey: Boolean =
         BuildConfig.INTERNAL_BUILD && BuildConfig.BRAVE_DEV_KEY.isNotBlank()
-    override val hasHfDevToken: Boolean =
-        BuildConfig.INTERNAL_BUILD && BuildConfig.HF_AUTH_TOKEN.isNotBlank()
     override val versionName: String = BuildConfig.VERSION_NAME
     override val versionCode: Int = BuildConfig.VERSION_CODE
     override val gitDescribe: String = BuildConfig.GIT_DESCRIBE

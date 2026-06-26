@@ -1,0 +1,5 @@
+-- v12 → v13 (PR #22): My List sync. Add the soft-delete tombstone column so a
+-- My List delete propagates over mobile↔desktop sync instead of being resurrected
+-- (mirrors memories 8.sqm / messages 11.sqm). Appended at the END of the table per
+-- invariant #20 so Schema.create() matches Schema.migrate(). NULL = live.
+ALTER TABLE mylist ADD COLUMN deleted_at_epoch_ms INTEGER;

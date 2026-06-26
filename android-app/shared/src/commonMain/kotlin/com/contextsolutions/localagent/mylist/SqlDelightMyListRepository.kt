@@ -1,35 +1,43 @@
 package com.contextsolutions.localagent.mylist
 
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
 import com.contextsolutions.localagent.db.MyListQueries
+import com.contextsolutions.localagent.sync.LocalChangeBus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Clock
 
 /**
  * SQLDelight-backed [MyListRepository]. Every mutation runs on [ioDispatcher]
- * (default `Dispatchers.IO`) and republishes the full ordered list through
- * [flow] so the management screen and chat handler see the change live.
+ * (default `Dispatchers.IO`).
  *
- * The StateFlow is seeded synchronously at construction. SQLDelight's
- * Android/JDBC drivers run queries on the calling thread, and the `mylist`
- * table stays small (the UX caps practical use well under a few hundred
- * rows), so this initial read is bounded; a lazy seed flickered the
- * management screen with an empty list before the first IO-thread refresh.
+ * [flow] is a **SQLDelight reactive query** (`asFlow().mapToList`), so it re-emits
+ * on every write to the `mylist` table on this driver — critically including the
+ * sync apply-from-peer path, which writes `upsertMyListFromPeer` directly on
+ * [MyListQueries] (NOT through this repo). A synced item must light up the other
+ * device's list live; a manually-seeded StateFlow would stay stale until restart
+ * (invariant #51).
+ *
+ * Genuine-local writes also notify [bus] so [com.contextsolutions.localagent.sync.SyncController]
+ * pushes them; the raw `*FromPeer` path deliberately does NOT fire the bus (no echo).
+ * Deletes are soft (tombstone) so they propagate over sync instead of resurrecting.
  */
 class SqlDelightMyListRepository(
     private val queries: MyListQueries,
+    private val bus: LocalChangeBus,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : MyListRepository {
 
-    private val state: MutableStateFlow<List<MyListItem>> = MutableStateFlow(readAllOrdered())
-
-    override fun flow(): StateFlow<List<MyListItem>> = state.asStateFlow()
+    override fun flow(): Flow<List<MyListItem>> =
+        queries.selectAll().asFlow().mapToList(ioDispatcher).map { rows -> rows.map(::rowToItem) }
 
     override suspend fun snapshot(): List<MyListItem> = withContext(ioDispatcher) {
-        readAllOrdered()
+        queries.selectAll().executeAsList().map(::rowToItem)
     }
 
     override suspend fun snapshotActive(): List<MyListItem> = withContext(ioDispatcher) {
@@ -57,7 +65,7 @@ class SqlDelightMyListRepository(
             updated_at_epoch_ms = nowEpochMs,
             notes = notes,
         )
-        state.value = readAllOrdered()
+        bus.notifyChanged()
         MyListItem(
             id = id,
             title = title,
@@ -80,7 +88,7 @@ class SqlDelightMyListRepository(
             updated_at_epoch_ms = nowEpochMs,
             id = item.id,
         )
-        state.value = readAllOrdered()
+        bus.notifyChanged()
         item.copy(
             createdAtEpochMs = existing.created_at_epoch_ms,
             updatedAtEpochMs = nowEpochMs,
@@ -99,15 +107,16 @@ class SqlDelightMyListRepository(
             updated_at_epoch_ms = nowEpochMs,
             id = id,
         )
-        state.value = readAllOrdered()
+        bus.notifyChanged()
         queries.selectById(id).executeAsOneOrNull()?.let(::rowToItem)
     }
 
     override suspend fun delete(id: String): Boolean = withContext(ioDispatcher) {
         val existed = queries.selectById(id).executeAsOneOrNull() != null
         if (existed) {
-            queries.deleteById(id)
-            state.value = readAllOrdered()
+            val ts = now()
+            queries.softDeleteItem(nowEpochMs = ts, id = id)
+            bus.notifyChanged()
         }
         existed
     }
@@ -115,14 +124,11 @@ class SqlDelightMyListRepository(
     override suspend fun deleteCompleted(): Int = withContext(ioDispatcher) {
         val before = queries.selectAll().executeAsList().count { it.completed == 1L }
         if (before > 0) {
-            queries.deleteCompleted()
-            state.value = readAllOrdered()
+            queries.softDeleteCompleted(nowEpochMs = now())
+            bus.notifyChanged()
         }
         before
     }
-
-    private fun readAllOrdered(): List<MyListItem> =
-        queries.selectAll().executeAsList().map(::rowToItem)
 
     private fun rowToItem(row: com.contextsolutions.localagent.db.Mylist): MyListItem = MyListItem(
         id = row.id,

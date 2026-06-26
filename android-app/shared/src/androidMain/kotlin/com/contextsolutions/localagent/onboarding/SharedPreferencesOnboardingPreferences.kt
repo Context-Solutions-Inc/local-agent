@@ -20,12 +20,6 @@ class SharedPreferencesOnboardingPreferences(context: Context) : OnboardingPrefe
     private val disclosureState = MutableStateFlow(
         prefs.getBoolean(KEY_DISCLOSURE_ACKED, false),
     )
-    private val braveKeyState = MutableStateFlow(
-        prefs.getBoolean(KEY_BRAVE_KEY_DECIDED, false),
-    )
-    private val hfAuthTokenState = MutableStateFlow(
-        prefs.getBoolean(KEY_HF_AUTH_TOKEN_DECIDED, false),
-    )
     private val locationState = MutableStateFlow(
         prefs.getBoolean(KEY_LOCATION_DECIDED, false),
     )
@@ -46,22 +40,6 @@ class SharedPreferencesOnboardingPreferences(context: Context) : OnboardingPrefe
         prefs.edit().putBoolean(KEY_DISCLOSURE_ACKED, true).apply()
     }
 
-    override fun braveKeyDecided(): Boolean = braveKeyState.value
-    override fun braveKeyDecidedFlow(): Flow<Boolean> = braveKeyState.asStateFlow()
-    override fun markBraveKeyDecided() {
-        if (braveKeyState.value) return
-        braveKeyState.value = true
-        prefs.edit().putBoolean(KEY_BRAVE_KEY_DECIDED, true).apply()
-    }
-
-    override fun hfAuthTokenDecided(): Boolean = hfAuthTokenState.value
-    override fun hfAuthTokenDecidedFlow(): Flow<Boolean> = hfAuthTokenState.asStateFlow()
-    override fun markHfAuthTokenDecided() {
-        if (hfAuthTokenState.value) return
-        hfAuthTokenState.value = true
-        prefs.edit().putBoolean(KEY_HF_AUTH_TOKEN_DECIDED, true).apply()
-    }
-
     override fun locationDecided(): Boolean = locationState.value
     override fun locationDecidedFlow(): Flow<Boolean> = locationState.asStateFlow()
     override fun markLocationDecided() {
@@ -74,8 +52,6 @@ class SharedPreferencesOnboardingPreferences(context: Context) : OnboardingPrefe
         private const val PREFS_NAME = "onboarding"
         private const val KEY_LANGUAGE_DECIDED = "language_decided"
         private const val KEY_DISCLOSURE_ACKED = "disclosure_acknowledged"
-        private const val KEY_BRAVE_KEY_DECIDED = "brave_key_decided"
-        private const val KEY_HF_AUTH_TOKEN_DECIDED = "hf_auth_token_decided"
         private const val KEY_LOCATION_DECIDED = "location_decided"
     }
 }

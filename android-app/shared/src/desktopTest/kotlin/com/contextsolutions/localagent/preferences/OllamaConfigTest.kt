@@ -83,13 +83,19 @@ class OllamaConfigTest {
 
     @Test
     fun isActiveRequiresConfiguredAndEnabled() {
-        // PR #73 — the routing gate. Default enabled=true preserves upgrade behavior.
+        // PR #22 — the remote connection is opt-in: default enabled=false, so a
+        // freshly-configured server is NOT active until the user flips the switch on.
         val configured = OllamaConfig(host = "1.2.3.4", port = 11434, chatModel = "m")
-        assertTrue(configured.enabled)
-        assertTrue(configured.isActive)
+        assertFalse(configured.enabled)
+        assertFalse(configured.isActive)
+
+        // Switched on: configured AND enabled → active.
+        val on = configured.copy(enabled = true)
+        assertTrue(on.isConfigured)
+        assertTrue(on.isActive)
 
         // Switched off: still configured (details kept) but not active.
-        val off = configured.copy(enabled = false)
+        val off = on.copy(enabled = false)
         assertTrue(off.isConfigured)
         assertFalse(off.isActive)
 
