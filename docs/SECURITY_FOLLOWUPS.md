@@ -1,10 +1,12 @@
 # Security follow-ups
 
-Tracks the security-audit findings whose **full** remediation is a cross-repo or
-larger-effort item, so the work is not lost when the (intentionally uncommitted)
-`docs/SECURITY_AUDIT.md` is gone. PR #16 landed the in-repo mitigations
-(L3 docs, L4 plan below, L5 manifest, L6 warning, L2 QR warning); the items below are the
-remaining work.
+Tracks the security-audit findings whose **full** remediation was a cross-repo or larger-effort item.
+**All are now DONE** — M4 (signed SDK + dependency verification, PR #18), L2 (per-pair credential;
+secure-gateway PR #8 / SDK `0.2.4` / consumer PR #20), and L4 (Keystore-direct AES-256-GCM, PR #19).
+PR #16 landed the earlier in-repo mitigations (L3 docs, L5 manifest, L6 warning, L2 QR warning). The
+full per-finding status for the whole audit (M1–M5, L1–L6) now lives in `docs/SECURITY_AUDIT.md` §0
+(committed, since every finding is remediated); this file retains the detailed remediation
+design/history for the three cross-repo items below.
 
 ---
 
