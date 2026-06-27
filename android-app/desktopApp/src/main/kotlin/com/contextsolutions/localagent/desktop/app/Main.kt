@@ -581,6 +581,11 @@ fun main() {
         DesktopDiag.log("[desktopApp] background: runtime started, minimized to tray (Show to open).")
     }
 
+    // Linux/X11: give the window a stable WM_CLASS so GNOME maps it to the installed launcher
+    // (icon in the dash / Alt-Tab / task switcher). Done here — past the windowless return
+    // above (which must touch no AWT) and just before we open a window. No-op off Linux/X11.
+    forceLinuxAppId("LocalAgent")
+
     application {
         // Shared shutdown path: the tray "Shut down" item AND the no-tray window-close
         // both use it. Without a tray, hiding the window would trap it (no Show/Shut down
@@ -803,6 +808,33 @@ private fun trayMenuStyle(dark: Boolean, uiZoom: Float): TrayMenuStyle {
  * early-exit keeps the headless DI smoke test working — the icon is only touched once
  * the tray + window compose, which only happens on a real desktop.
  */
+/**
+ * Linux/X11 only: force the running window's WM_CLASS to [appId] ("LocalAgent") so GNOME (and
+ * other EWMH desktops) can map the window back to the installed `local-agent-LocalAgent.desktop`
+ * launcher and render its icon in the dash / Alt-Tab / task switcher. Without this AWT sets
+ * WM_CLASS to the main-class simple name ("MainKt"), which matches no .desktop file → the
+ * running app shows the generic fallback icon even though the app-list (launcher) icon is right.
+ *
+ * The launcher's `.desktop` carries a matching `StartupWMClass=LocalAgent` (appended to the
+ * jpackage-generated entry by the `patchDebStartupWmClass` Gradle step). The two MUST stay in
+ * sync — change both or neither.
+ *
+ * `awtAppClassName` is a private static field on `sun.awt.X11.XToolkit`, reachable only with
+ * `--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED` (added to the Linux launcher's jvmArgs in
+ * desktopApp/build.gradle.kts). Best-effort: any failure (non-X11 toolkit, native-Wayland,
+ * headless, a JDK that renames the field) is a silent no-op — the window keeps its default
+ * WM_CLASS. Must run before the first window is shown (the field is read at window-peer creation).
+ */
+private fun forceLinuxAppId(appId: String) {
+    if (!System.getProperty("os.name").orEmpty().lowercase().contains("linux")) return
+    runCatching {
+        val toolkit = java.awt.Toolkit.getDefaultToolkit()
+        val field = toolkit.javaClass.getDeclaredField("awtAppClassName")
+        field.isAccessible = true
+        field.set(null, appId) // static field
+    }
+}
+
 private val AppIcon: Painter by lazy {
     BitmapPainter(
         object {}.javaClass.getResourceAsStream("/icon.png")!!

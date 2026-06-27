@@ -136,6 +136,19 @@ compose.desktop {
         // a future on-heap path (e.g. large in-memory caches) needs it.
         jvmArgs += listOf("-Xmx2g", "-Dfile.encoding=UTF-8")
 
+        // Linux/X11 only: open sun.awt.X11 so Main.forceLinuxAppId() can set the running
+        // window's WM_CLASS to "LocalAgent" (reflection on XToolkit.awtAppClassName). GNOME
+        // maps a running window to its launcher icon via WM_CLASS; without this AWT advertises
+        // the main-class name ("MainKt"), which matches no .desktop → the running app shows the
+        // generic icon even though the launcher icon (app list) is correct. Pairs with the
+        // StartupWMClass appended to the .deb's .desktop (patchDebStartupWmClass below) — keep
+        // the two in sync. jpackage builds per-OS, so the Linux installer is always built on
+        // Linux; gating on the build host keeps the flag off macOS/Windows launchers (where the
+        // package is absent → a noisy "package sun.awt.X11 not in java.desktop" warning).
+        if (System.getProperty("os.name").orEmpty().contains("Linux", ignoreCase = true)) {
+            jvmArgs += "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED"
+        }
+
         nativeDistributions {
             // jpackage builds ONLY for the host OS, so a CI matrix (Phase 8 increment 2)
             // produces one set per runner. Each OS declares both its installer formats:
@@ -216,4 +229,48 @@ compose.desktop {
             }
         }
     }
+}
+
+// jpackage's generated Linux .desktop carries no `StartupWMClass`, so GNOME (and other EWMH
+// shells) can't link the running window — whose WM_CLASS is "LocalAgent" (set by
+// Main.forceLinuxAppId + the Linux --add-opens above) — back to the installed launcher, and
+// shows the generic fallback icon on the task switcher / dash even though the app-list icon is
+// correct. The Compose plugin clears jpackage's `--resource-dir` mid-build (prepareWorkingDir
+// → clearDirs), so a .desktop override can't be supplied there; instead we patch the produced
+// .deb in place, appending `StartupWMClass=LocalAgent` to the .desktop the postinst registers
+// (`/opt/local-agent/lib/local-agent-LocalAgent.desktop`). The whole extract→edit→rebuild runs
+// in ONE fakeroot session so the repacked .deb keeps root:root ownership of its files. Linux
+// only; no-op when fakeroot/dpkg-deb are absent (a release follow-up could do the same for rpm).
+val patchDebStartupWmClass by tasks.registering(Exec::class) {
+    description = "Append StartupWMClass to the .deb's .desktop so GNOME shows the app icon on the running window."
+    group = "compose desktop"
+    onlyIf { System.getProperty("os.name").orEmpty().contains("Linux", ignoreCase = true) }
+    val debDir = layout.buildDirectory.dir("compose/binaries/main/deb").get().asFile.absolutePath
+    commandLine(
+        "bash", "-c",
+        """
+        set -euo pipefail
+        shopt -s nullglob
+        for deb in "$debDir"/*.deb; do
+          echo "Patching StartupWMClass into ${'$'}deb"
+          tmp="${'$'}(mktemp -d)"
+          fakeroot bash -c '
+            set -e
+            deb="${'$'}1"; tmp="${'$'}2"
+            dpkg-deb -R "${'$'}deb" "${'$'}tmp"
+            while IFS= read -r d; do
+              grep -q "^StartupWMClass=" "${'$'}d" || printf "StartupWMClass=%s\n" "LocalAgent" >> "${'$'}d"
+            done < <(grep -rl "^Exec=/opt/" "${'$'}tmp" --include="*.desktop")
+            dpkg-deb -b "${'$'}tmp" "${'$'}deb" >/dev/null
+          ' _ "${'$'}deb" "${'$'}tmp"
+          rm -rf "${'$'}tmp"
+        done
+        """.trimIndent(),
+    )
+}
+
+// Run the patch right after any task that produces a .deb (packageDeb, packageReleaseDeb, and
+// packageDistributionForCurrentOS on Linux, which depends on packageDeb).
+tasks.matching { it.name == "packageDeb" || it.name == "packageReleaseDeb" }.configureEach {
+    finalizedBy(patchDebStartupWmClass)
 }
