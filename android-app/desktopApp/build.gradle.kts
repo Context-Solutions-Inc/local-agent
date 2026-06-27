@@ -85,8 +85,10 @@ dependencies {
     implementation(project(":ui"))
     implementation(compose.desktop.currentOs)
     // Compose UI libs used directly by the tray + queue-status screen (Phase 7).
-    implementation(compose.foundation)
-    implementation(compose.material3)
+    // Direct CMP coordinates — `compose.foundation`/`compose.material3` aliases
+    // deprecated as of CMP 1.10.
+    implementation(libs.compose.mp.foundation)
+    implementation(libs.compose.mp.material3)
     implementation(libs.koin.core)
     implementation(libs.kotlinx.coroutines.core)
     // Provides Dispatchers.Main (Swing EDT) on desktop — required by androidx

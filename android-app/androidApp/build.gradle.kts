@@ -392,7 +392,7 @@ val extractLitertJni = tasks.register<Copy>("extractLitertJni") {
 // AGP 9's SourceSet API rejects Provider/TaskProvider instances, so register the
 // output as a plain path and wire the task dependency on the jni-merge steps
 // explicitly (srcDir(File) doesn't carry a builtBy).
-android.sourceSets.getByName("main").jniLibs.srcDir(litertJniOutDir.get().asFile)
+android.sourceSets.getByName("main").jniLibs.directories.add(litertJniOutDir.get().asFile.path)
 tasks.matching {
     it.name.startsWith("merge") &&
         (it.name.endsWith("JniLibFolders") || it.name.endsWith("NativeLibs"))

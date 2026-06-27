@@ -27,6 +27,14 @@ compose-navigation = "2.8.5"
 # The Compose *compiler* ships with the Kotlin `plugin.compose` at the Kotlin version;
 # this plugin provides the multiplatform runtime/foundation/material3 + desktop packaging.
 compose-multiplatform = "1.10.3"
+# CMP 1.10 deprecated the `compose.foundation`/`compose.material3`/… Gradle DSL aliases in
+# favour of direct artifact coordinates. material3 + material-icons-extended ship on their
+# own version trains (NOT the plugin version): material3 lags at 1.9.0; material-icons-extended
+# is frozen at 1.7.3 (no further updates — JetBrains points to Material Symbols instead). These
+# match the strict constraints the Compose plugin already enforces, so the resolved graph (and
+# verification-metadata.xml) is unchanged.
+compose-mp-material3 = "1.9.0"
+compose-mp-icons = "1.7.3"
 
 # Markdown + LaTeX rendering (PR #50). Markwon renders markdown into a TextView;
 # ext-latex pulls io.noties:jlatexmath-android (native canvas, offline — no WebView).
@@ -245,6 +253,14 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 compose-navigation = { module = "androidx.navigation:navigation-compose", version.ref = "compose-navigation" }
+# Compose Multiplatform (JetBrains) artifacts — direct coordinates replacing the deprecated
+# `compose.*` Gradle DSL aliases (CMP 1.10). Distinct from the androidx `compose-*` entries
+# above (those back :androidApp's BOM-managed deps); these back :ui + :desktopApp's shared UI.
+compose-mp-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
+compose-mp-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
+compose-mp-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
+compose-mp-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-mp-material3" }
+compose-mp-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "compose-mp-icons" }
 
 # Markwon (markdown + LaTeX in the chat bubble; PR #50)
 markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
