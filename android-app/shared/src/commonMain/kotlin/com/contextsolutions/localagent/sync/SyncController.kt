@@ -3,6 +3,7 @@ package com.contextsolutions.localagent.sync
 import com.contextsolutions.localagent.preferences.DesktopLinkPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -42,6 +43,7 @@ class SyncController(
 ) {
     private val reconcileMutex = Mutex()
 
+    @OptIn(FlowPreview::class)
     fun start() {
         scope.launch {
             preferences.configFlow().collectLatest { cfg ->
@@ -73,14 +75,14 @@ class SyncController(
 
     private suspend fun reconcile() = reconcileMutex.withLock {
         val cfg = preferences.config()
-        if (!cfg.isLinkConfigured) return
+        if (!cfg.isLinkConfigured) return@withLock
         val wm = watermarks.get()
 
         // Pull peer changes since the watermark and apply LWW.
         val peer = http.fetchChanges(wm)
         if (peer == null) {
             logger("reconcile: desktop unreachable")
-            return
+            return@withLock
         }
         // Peer reached — record the wall-clock sync time (PR #70) even if nothing
         // moved, so the Jobs screen can show "Synced Nm ago".

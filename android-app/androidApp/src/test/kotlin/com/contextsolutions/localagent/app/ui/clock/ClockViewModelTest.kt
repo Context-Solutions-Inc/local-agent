@@ -8,6 +8,7 @@ import com.contextsolutions.localagent.ui.clock.ClockViewModel
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -25,6 +26,7 @@ import org.junit.Test
  * be stable when an alarm is toggled on/off (the repositories append the
  * upserted alarm to the end, which used to reorder the list).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ClockViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()

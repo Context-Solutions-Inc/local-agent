@@ -40,14 +40,15 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":shared"))
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
-            // Material icons used by the migrated screens (Phase 9). The
-            // multiplatform `compose.materialIconsExtended` is the CMP analogue
-            // of androidApp's `material-icons-extended`.
-            implementation(compose.materialIconsExtended)
+            // Direct CMP artifact coordinates — the `compose.*` Gradle DSL aliases
+            // are deprecated as of CMP 1.10 ("Specify dependency directly").
+            implementation(libs.compose.mp.runtime)
+            implementation(libs.compose.mp.foundation)
+            implementation(libs.compose.mp.material3)
+            implementation(libs.compose.mp.ui)
+            // Material icons used by the migrated screens (Phase 9), the CMP analogue
+            // of androidApp's `material-icons-extended`. Frozen at 1.7.3 upstream.
+            implementation(libs.compose.mp.material.icons.extended)
             // Koin + the multiplatform Compose ViewModel integration: `module {}`
             // for `uiModule`, and `koinViewModel()` / `viewModelOf` (transitively
             // the JetBrains multiplatform `lifecycle-viewmodel` artifact, which

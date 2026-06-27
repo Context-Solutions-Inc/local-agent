@@ -84,18 +84,20 @@ class OllamaConnectionMonitor(
         _reloadRequests.tryEmit(Unit)
     }
 
-    private suspend fun startWatch(baseUrl: String) = mutex.withLock {
-        if (watchJob?.isActive == true && watchedUrl == baseUrl) return
-        watchJob?.cancel()
-        watchedUrl = baseUrl
-        watchJob = scope.launch {
-            logger("watching $baseUrl for return")
-            while (isActive) {
-                delay(probeIntervalMs)
-                if (healthProbe(baseUrl)) {
-                    logger("$baseUrl back online — requesting reconnect")
-                    _reloadRequests.tryEmit(Unit)
-                    break
+    private suspend fun startWatch(baseUrl: String) {
+        mutex.withLock {
+            if (watchJob?.isActive == true && watchedUrl == baseUrl) return
+            watchJob?.cancel()
+            watchedUrl = baseUrl
+            watchJob = scope.launch {
+                logger("watching $baseUrl for return")
+                while (isActive) {
+                    delay(probeIntervalMs)
+                    if (healthProbe(baseUrl)) {
+                        logger("$baseUrl back online — requesting reconnect")
+                        _reloadRequests.tryEmit(Unit)
+                        break
+                    }
                 }
             }
         }
