@@ -384,6 +384,11 @@ class SettingsViewModel(
             visionModel = visionModel.trim(),
             serverType = serverType,
             useSsl = useSsl,
+            // The on/off switch is independent of saving the connection details
+            // (PR #73, invariant #73): preserve the persisted enabled state so a
+            // Save doesn't silently flip the connection off (OllamaConfig.enabled
+            // defaults false). Toggling on/off goes through setOllamaEnabled.
+            enabled = ollamaPreferences.config().enabled,
         )
         ollamaPreferences.setConfig(config)
         _state.update { it.copy(ollamaConfig = config, ollamaJustSaved = true) }
