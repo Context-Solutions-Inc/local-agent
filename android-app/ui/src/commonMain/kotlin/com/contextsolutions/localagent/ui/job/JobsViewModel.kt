@@ -16,6 +16,7 @@ import com.contextsolutions.localagent.job.JobInitializer
 import com.contextsolutions.localagent.job.JobRepository
 import com.contextsolutions.localagent.job.JobScheduleType
 import com.contextsolutions.localagent.job.RemoteJobRunner
+import com.contextsolutions.localagent.platform.AppBuildConfig
 import com.contextsolutions.localagent.sync.LastSyncStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,7 +55,14 @@ class JobsViewModel(
     // initializer. Null on mobile → the Choose Job button is hidden.
     private val catalog: JobCatalog? = null,
     private val initializer: JobInitializer? = null,
+    // PR #70 diagnostics are gated behind this so a production packaged build stays
+    // quiet (the form/save logs echo job names + commands). Matches DesktopDiag's
+    // signal via the cross-platform AppBuildConfig seam. Read by JobsScreen too.
+    buildConfig: AppBuildConfig,
 ) : ViewModel() {
+
+    /** True on a debuggable/internal build — gates the [JobsScreen] form diagnostics. */
+    val isDebug: Boolean = buildConfig.isDebug || buildConfig.isInternalBuild
 
     // Sorted by last-run time, most-recently-run first; jobs that have never run
     // (null lastRunAtEpochMs → Long.MIN_VALUE) sink to the bottom. The underlying
@@ -134,13 +142,13 @@ class JobsViewModel(
     ) {
         val a = admin
         if (a == null) {
-            println("[JobsVM] create ignored — no JobAdmin bound (mobile is read-only)")
+            if (isDebug) println("[JobsVM] create ignored — no JobAdmin bound (mobile is read-only)")
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            println("[JobsVM] create name='${name.trim()}' command='${command.trim()}' schedule=$scheduleType cron=$cronExpression fireAt=$fireAtEpochMs")
+            if (isDebug) println("[JobsVM] create name='${name.trim()}' command='${command.trim()}' schedule=$scheduleType cron=$cronExpression fireAt=$fireAtEpochMs")
             val job = a.create(name.trim(), command.trim(), prompt, workingDir, scheduleType, cronExpression, fireAtEpochMs)
-            println("[JobsVM] created job id=${job.id}")
+            if (isDebug) println("[JobsVM] created job id=${job.id}")
         }
     }
 

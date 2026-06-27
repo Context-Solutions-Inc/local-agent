@@ -85,6 +85,7 @@ val uiModule: Module = module {
             // Null on mobile → the Choose Job button is hidden.
             catalog = getOrNull(),
             initializer = getOrNull(),
+            buildConfig = get(),
         )
     }
 }

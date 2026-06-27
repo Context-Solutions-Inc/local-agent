@@ -500,12 +500,15 @@ private fun JobFormDialog(
     val valid = name.isNotBlank() && command.isNotBlank() && scheduleValid
 
     // PR #70 diagnostics — logs WHY Create is enabled/disabled. Desktop: console
-    // running `:desktopApp:run`.
+    // running `:desktopApp:run`. Gated on a debug/internal build so a production
+    // packaged launch stays quiet (the line echoes the job command).
     LaunchedEffect(name, command, scheduleType, days, totalMs, selHour, selMinute) {
-        println(
-            "[JobForm] create-enabled=$valid name.ok=${name.isNotBlank()} command.ok=${command.isNotBlank()} " +
-                "schedule=$scheduleType scheduleValid=$scheduleValid totalMs=$totalMs days=$days time=$selHour:$selMinute",
-        )
+        if (viewModel.isDebug) {
+            println(
+                "[JobForm] create-enabled=$valid name.ok=${name.isNotBlank()} command.ok=${command.isNotBlank()} " +
+                    "schedule=$scheduleType scheduleValid=$scheduleValid totalMs=$totalMs days=$days time=$selHour:$selMinute",
+            )
+        }
     }
 
     AlertDialog(
@@ -622,7 +625,7 @@ private fun JobFormDialog(
                         cronExpr = null
                         fireAt = Clock.System.now().toEpochMilliseconds() + totalMs
                     }
-                    println("[JobForm] save name='$name' command='$command' schedule=$scheduleType cron='$cronExpr' fireAt=$fireAt")
+                    if (viewModel.isDebug) println("[JobForm] save name='$name' command='$command' schedule=$scheduleType cron='$cronExpr' fireAt=$fireAt")
                     onSave(name, command, prompt, workingDir.ifBlank { null }, scheduleType, cronExpr, fireAt)
                 },
             ) { Text(if (initial == null) tr(StringKeys.JOBS_FORM_CREATE) else tr(StringKeys.COMMON_SAVE)) }
