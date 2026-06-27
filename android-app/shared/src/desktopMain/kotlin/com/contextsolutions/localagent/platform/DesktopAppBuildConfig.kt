@@ -29,7 +29,7 @@ class DesktopAppBuildConfig : AppBuildConfig {
             ?.use { load(it) }
     }
 
-    override val versionName: String = buildInfo.getProperty("versionName") ?: "0.2.0"
+    override val versionName: String = buildInfo.getProperty("versionName") ?: "1.0.0"
     override val versionCode: Int = buildInfo.getProperty("versionCode")?.toIntOrNull() ?: 1
     override val gitDescribe: String = buildInfo.getProperty("gitDescribe") ?: "unknown"
 }

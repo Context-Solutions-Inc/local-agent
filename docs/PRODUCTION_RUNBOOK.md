@@ -73,10 +73,11 @@ git status                   # must be clean — no uncommitted changes
 ```
 
 Version sources (kept in lockstep across desktop + mobile):
-- `appVersionName = "0.2.0"` — the **user-facing** version (About dialog on both
+- `appVersionName = "1.0.0"` — the **user-facing** version (About dialog on both
   platforms). Defined in `androidApp/build.gradle.kts` and `desktopApp/build.gradle.kts`.
-- **Desktop** `packageVersion = "1.0.0"` — the installer/upgrade-detection version only
-  (jpackage requires MAJOR > 0; deliberately decoupled from `0.2.0`).
+- **Desktop** `packageVersion = appVersionName` (`1.0.0`) — the installer/upgrade-detection
+  version, kept in lockstep (jpackage/macOS require MAJOR > 0, so the shared version stays
+  >= 1.x; produces e.g. `local-agent_1.0.0-1_amd64.deb`).
 - **Mobile** `versionCode = <git commit timestamp>` — auto-derived (`git log -1
   --format=%ct HEAD`), monotonic, so each tagged build sorts above the last for Play's
   increasing-versionCode requirement. `versionName = appVersionName`.
@@ -291,7 +292,7 @@ The **Brave Search key** is entered per-user via Settings (BYOK); not baked into
    - **Voice (optional):** toggle mic (dictation); trigger read-aloud on a reply.
    - **Headless:** quit the GUI, then `LOCALAGENT_HEADLESS=1 <path>/LocalAgent` → tray
      (graphical) or windowless (server). Stop with tray **Shut down** or Ctrl-C/SIGTERM.
-4. **Identity:** **About** → version `0.2.0` + expected git describe (no `-dirty`).
+4. **Identity:** **About** → version `1.0.0` + expected git describe (no `-dirty`).
 5. **Trust (signed builds):** macOS launches with no "unidentified developer" prompt; Windows shows the real publisher in UAC.
 
 ---
@@ -370,7 +371,7 @@ Release build characteristics:
   lazysodium/JNA) are load-bearing — see #70.
 - `applicationId = com.contextsolutions.localagent` (release has **no `.debug` suffix**, so
   it installs alongside a debug build).
-- `versionCode` = git commit timestamp (monotonic); `versionName` = `0.2.0`;
+- `versionCode` = git commit timestamp (monotonic); `versionName` = `1.0.0`;
   `BuildConfig.GIT_DESCRIBE` shows in About.
 - `minSdk` / `targetSdk` / `compileSdk` = **36**; ARM64-only.
 - 16 KB ELF page alignment is satisfied for every bundled native lib (libsodium /
@@ -432,7 +433,7 @@ Other per-user secrets (never baked into the build):
    - **Voice (optional):** dictation toggle; read-aloud on a reply.
    - **Relay pairing (optional):** scan the desktop's relay QR → chat + sync over the gateway.
      (Pairing exercises the JNA/lazysodium/Jackson paths most sensitive to R8 — verify it.)
-4. **Identity:** **About** → version `0.2.0` + expected git describe (no `-dirty`).
+4. **Identity:** **About** → version `1.0.0` + expected git describe (no `-dirty`).
 5. **Telemetry (if Firebase enabled):** confirm the consent screen appears; with no
    `google-services.json`, confirm the app still launches (no-op telemetry).
 

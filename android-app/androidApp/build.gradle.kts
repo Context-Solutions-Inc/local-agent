@@ -163,7 +163,7 @@ val gitCommitTimestamp: Int =
     providers.exec { commandLine("git", "log", "-1", "--format=%ct", "HEAD") }
         .standardOutput.asText.get().trim().toIntOrNull() ?: 1
 
-val appVersionName = "0.2.0"
+val appVersionName = "1.0.0"
 
 // Short HEAD SHA with a `-dirty` suffix when the working tree has uncommitted
 // edits. versionCode (above) only changes when HEAD changes, so during dev a
