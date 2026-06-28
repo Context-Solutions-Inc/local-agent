@@ -27,6 +27,15 @@ import kotlinx.coroutines.sync.withLock
  * launching. A duplicate (attacker-chosen) [LinkFrame.id] for a live stream is
  * rejected ([STATUS_DUPLICATE]) so a replay can't silently overwrite — and leak —
  * the prior [Job], nor kill the legit stream.
+ *
+ * Reconnect cleanup (PR #30, CLAUDE.md #77): the same pipe survives a peer going
+ * away and returning (mobile backgrounded → [LinkConnectionState.DOWN] → UP), so
+ * this server must drain its in-flight registry whenever the pipe leaves UP —
+ * symmetric with the client [FrameMultiplexer.failAllInFlight]. Without it an idle
+ * stream (the `SYNC_SUBSCRIBE` subscription blocks in `localChanges.collect` and
+ * never `send`s, so it never trips the peer-offline send failure that frees a slot)
+ * leaks one [maxConcurrentStreams] slot per background/foreground cycle until the
+ * cap is exhausted and every new stream — including CHAT — is 429'd.
  */
 class FrameDispatcher(
     private val pipe: RelayBytePipe,
@@ -47,6 +56,31 @@ class FrameDispatcher(
                 onFrame(frame)
             }
         }
+        scope.launch {
+            // Release all in-flight work whenever the peer is no longer reachable (DOWN/DISABLED),
+            // symmetric with FrameMultiplexer.failAllInFlight() on the client. The StateFlow replays
+            // its current value on collect; an initial UP (or a drain of an empty registry) is a
+            // harmless no-op. See the class doc (PR #30, CLAUDE.md #77).
+            pipe.state.collect { state ->
+                if (state != LinkConnectionState.UP) drainInFlight()
+            }
+        }
+    }
+
+    /**
+     * Cancel + forget every in-flight stream and reset the unary counter so a reconnect on the
+     * same pipe starts from an empty registry. Jobs are snapshotted + the maps cleared under the
+     * mutex, then cancelled outside the lock; each cancelled [runStream]'s own `finally` re-`remove`s
+     * under the mutex — a no-op on the already-cleared map.
+     */
+    private suspend fun drainInFlight() {
+        val jobs = mutex.withLock {
+            val snapshot = streamJobs.values.toList()
+            streamJobs.clear()
+            unaryInFlight = 0
+            snapshot
+        }
+        jobs.forEach { it.cancel() }
     }
 
     private suspend fun onFrame(frame: LinkFrame) {
@@ -118,7 +152,9 @@ class FrameDispatcher(
                         send(LinkFrame(id = frame.id, kind = FrameKind.RESPONSE, status = response.status, body = response.body))
                     }.onFailure { logger("unary ${frame.id} response send failed: ${it.message}") }
                 } finally {
-                    mutex.withLock { unaryInFlight-- }
+                    // coerceAtLeast(0): a concurrent drainInFlight() (peer went offline) may have
+                    // already reset the counter to 0, so a late decrement here must not go negative.
+                    mutex.withLock { unaryInFlight = (unaryInFlight - 1).coerceAtLeast(0) }
                 }
             }
         }

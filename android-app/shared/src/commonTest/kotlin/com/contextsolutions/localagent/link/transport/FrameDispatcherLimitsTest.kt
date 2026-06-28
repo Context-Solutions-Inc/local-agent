@@ -41,13 +41,17 @@ class FrameDispatcherLimitsTest {
         private val inbound = Channel<ByteArray>(Channel.UNLIMITED)
         val out = mutableListOf<LinkFrame>()
         val logs = mutableListOf<String>()
+        private val stateFlow = MutableStateFlow(LinkConnectionState.UP)
+
+        /** Drive the pipe's connection state (e.g. mobile backgrounding → DOWN → foreground → UP). */
+        fun setState(state: LinkConnectionState) { stateFlow.value = state }
 
         private val pipe = object : RelayBytePipe {
             override suspend fun send(bytes: ByteArray) {
                 out.add(LinkFrameCodec.decode(bytes))
             }
             override val inbound: Flow<ByteArray> = this@ServerRig.inbound.receiveAsFlow()
-            override val state: StateFlow<LinkConnectionState> = MutableStateFlow(LinkConnectionState.UP)
+            override val state: StateFlow<LinkConnectionState> = stateFlow
             override suspend fun close() {}
         }
 
@@ -69,9 +73,12 @@ class FrameDispatcherLimitsTest {
         fun framesFor(id: Long) = out.filter { it.id == id }
     }
 
-    /** Streams stay open until cancelled; unary calls optionally gate on [unaryGate]. */
+    /**
+     * Streams stay open until cancelled; unary calls optionally gate on [unaryGate]. The gate is a
+     * `var` so a test can re-arm it (a completed gate no longer suspends) between phases.
+     */
     private class ControllableHandler(
-        private val unaryGate: CompletableDeferred<Unit>? = null,
+        var unaryGate: CompletableDeferred<Unit>? = null,
     ) : LinkRequestHandler {
         override suspend fun handleUnary(request: LinkRequest): LinkResponse {
             unaryGate?.await()
@@ -192,6 +199,95 @@ class FrameDispatcherLimitsTest {
         assertTrue(rig.logs.any { it.startsWith("WARN stream 2 accepted (2/3)") }, "near-cap accept warns: ${rig.logs}")
         assertTrue(rig.logs.any { it.startsWith("WARN stream 3 accepted (3/3)") }, "cap-filling accept warns: ${rig.logs}")
         assertTrue(rig.logs.none { it.startsWith("WARN stream 1") }, "below-margin accept must not warn: ${rig.logs}")
+
+        scope.cancel()
+    }
+
+    @Test
+    fun pipeGoingDownDrainsStreamSlotsSoReconnectStartsClean() = runTest {
+        // The leak (PR #30): the same pipe survives a peer backgrounding (DOWN) and returning (UP).
+        // An idle stream never sends, so it never trips the peer-offline send failure that frees a
+        // slot — the registry must be drained on DOWN or it stays full and 429s every new stream.
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val rig = ServerRig(scope, ControllableHandler(), maxStreams = 2)
+
+        rig.request(1, LinkMethod.CHAT)
+        rig.request(2, LinkMethod.CHAT)
+        advanceUntilIdle()
+        // At cap: a third stream is rejected.
+        rig.request(3, LinkMethod.CHAT)
+        advanceUntilIdle()
+        assertEquals(FrameDispatcher.STATUS_OVERLOADED, rig.framesFor(3).single().status)
+
+        // Peer backgrounds then returns on the SAME pipe.
+        rig.setState(LinkConnectionState.DOWN)
+        advanceUntilIdle()
+        rig.setState(LinkConnectionState.UP)
+        advanceUntilIdle()
+
+        // The re-subscribe gets a fresh slot — not a 429.
+        rig.request(4, LinkMethod.CHAT)
+        advanceUntilIdle()
+        val fourth = rig.framesFor(4)
+        assertEquals(1, fourth.count { it.kind == FrameKind.STREAM_DATA }, "drained slot must accept a new stream")
+        assertTrue(fourth.none { it.kind == FrameKind.STREAM_ERROR }, "stream 4 must not be 429'd: ${rig.logs}")
+
+        scope.cancel()
+    }
+
+    @Test
+    fun repeatedBackgroundForegroundCyclesDoNotExhaustTheCap() = runTest {
+        // Reproduces the reported failure: ~8 background/foreground cycles each leaving an idle
+        // stream behind would brick CHAT with a 429. With drain-on-DOWN, CHAT is still accepted.
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val rig = ServerRig(scope, ControllableHandler(), maxStreams = 8)
+
+        var id = 0L
+        repeat(10) {
+            rig.request(++id, LinkMethod.SYNC_SUBSCRIBE) // the idle subscription stream
+            advanceUntilIdle()
+            rig.setState(LinkConnectionState.DOWN)
+            advanceUntilIdle()
+            rig.setState(LinkConnectionState.UP)
+            advanceUntilIdle()
+        }
+
+        val chatId = ++id
+        rig.request(chatId, LinkMethod.CHAT)
+        advanceUntilIdle()
+        val chat = rig.framesFor(chatId)
+        assertEquals(1, chat.count { it.kind == FrameKind.STREAM_DATA }, "CHAT must still open after 10 cycles")
+        assertTrue(chat.none { it.status == FrameDispatcher.STATUS_OVERLOADED }, "CHAT must not be 429'd: ${rig.logs}")
+
+        scope.cancel()
+    }
+
+    @Test
+    fun pipeGoingDownDuringInFlightUnaryResetsCounterWithoutUnderflow() = runTest {
+        // A DOWN resets unaryInFlight to 0; the released in-flight call's late decrement must
+        // coerceAtLeast(0) so the counter can't go negative and over-grant the cap afterwards.
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val handler = ControllableHandler(unaryGate = CompletableDeferred())
+        val rig = ServerRig(scope, handler, maxUnary = 1)
+
+        rig.request(1, LinkMethod.HEALTH) // in-flight, suspended on the gate (count = 1)
+        advanceUntilIdle()
+
+        rig.setState(LinkConnectionState.DOWN) // resets the counter to 0
+        advanceUntilIdle()
+        handler.unaryGate!!.complete(Unit) // the in-flight call completes → late decrement, must clamp at 0
+        advanceUntilIdle()
+        rig.setState(LinkConnectionState.UP)
+        advanceUntilIdle()
+
+        // Re-arm with a fresh (uncompleted) gate so the post-reconnect calls stay in-flight.
+        handler.unaryGate = CompletableDeferred()
+        // Exactly maxUnary=1 is grantable post-reconnect — no underflow over-granted extra slots.
+        rig.request(2, LinkMethod.HEALTH) // enters the handler (count 0 → 1), suspends — accepted
+        rig.request(3, LinkMethod.HEALTH) // over cap → rejected
+        advanceUntilIdle()
+        assertTrue(rig.framesFor(2).isEmpty(), "second call accepted (suspended on the gate)")
+        assertEquals(FrameDispatcher.STATUS_OVERLOADED, rig.framesFor(3).single().status)
 
         scope.cancel()
     }
