@@ -207,8 +207,9 @@ debug-signed "release" APK, silently.
 > ⚠️ **Mitigated — residual accepted.** `network_security_config.xml` keeps a global
 > `cleartextTrafficPermitted="true"` **by design** so a user can point the chat LLM at a bare
 > `http://` Ollama box on their LAN, but it **pins the fixed secret-bearing hosts to HTTPS-only** via
-> `<domain-config cleartextTrafficPermitted="false">` (`api.search.brave.com`, `huggingface.co`,
-> `github.com`, `*.githubusercontent.com`), and the Remote-LLM settings screen now shows an explicit
+> `<domain-config cleartextTrafficPermitted="false">` (`api.search.brave.com`,
+> `downloads.contextsolutions.com`, `github.com`, `*.githubusercontent.com`), and the Remote-LLM
+> settings screen now shows an explicit
 > **HTTP warning** (`SETTINGS_OLLAMA_HTTP_WARNING`) when the configured Ollama connection would be
 > cleartext. The code also refuses to send an API key over cleartext. The residual (a user who points
 > at an `http://` Ollama on a hostile network) is an informed, user-driven choice. (`a3ddfbf` / `b31cce0` / #56.)
