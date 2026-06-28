@@ -70,8 +70,8 @@ Versions are pinned in `android-app/gradle/libs.versions.toml`.
   Holds the dev-channel Brave key. **Required for a debug device build:** `assembleDebug` /
   `installDebug` fail fast at configuration time if it's missing (without it the installed app can't
   search until the user supplies their own Brave key). Release builds use BYOK and don't need it; unit
-  tests and the desktop build don't read it. **All AI models now download from the public R2 CDN with
-  no auth** (PR #22 — URLs + checksums are pinned in `ModelInventory`/`AndroidAuxModels`, so the old
+  tests and the desktop build don't read it. **All AI models now download from the public models CDN
+  (`downloads.contextsolutions.com/models`, PR #28) with no auth** (PR #22 — URLs + checksums are pinned in `ModelInventory`/`AndroidAuxModels`, so the old
   `MODEL_*` / `HF_AUTH_TOKEN` keys are gone; HuggingFace is no longer used).
 
   | Key | Purpose |
@@ -224,7 +224,7 @@ pre-stage them onto the device:
 ```bash
 # Fetch into a repo-root models/ dir (gitignored).
 mkdir -p models
-base=https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev
+base=https://downloads.contextsolutions.com/models
 for f in preflight_memory_shared_v1.0.0_int8.tflite all-MiniLM-L6-v2_int8.tflite; do
   curl -L --output-dir models -O --progress-bar "$base/$f"
 done

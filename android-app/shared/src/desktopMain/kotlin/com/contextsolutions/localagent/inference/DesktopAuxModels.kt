@@ -19,8 +19,8 @@ import java.util.Properties
  *
  * **Hosting endpoint defaults to the CDN, overridable at compile time.** The sha256
  * + byte size below pin the EXACT artifacts (the downloader verifies both). The
- * hosting URL defaults to [DEFAULT_BASE_URL] (the R2 CDN, so a normal build
- * auto-downloads on first run); an operator can still point at a different host via
+ * hosting URL defaults to [DEFAULT_BASE_URL] (the downloads.contextsolutions.com CDN
+ * `/models` path, so a normal build auto-downloads on first run); an operator can still point at a different host via
  * the `auxModelBaseUrl` Gradle property (`-PauxModelBaseUrl=https://host/path`, or
  * gradle.properties), baked into `desktop_build_info.properties` by :desktopApp and
  * read back by [baseUrl] (PR #3).
@@ -44,12 +44,12 @@ object DesktopAuxModels {
     const val EMBEDDER_SIZE_BYTES: Long = 91_078_619L
 
     /**
-     * Default hosting base URL — the R2 CDN that serves the aux models, used when
-     * `auxModelBaseUrl` isn't supplied at build time (PR #3). A normal build is
+     * Default hosting base URL — the downloads.contextsolutions.com CDN (`/models`
+     * path) that serves the aux models, used when `auxModelBaseUrl` isn't supplied at build time (PR #3). A normal build is
      * therefore "configured" ([isEndpointConfigured]) and auto-downloads on first
      * run; override with `-PauxModelBaseUrl=https://your-host/path` to point elsewhere.
      */
-    const val DEFAULT_BASE_URL: String = "https://pub-f6c21df457bd434ebe799585697ff4b6.r2.dev"
+    const val DEFAULT_BASE_URL: String = "https://downloads.contextsolutions.com/models"
 
     fun classifierModel(baseDir: File = DesktopAppDirs.dataDir()): File =
         resolve(CLASSIFIER_ENV, baseDir, CLASSIFIER_FILENAME)

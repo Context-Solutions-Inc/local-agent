@@ -135,8 +135,8 @@ OS speech-dispatcher modules remain the non-neural fallback.
 
 - **Android STT/TTS:** `androidApp/.../voice/{AndroidTtsSpeaker, SpeechDictation}.kt`;
   `ChatSpeaker` / `Dictation` seams; `VoiceCommand`, `MarkdownToPlainText`.
-- **Desktop STT (Vosk):** `VoskModelStore` — auto-downloads `vosk.tar.gz` from the public R2
-  CDN (no auth) and extracts via system `tar` (PR #22; was a `.zip` from `alphacephei.com`
+- **Desktop STT (Vosk):** `VoskModelStore` — auto-downloads `vosk.tar.gz` from the public models
+  CDN (`downloads.contextsolutions.com/models`, no auth) and extracts via system `tar` (PR #22; was a `.zip` from `alphacephei.com`
   unpacked with `java.util.zip`). Desktop `Dictation` actual.
 - **Desktop TTS:** `desktopApp/.../voice/{DesktopTtsSpeaker, DesktopTtsPreferences,
   DesktopTtsVoices, PiperSpeechSynthesizer, PiperBinaryStore, PiperVoiceStore,

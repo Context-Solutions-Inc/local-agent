@@ -106,13 +106,14 @@ class VoskModelStore(
         const val ENV_OVERRIDE = "LOCALAGENT_VOSK_MODEL"
         const val MODEL_DIR_NAME = "vosk"
 
-        // Small English Vosk model (~40 MB) mirrored to the public R2 CDN (PR #22), no auth.
-        // The archive packs a single `vosk/` root (matching MODEL_DIR_NAME); sha256/size are
-        // the verified values of the hosted `vosk.tar.gz`.
+        // Small English Vosk model (~40 MB, vosk-model-small-en-us) mirrored to the public
+        // downloads CDN (PR #22/#28), no auth. The archive packs a single `vosk/` root
+        // (matching MODEL_DIR_NAME); sha256/size are the verified values of the hosted
+        // `vosk.tar.gz` (re-pinned to the re-gzipped archive served from downloads.contextsolutions.com).
         val SMALL_EN = DesktopModelSpec(
             filename = "vosk.tar.gz",
             downloadUrl = "${com.contextsolutions.localagent.inference.DesktopAuxModels.DEFAULT_BASE_URL}/vosk.tar.gz",
-            sha256 = "c1d9bfb8e0f27bebb7676b24cbfbf276572a2a74b5f0edbca90aea582b708e63",
+            sha256 = "a1e30e411a7202aa1755d3d477e4fcea56a43a0d331b357cb80683d0e4ef68bc",
             sizeBytes = 41_207_126,
         )
     }
