@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.voice
 
 import com.contextsolutions.localagent.platform.DesktopDiag
 import com.contextsolutions.localagent.inference.DesktopAppDirs
+import com.contextsolutions.localagent.inference.DesktopAuxModels
 import com.contextsolutions.localagent.inference.DesktopModelDownloader
 import com.contextsolutions.localagent.inference.DesktopModelInventory
 import com.contextsolutions.localagent.inference.DesktopModelSpec
@@ -15,9 +16,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * A downloadable Piper neural voice (PR #66): the ONNX weights + their `.onnx.json`
- * config, fetched from the `rhasspy/piper-voices` HF repo. [sampleRate] feeds the JVM
- * audio line ([PiperSpeechSynthesizer]); Piper auto-loads the config because it sits
- * beside the model named `<onnx>.json`.
+ * config, fetched from the downloads.contextsolutions.com CDN (originally sourced from
+ * the `rhasspy/piper-voices` repo). [sampleRate] feeds the JVM audio line
+ * ([PiperSpeechSynthesizer]); Piper auto-loads the config because it sits beside the
+ * model named `<onnx>.json`.
  */
 data class PiperVoiceSpec(
     val id: String,
@@ -37,15 +39,18 @@ data class PiperVoiceSpec(
 
 /** The bundled voice catalog. One curated en-US voice for now; structured to add more. */
 object PiperVoices {
-    private const val HF = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US"
+    // downloads.contextsolutions.com CDN base (`/models` path, files served flat), shared
+    // with the aux models + Vosk. Upload these two files there (same bytes, so the sha256
+    // pins below still match) — see DesktopAuxModels for the host.
+    private val CDN = DesktopAuxModels.DEFAULT_BASE_URL
 
     val LESSAC_MEDIUM = PiperVoiceSpec(
         id = "en_US-lessac-medium",
         label = "Lessac — neural (en-US)",
-        onnxUrl = "$HF/lessac/medium/en_US-lessac-medium.onnx",
+        onnxUrl = "$CDN/en_US-lessac-medium.onnx",
         onnxSha256 = "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
         onnxSizeBytes = 63_201_294,
-        jsonUrl = "$HF/lessac/medium/en_US-lessac-medium.onnx.json",
+        jsonUrl = "$CDN/en_US-lessac-medium.onnx.json",
         jsonSha256 = "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
         jsonSizeBytes = 4_885,
         sampleRate = 22_050,

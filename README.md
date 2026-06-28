@@ -117,13 +117,13 @@ git clone --recurse-submodules https://github.com/Context-Solutions-Inc/local-ag
 cd local-agent/android-app          # the Gradle project lives here
 ```
 
-**Models download automatically on first run** — the small pre-flight classifier + MiniLM embedder
-from the CDN, and the Gemma LLM from Hugging Face — so a fresh checkout needs nothing extra. To
+**Models download automatically on first run** — the pre-flight classifier, MiniLM embedder, and
+Gemma LLM all download from the CDN (no auth) — so a fresh checkout needs nothing extra. To
 pre-stage them and skip the first-run downloads (e.g. for offline dev or fast device installs), see
 [docs/BUILD.md](docs/BUILD.md) "Sideloading models".
 
 **Android** (needs `android-app/secrets.properties` — copy `secrets.properties.example` and fill in a
-[Brave key](https://brave.com/search/api/) + [HF token](https://huggingface.co/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
+[Brave key](https://brave.com/search/api/); the device build fails fast without it). Use `adb` from the [Android SDK](https://developer.android.com/tools/releases/platform-tools) to connect to your device.
 
 ```bash
 adb devices

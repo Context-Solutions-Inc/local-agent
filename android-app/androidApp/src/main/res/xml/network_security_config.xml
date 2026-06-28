@@ -7,15 +7,15 @@
   no TLS. That IP is configured at runtime (Settings → Ollama server), so it can't
   be enumerated as a per-domain entry.
 
-  BUT the app's fixed, secret-bearing endpoints (Brave Search key, Hugging Face
-  token, model/binary downloads) must never be downgraded to cleartext by an
-  on-path attacker rewriting a URL to http://. Pin those hosts to HTTPS-only with
-  an explicit domain-config so the broad base-config can't unprotect them.
+  BUT the app's fixed, secret-bearing / integrity-critical endpoints (Brave Search
+  key, model/binary downloads) must never be downgraded to cleartext by an on-path
+  attacker rewriting a URL to http://. Pin those hosts to HTTPS-only with an explicit
+  domain-config so the broad base-config can't unprotect them.
 -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">api.search.brave.com</domain>
-        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">downloads.contextsolutions.com</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
     </domain-config>
