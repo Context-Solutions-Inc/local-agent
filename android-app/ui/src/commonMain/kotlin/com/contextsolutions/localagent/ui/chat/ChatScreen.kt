@@ -581,14 +581,14 @@ fun ChatScreen(
                     .weight(1f),
             ) {
                 // Bubble width cap. Narrow windows (phones, narrow desktop) keep the
-                // mobile-tuned 320 dp; wider desktop windows let bubbles grow to a
-                // fraction of the list width, capped for line-length readability so
-                // they don't span the whole screen. `maxWidth` here is the list width
-                // (window minus the 16 dp side gutters).
+                // mobile-tuned 320 dp; wider desktop windows let bubbles grow
+                // proportionally with the window (no upper cap) so they keep filling
+                // the space as the window widens, with only a 480 dp floor. `maxWidth`
+                // here is the list width (window minus the 16 dp side gutters).
                 val bubbleMaxWidth: Dp = if (maxWidth < 600.dp) {
                     320.dp
                 } else {
-                    (maxWidth * 0.72f).coerceIn(480.dp, 760.dp)
+                    (maxWidth * 0.72f).coerceAtLeast(480.dp)
                 }
             if (isDesktopPlatform) {
                 // Desktop: a plain Column + verticalScroll instead of LazyColumn.

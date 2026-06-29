@@ -159,7 +159,7 @@
   "settings.link.status_unreachable": "Puerta de enlace no accesible",
   "settings.ollama.header": "Conexión de LLM remoto",
   "settings.ollama.disabled_by_link": "Desactivado mientras la conexión del agente de escritorio está activa.",
-  "settings.ollama.desc": "Ejecuta el modelo de chat en un servidor LLM remoto en lugar de en este dispositivo. El clasificador, la búsqueda y la memoria siempre permanecen en el dispositivo. Déjalo en blanco para usar el modelo integrado.",
+  "settings.ollama.desc": "Ejecuta el modelo de chat en un servidor LLM remoto en lugar de en este dispositivo. El clasificador, la búsqueda y la memoria siempre permanecen en el dispositivo.",
   "settings.ollama.desc_note": "Desactivada de forma predeterminada, y puede usarse para apuntar a un servidor LLM dedicado, ya sea en tu red privada local o en la nube.",
   "settings.ollama.ssl_locked": "Usar SSL (https): obligatorio para OpenAI-compatible",
   "settings.ollama.ssl_locked_by_key": "SSL es obligatorio mientras haya una clave de API guardada. Borre la clave guardada para desactivarlo.",
