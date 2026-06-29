@@ -278,8 +278,7 @@ object EnglishStrings {
         ),
         StringKeys.SETTINGS_OLLAMA_DESC to Simple(
             "Run the chat model on a remote LLM server instead of this device. The " +
-                "classifier, search and memory always stay on-device. Leave blank to use " +
-                "the built-in model.",
+                "classifier, search and memory always stay on-device.",
         ),
         StringKeys.SETTINGS_OLLAMA_DESC_NOTE to Simple(
             "Off by default, and can be used to point to a dedicated LLM server either " +
