@@ -175,6 +175,33 @@ Watch for `[Dictation]` lines: `no audio for …ms — line appears stale, forci
 
 ---
 
+### Desktop STT — macOS libvosk `set_grm` symbol workaround (PR #34)
+
+`com.alphacephei:vosk:0.3.45` (the last Vosk release) ships, inside the one jar,
+per-OS JNI natives — and its **macOS** `darwin/libvosk.dylib` (built Dec 2022,
+universal x86_64+arm64) is older than the Linux/Windows ones and is **missing the
+`vosk_recognizer_set_grm` symbol** (the newest C-API function; the darwin build
+predates it). The Java binding `org.vosk.LibVosk` declares every C function as a
+`public static native` and registers them **eagerly** via JNA direct mapping
+(`Native.register(LibVosk.class, "vosk")` in its static initializer), so JNA
+resolves *all* of them at class-load. On macOS that aborts with
+`Error looking up function 'vosk_recognizer_set_grm': dlsym(...): symbol not found`,
+tearing down the whole binding before any audio is captured — so dictation is
+dead on macOS even though we only ever use the no-grammar `Recognizer(Model,
+float)` and never call `setGrammar`. Linux/Windows are fine (their bundled
+natives export the symbol); there's no newer release / macOS wheel / brew / conda
+build to bump to.
+
+**Fix:** a shadow `org.vosk.LibVosk`
+(`shared/src/desktopMain/java/org/vosk/LibVosk.java`) that is faithful to upstream
+0.3.45 **except** it omits the unused `vosk_recognizer_set_grm` native
+declaration, so JNA never looks the missing symbol up. Gradle puts the project
+source set's compiled output ahead of dependency jars on the classpath, so this
+shadows the jar's class on every desktop OS. **Pinned to vosk 0.3.45** — if that
+version is bumped, re-diff against upstream `LibVosk` or drop the shadow if the
+macOS dylib is fixed. Guarded by `LibVoskShadowTest` (`shared/desktopTest`),
+which runs on the macOS CI runner (`desktop-test.yml`).
+
 ## Key files
 
 - **Android STT/TTS:** `androidApp/.../voice/{AndroidTtsSpeaker, SpeechDictation}.kt`;
@@ -182,6 +209,7 @@ Watch for `[Dictation]` lines: `no audio for …ms — line appears stale, forci
 - **Desktop STT (Vosk):** `VoskModelStore` — auto-downloads `vosk.tar.gz` from the public models
   CDN (`downloads.contextsolutions.com/models`, no auth) and extracts via system `tar` (PR #22; was a `.zip` from `alphacephei.com`
   unpacked with `java.util.zip`). Desktop `Dictation` actual.
+  **macOS shadow:** `shared/src/desktopMain/java/org/vosk/LibVosk.java` (+ `LibVoskShadowTest`) — see above.
 - **Desktop TTS:** `desktopApp/.../voice/{DesktopTtsSpeaker, DesktopTtsPreferences,
   DesktopTtsVoices, PiperSpeechSynthesizer, PiperBinaryStore, PiperVoiceStore,
   PiperRelease}.kt`; `DesktopVoiceConfig`, `PiperState`.

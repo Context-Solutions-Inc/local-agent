@@ -1,0 +1,68 @@
+name: Desktop test
+
+# Fast per-PR gate for the Compose Desktop app. This is the counterpart to
+# desktop-package.yml (which builds the .deb/.rpm/.dmg/.pkg/.msi/.exe installers
+# and runs ONLY on workflow_dispatch / v* tags because jpackage is slow and the
+# artifacts are large).
+#
+# This workflow instead compiles + unit-tests the desktop code on every PR:
+#   :shared:desktopTest          → the desktop unit suite (shared/src/desktopTest)
+#   :desktopApp:createDistributable → a compile+assemble smoke (app-image), far
+#                                     cheaper than packageDistributionForCurrentOS
+#                                     since it skips the jpackage installer step.
+#
+# Matrix is macos-latest (the Apple-Silicon path the team now develops on) plus
+# ubuntu-latest as cheap insurance; fail-fast: false so one OS failing still
+# reports the other. No artifact upload — this is a gate, not a release build.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: desktop-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macos
+          - os: ubuntu-latest
+            label: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: android-app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        # Matches jvmToolchain(17) in desktopApp/build.gradle.kts.
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run desktop tests and build smoke
+        # :shared resolves the relay SDK (com.contextsolutions.securegateway:*)
+        # from secure-gateway's private GitHub Packages registry, so each runner
+        # needs read:packages auth via SECURE_GATEWAY_PAT (the built-in
+        # cross-repo token can't read it). Dependency verification
+        # (gradle/verification-metadata.xml) pins every artifact, incl. the
+        # per-OS Skiko/Compose natives this matrix resolves.
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
+        run: ./gradlew :shared:desktopTest :desktopApp:createDistributable --no-daemon --stacktrace

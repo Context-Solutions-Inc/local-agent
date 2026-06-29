@@ -17,6 +17,7 @@ On demand (when the work touches that area):
 - `docs/DESKTOP_PORT_PLAN.md` / `docs/DESKTOP_LLAMA_SERVER_PLAN.md` — desktop port + LLM runtime
 - `docs/JOBS_PLAN.md` §0 — jobs feature as-built (#49–52)
 - `docs/DESKTOP_PACKAGING.md` — desktop build/install/headless deploy (#53)
+- `docs/MACOS_BUILD.md` — macOS (Apple Silicon) local build/run/test + the per-PR `desktop-test.yml` CI gate (PR #34)
 - `docs/VOICE_IO.md` — voice dictation (STT) + read-aloud (TTS), Android + desktop/Piper (#42, #48)
 - `docs/ANYWHERE_ACCESS_PLAN.md` — paid relay subscription as-built + local E2E test steps (#54, PR #74 / secure-gateway PR #6)
 - `docs/preflight_memory_shared_v1.0.0_MODEL_CARD.md` — classifier eval + weaknesses
