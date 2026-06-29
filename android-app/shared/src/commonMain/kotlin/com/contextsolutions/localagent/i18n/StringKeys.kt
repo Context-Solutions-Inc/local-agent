@@ -315,6 +315,8 @@ object StringKeys {
     const val DOWNLOAD_ACTION_PAUSE = "download.action_pause"
     const val DOWNLOAD_ACTION_RETRY_WIFI = "download.action_retry_wifi"
     const val DOWNLOAD_ACTION_RETRY_CELLULAR = "download.action_retry_cellular"
+    // Neutral retry (desktop download gate — no metered/unmetered split).
+    const val DOWNLOAD_ACTION_RETRY = "download.action_retry"
     const val DOWNLOAD_ERROR_NETWORK = "download.error_network"
     const val DOWNLOAD_ERROR_HTTP_CLIENT = "download.error_http_client"
     const val DOWNLOAD_ERROR_HTTP_SERVER = "download.error_http_server"
@@ -715,7 +717,7 @@ object StringKeys {
         DOWNLOAD_SPEC_INCOMPLETE, DOWNLOAD_STATE_IDLE, DOWNLOAD_STATE_QUEUED,
         DOWNLOAD_STATE_STARTING, DOWNLOAD_STATE_COMPLETED, DOWNLOAD_PROGRESS, DOWNLOAD_FAILED,
         DOWNLOAD_ACTION_WIFI, DOWNLOAD_ACTION_CELLULAR, DOWNLOAD_ACTION_PAUSE,
-        DOWNLOAD_ACTION_RETRY_WIFI, DOWNLOAD_ACTION_RETRY_CELLULAR,
+        DOWNLOAD_ACTION_RETRY_WIFI, DOWNLOAD_ACTION_RETRY_CELLULAR, DOWNLOAD_ACTION_RETRY,
         DOWNLOAD_ERROR_NETWORK, DOWNLOAD_ERROR_HTTP_CLIENT, DOWNLOAD_ERROR_HTTP_SERVER,
         DOWNLOAD_ERROR_STORAGE, DOWNLOAD_ERROR_CHECKSUM, DOWNLOAD_ERROR_MISCONFIGURED,
         // ── Memory (UI) ──

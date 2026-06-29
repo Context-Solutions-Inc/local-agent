@@ -285,6 +285,7 @@
   "download.action_pause": "Pausar",
   "download.action_retry_wifi": "Reintentar (WiFi)",
   "download.action_retry_cellular": "Reintentar (permitir datos móviles)",
+  "download.action_retry": "Reintentar",
   "download.error_network": "Error de red: comprueba tu conexión.",
   "download.error_http_client": "El servidor rechazó la solicitud. Inténtalo de nuevo más tarde.",
   "download.error_http_server": "Problema del servidor: inténtalo de nuevo más tarde.",

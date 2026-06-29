@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PR #38 — FileProvider paths for camera capture. The temp JPEG lives in
+     cacheDir (File.createTempFile(..., context.cacheDir)); cache-path "." covers
+     the whole cache dir so getUriForFile can resolve it. -->
+<paths>
+    <cache-path name="camera_captures" path="." />
+</paths>

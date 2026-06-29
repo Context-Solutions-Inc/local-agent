@@ -54,6 +54,9 @@ class VoskModelStore(
     fun resolveExistingOrNull(): String? =
         envOverride()?.absolutePath ?: modelDir.takeIf(::isModelDir)?.absolutePath
 
+    /** Known download size of the bundled speech model (first-run gate progress weight, PR #38). */
+    val downloadSizeBytes: Long get() = SMALL_EN.sizeBytes
+
     /**
      * Returns the path to a ready Vosk model dir, downloading + extracting it on first
      * call. Idempotent. Returns null (never throws) when the model can't be obtained —
