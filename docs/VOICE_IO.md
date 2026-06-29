@@ -131,28 +131,40 @@ OS speech-dispatcher modules remain the non-neural fallback.
 
 ### Desktop STT survives suspend/resume (debug PR, draft)
 
-On Linux a laptop suspend reclaims the microphone `TargetDataLine`; on resume the line is
-stale. The original `VoskDictation` capture loop opened the line once and did
-`if (read <= 0) continue` forever, so after a resume Vosk got no audio yet `isListening`
-stayed `true` — the mic button looked active but nothing transcribed, with no log.
+On Linux a laptop suspend reclaims the microphone device; on resume the JVM's
+`javax.sound.sampled` hands back a `TargetDataLine` that opens "successfully" but returns
+`read() == 0` **forever** — the cached device handle is stale and reopening it does **not**
+recover (confirmed on-device: the reopened line + a force-close watchdog still only saw
+empty reads). The original capture loop did `if (read <= 0) continue` forever, so after a
+resume Vosk got no audio yet `isListening` stayed `true` — the mic button looked active but
+nothing transcribed, with no log.
 
-`VoskDictation` now runs capture as **reopenable per-mic sessions**:
+Two parts to the fix:
 
-- A pure `classifyRead(read, consecutiveZero)` maps a `TargetDataLine.read()` result to
-  `Data` / `KeepWaiting` / `Stale`. `read == -1` (the suspend/resume signature) and a long
-  run of empty reads are `Stale`; a read that throws is also stale.
-- On `Stale`, the inner session returns and the outer loop **reopens the mic** (keeping the
-  `Model`/`Recognizer` alive, `recognizer.reset()` between sessions) with bounded backoff
-  (300 ms → 3 s). A configurable max of consecutive *open* failures disables dictation with
-  a log so a permanently-gone device can't spin forever. `isListening` drops during the gap
-  and flips back true only once a line reopens, so the button reflects true capture state.
-- A **stall watchdog** coroutine is the catch-all for the "read blocks forever" mode: if no
-  audio frame arrives for ~3 s while listening, it `close()`s the line from another thread,
-  which unblocks the wedged `read()` → classified stale → recovery.
-- `VoskDictation`'s `logger` writes to `System.err` un-gated, so recovery/stall lines are
-  visible even in a packaged build (per-frame chatter stays behind `DesktopDiag.verbose`).
-  Watch for `[Dictation]` lines: `no audio for …ms — line appears stale, forcing reopen`,
-  `microphone line went stale — reopening in …ms`, `microphone open — dictation listening`.
+- **Capture source.** On Linux, capture now runs through a spawned recorder CLI
+  (`parec` → `arecord`, auto-detected via `which`) piping raw S16LE/16 kHz/mono into Vosk —
+  the same `ProcessBuilder` + raw-PCM pattern as `PiperSpeechSynthesizer`. A **fresh process
+  per session** binds to the *current* default source, so it survives suspend/resume.
+  `parec` covers PulseAudio and PipeWire (via `pipewire-pulse`); `arecord` is the ALSA
+  fallback. macOS/Windows (and Linux with no recorder CLI) keep the `TargetDataLine` path.
+  Recorder pipes can split mid-sample, so the loop carries a trailing odd byte to keep
+  16-bit frames aligned.
+- **Recovery loop + watchdog.** Capture is split into reopenable per-mic sessions. A pure
+  `classifyRead(read, consecutiveZero)` maps a read result to `Data` / `KeepWaiting` /
+  `Stale` (recorder EOF / `-1` / a long run of empty line reads ⇒ `Stale`; a throwing read
+  too). On `Stale` the outer loop **reopens** (keeping `Model`/`Recognizer` alive,
+  `recognizer.reset()` between sessions) with bounded backoff (300 ms → 3 s); a session that
+  reads **no** audio counts toward a give-up guard (`MAX_BARREN_SESSIONS`) so a gone device
+  can't respawn forever. `isListening` drops during the gap and flips back true only on
+  reopen. A **stall watchdog** force-`close()`s a source that has delivered no audio for ~3 s
+  — the catch-all for a read wedged with no return value (closing it from another thread
+  unblocks the read → classified stale → recovery).
+
+`VoskDictation`'s `logger` writes to `System.err` un-gated, so recovery/stall lines are
+visible even in a packaged build (per-frame chatter stays behind `DesktopDiag.verbose`).
+Watch for `[Dictation]` lines: `capturing via recorder: parec`, `no audio for …ms — source
+appears stale, forcing reopen`, `microphone source went stale — reopening in …ms`,
+`microphone open — dictation listening`.
 
 `classifyRead`/`backoffMs` are unit-tested hardware-free in `VoskReadClassifierTest`.
 
