@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
@@ -836,6 +837,13 @@ fun ChatScreen(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .widthIn(max = 240.dp)
+                                // Bound the height too: a portrait (taller-than-wide) photo
+                                // would otherwise render ~320-420dp tall and, as a fixed-height
+                                // sibling of the text field in this non-scrolling Column, push
+                                // the input off-screen once imePadding() shrinks the column for
+                                // the keyboard. The staged chip stays small; the sent bubble
+                                // (UserBubble) keeps full height since it lives in the scroll area.
+                                .heightIn(max = 160.dp)
                                 .clip(RoundedCornerShape(8.dp)),
                         )
                     }

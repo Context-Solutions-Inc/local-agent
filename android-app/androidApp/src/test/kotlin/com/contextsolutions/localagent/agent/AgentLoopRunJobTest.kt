@@ -275,5 +275,6 @@ class AgentLoopRunJobTest {
         ) = Unit
         override suspend fun runsForJob(jobId: String): List<JobRun> = emptyList()
         override suspend fun deleteRunsForJob(jobId: String) = Unit
+        override suspend fun wipeLocal() = Unit
     }
 }
