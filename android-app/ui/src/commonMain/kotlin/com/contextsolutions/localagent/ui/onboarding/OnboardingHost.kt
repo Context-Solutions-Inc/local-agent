@@ -36,9 +36,6 @@ fun OnboardingHost(
                 onContinue = viewModel::confirmLanguage,
             )
         }
-        OnboardingStep.Disclosure -> DisclosureScreen(
-            onContinue = viewModel::acknowledgeDisclosure,
-        )
         OnboardingStep.Complete -> {
             // No-op — LaunchedEffect above routes us out of the host.
         }

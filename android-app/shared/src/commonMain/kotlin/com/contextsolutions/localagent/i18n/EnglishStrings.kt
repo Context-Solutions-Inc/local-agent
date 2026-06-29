@@ -219,11 +219,18 @@ object EnglishStrings {
                 "crash reports so we can fix what breaks. What we don't: " +
                 "your queries, your memories, conversation content, any identifier.",
         ),
+        StringKeys.SETTINGS_TELEMETRY_DESC_NOTE to Simple(
+            "Off by default, and only used for application troubleshooting if needed.",
+        ),
         StringKeys.SETTINGS_BRAVE_HEADER to Simple("Brave Search API"),
         StringKeys.SETTINGS_BRAVE_DESC_PRE to Simple(
             "The assistant searches the web through Brave Search. Get a key at ",
         ),
         StringKeys.SETTINGS_BRAVE_DESC_POST to Simple(" — the free tier is enough for personal use."),
+        StringKeys.SETTINGS_BRAVE_DESC_PRIVACY to Simple(
+            "Off by default, and sent to Brave Search API only when the Local Agent " +
+                "needs current or recent information.",
+        ),
         StringKeys.SETTINGS_BRAVE_STATUS_USER to Simple("Your key is set."),
         StringKeys.SETTINGS_BRAVE_STATUS_DEV to Simple(
             "No user key — using bundled dev key (debug build only).",
@@ -242,6 +249,11 @@ object EnglishStrings {
         StringKeys.SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE to Simple(
             "Connect the Local Agent app on your phone to this desktop from anywhere. " +
                 "Subscribe to anywhere access to show a pairing code here.",
+        ),
+        StringKeys.SETTINGS_LINK_DESC_SYNC to Simple(
+            "Off by default, and used to synchronize the mobile and desktop agents " +
+                "using a secure, end-to-end encryption with no access to the data " +
+                "from any server.",
         ),
         StringKeys.SETTINGS_LINK_SUBSCRIPTION_SETTINGS to Simple("Subscription Settings"),
         StringKeys.SETTINGS_LINK_UPGRADE to Simple("Upgrade to anywhere connection"),
@@ -268,6 +280,10 @@ object EnglishStrings {
             "Run the chat model on a remote LLM server instead of this device. The " +
                 "classifier, search and memory always stay on-device. Leave blank to use " +
                 "the built-in model.",
+        ),
+        StringKeys.SETTINGS_OLLAMA_DESC_NOTE to Simple(
+            "Off by default, and can be used to point to a dedicated LLM server either " +
+                "on your local private network or in the cloud.",
         ),
         StringKeys.SETTINGS_OLLAMA_SSL_LOCKED to Simple(
             "Use SSL (https) — required for OpenAI-compatible",
@@ -341,8 +357,8 @@ object EnglishStrings {
         // ── Chat ──
         StringKeys.CHAT_EMPTY_TITLE to Simple("Hello."),
         StringKeys.CHAT_EMPTY_BODY to Simple(
-            "Ask anything. The assistant runs on your device — your messages stay here. " +
-                "It'll search the web automatically when it needs current info.",
+            "The Local Agent runs on your phone or computer - your conversations " +
+                "stay confidential and private.",
         ),
         StringKeys.CHAT_INPUT_HINT to Simple("Ask anything…"),
         StringKeys.CHAT_SEND to Simple("Send"),
@@ -431,36 +447,13 @@ object EnglishStrings {
             "Select the language for the app and the assistant's replies. " +
                 "You can change it anytime in Settings.",
         ),
-        StringKeys.ONBOARDING_DISCLOSURE_TITLE to Simple("Your assistant. On devices you control."),
-        StringKeys.ONBOARDING_DISCLOSURE_BODY to Simple(
-            "The Local Agent runs AI models locally on devices you control. " +
-                "Your conversations, tasks, memories and jobs stay on your device " +
-                "and are not sent to 3rd party providers for processing.\n\n" +
-                "The Local Agent can be synchronized with a desktop or laptop you " +
-                "control to utilize a more powerful computer with more memory and " +
-                "GPU processing, but this is optional. When the mobile agent is " +
-                "linked to a desktop agent, data is synchronized using secure " +
-                "end-to-end encryption with no read or write access to the data " +
-                "from any server.",
-        ),
-        StringKeys.ONBOARDING_DISCLOSURE_LEAVES_HEADER to Simple("What does leave the device:"),
-        StringKeys.ONBOARDING_DISCLOSURE_LEAVES_BODY to Simple(
-            "•  Web search queries — off by default, and sent to Brave Search API " +
-                "only when the Local Agent needs current or recent information.\n\n" +
-                "•  Remote LLM Connection — off by default, but can be used to point " +
-                "to a dedicated LLM server either on your local private network or in " +
-                "the cloud.\n\n" +
-                "•  Optional anonymous telemetry data — off by default, and only used " +
-                "for application troubleshooting.",
-        ),
-        StringKeys.ONBOARDING_DISCLOSURE_ACKNOWLEDGE to Simple("I understand."),
 
         // ── Onboarding — model download ──
         StringKeys.DOWNLOAD_TITLE to Simple("Set up the on-device models"),
         StringKeys.DOWNLOAD_INTRO to Simple(
             "One-time download of the AI models for multi-modal question " +
-                "answering, summarization, reasoning, search classification, " +
-                "and memory embeddings.",
+                "answering, summarization, reasoning, search filters and " +
+                "saving memories.",
         ),
         StringKeys.DOWNLOAD_MODELS_HEADER to Simple("Models to download:"),
         StringKeys.DOWNLOAD_TOTAL to Simple("Total download: %1\$s"),

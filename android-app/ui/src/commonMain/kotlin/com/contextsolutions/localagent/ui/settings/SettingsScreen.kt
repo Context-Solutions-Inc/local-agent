@@ -361,6 +361,12 @@ fun SettingsScreen(
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                tr(StringKeys.SETTINGS_BRAVE_DESC_PRIVACY),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
             Spacer(Modifier.height(8.dp))
             KeyStatusRow(state)
             Spacer(Modifier.height(8.dp))
@@ -484,6 +490,12 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                tr(StringKeys.SETTINGS_TELEMETRY_DESC_NOTE),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
 
             // Debug-only: bypass the 24h periodic schedule and fire one
             // telemetry upload immediately. Watch `adb logcat -s
@@ -602,6 +614,12 @@ private fun DesktopLinkSection(
             },
             style = MaterialTheme.typography.bodySmall,
         )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            tr(StringKeys.SETTINGS_LINK_DESC_SYNC),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
         // PR #74 — the upgrade / subscription-settings link. Hidden unless the
         // desktop has a configured gateway (showUpgrade); label + action flip once
         // a subscription is active.
@@ -638,6 +656,12 @@ private fun DesktopLinkSection(
         Text(
             tr(StringKeys.SETTINGS_LINK_MOBILE_DESC),
             style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            tr(StringKeys.SETTINGS_LINK_DESC_SYNC),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
         )
         Spacer(Modifier.height(8.dp))
         DesktopLinkStatusRow(state)
@@ -756,6 +780,12 @@ private fun OllamaServerSection(
     Text(
         tr(StringKeys.SETTINGS_OLLAMA_DESC),
         style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        tr(StringKeys.SETTINGS_OLLAMA_DESC_NOTE),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
     )
     Spacer(Modifier.height(8.dp))
     OllamaStatusRow(state, serverType)

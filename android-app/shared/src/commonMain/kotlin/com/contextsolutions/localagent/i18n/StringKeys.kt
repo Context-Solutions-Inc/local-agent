@@ -155,9 +155,11 @@ object StringKeys {
     const val SETTINGS_TELEMETRY_ON = "settings.telemetry.on"
     const val SETTINGS_TELEMETRY_OFF = "settings.telemetry.off"
     const val SETTINGS_TELEMETRY_DETAIL = "settings.telemetry.detail"
+    const val SETTINGS_TELEMETRY_DESC_NOTE = "settings.telemetry.desc_note"
     const val SETTINGS_BRAVE_HEADER = "settings.brave.header"
     const val SETTINGS_BRAVE_DESC_PRE = "settings.brave.desc_pre"
     const val SETTINGS_BRAVE_DESC_POST = "settings.brave.desc_post"
+    const val SETTINGS_BRAVE_DESC_PRIVACY = "settings.brave.desc_privacy"
     const val SETTINGS_BRAVE_STATUS_USER = "settings.brave.status_user"
     const val SETTINGS_BRAVE_STATUS_DEV = "settings.brave.status_dev"
     const val SETTINGS_BRAVE_STATUS_NONE = "settings.brave.status_none"
@@ -169,6 +171,7 @@ object StringKeys {
     const val SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE = "settings.link.desktop_desc_subscribe"
     const val SETTINGS_LINK_SUBSCRIPTION_SETTINGS = "settings.link.subscription_settings"
     const val SETTINGS_LINK_UPGRADE = "settings.link.upgrade"
+    const val SETTINGS_LINK_DESC_SYNC = "settings.link.desc_sync"
     const val SETTINGS_LINK_MOBILE_HEADER = "settings.link.mobile_header"
     const val SETTINGS_LINK_MOBILE_DESC = "settings.link.mobile_desc"
     const val SETTINGS_LINK_MOBILE_CONNECTED = "settings.link.mobile_connected"
@@ -182,6 +185,7 @@ object StringKeys {
     const val SETTINGS_OLLAMA_HEADER = "settings.ollama.header"
     const val SETTINGS_OLLAMA_DISABLED_BY_LINK = "settings.ollama.disabled_by_link"
     const val SETTINGS_OLLAMA_DESC = "settings.ollama.desc"
+    const val SETTINGS_OLLAMA_DESC_NOTE = "settings.ollama.desc_note"
     const val SETTINGS_OLLAMA_SSL_LOCKED = "settings.ollama.ssl_locked"
     const val SETTINGS_OLLAMA_SSL_LOCKED_BY_KEY = "settings.ollama.ssl_locked_by_key"
     const val SETTINGS_OLLAMA_SSL = "settings.ollama.ssl"
@@ -293,11 +297,6 @@ object StringKeys {
     const val ONBOARDING_NAV_SKIP_SETTINGS = "onboarding.nav.skip_settings"
     const val ONBOARDING_LANGUAGE_TITLE = "onboarding.language.title"
     const val ONBOARDING_LANGUAGE_BODY = "onboarding.language.body"
-    const val ONBOARDING_DISCLOSURE_TITLE = "onboarding.disclosure.title"
-    const val ONBOARDING_DISCLOSURE_BODY = "onboarding.disclosure.body"
-    const val ONBOARDING_DISCLOSURE_LEAVES_HEADER = "onboarding.disclosure.leaves_header"
-    const val ONBOARDING_DISCLOSURE_LEAVES_BODY = "onboarding.disclosure.leaves_body"
-    const val ONBOARDING_DISCLOSURE_ACKNOWLEDGE = "onboarding.disclosure.acknowledge"
 
     // ── Onboarding — model download (first-run "Set up the on-device models") ──
     const val DOWNLOAD_TITLE = "download.title"
@@ -655,17 +654,19 @@ object StringKeys {
         SETTINGS_FONT_LABEL, SETTINGS_FONT_SYSTEM, SETTINGS_FONT_SANS, SETTINGS_FONT_SERIF,
         SETTINGS_FONT_MONOSPACE, SETTINGS_FONT_SIZE, SETTINGS_FONT_PREVIEW,
         SETTINGS_TELEMETRY_HEADER, SETTINGS_TELEMETRY_ON, SETTINGS_TELEMETRY_OFF, SETTINGS_TELEMETRY_DETAIL,
-        SETTINGS_BRAVE_HEADER, SETTINGS_BRAVE_DESC_PRE, SETTINGS_BRAVE_DESC_POST,
+        SETTINGS_TELEMETRY_DESC_NOTE,
+        SETTINGS_BRAVE_HEADER, SETTINGS_BRAVE_DESC_PRE, SETTINGS_BRAVE_DESC_POST, SETTINGS_BRAVE_DESC_PRIVACY,
         SETTINGS_BRAVE_STATUS_USER, SETTINGS_BRAVE_STATUS_DEV, SETTINGS_BRAVE_STATUS_NONE,
         SETTINGS_BRAVE_FIELD_LABEL, SETTINGS_BRAVE_PLACEHOLDER_REPLACE, SETTINGS_BRAVE_PLACEHOLDER_PASTE,
         SETTINGS_LINK_DESKTOP_HEADER, SETTINGS_LINK_DESKTOP_DESC_ANYWHERE, SETTINGS_LINK_DESKTOP_DESC_SUBSCRIBE,
         SETTINGS_LINK_SUBSCRIPTION_SETTINGS, SETTINGS_LINK_UPGRADE,
+        SETTINGS_LINK_DESC_SYNC,
         SETTINGS_LINK_MOBILE_HEADER, SETTINGS_LINK_MOBILE_DESC,
         SETTINGS_LINK_MOBILE_CONNECTED, SETTINGS_LINK_MOBILE_OFFLINE, SETTINGS_LINK_MOBILE_UNPAIRED,
         SETTINGS_LINK_DISCONNECT,
         SETTINGS_LINK_STATUS_OFF, SETTINGS_LINK_STATUS_NO_DESKTOP,
         SETTINGS_LINK_STATUS_CONNECTED, SETTINGS_LINK_STATUS_UNREACHABLE,
-        SETTINGS_OLLAMA_HEADER, SETTINGS_OLLAMA_DISABLED_BY_LINK, SETTINGS_OLLAMA_DESC,
+        SETTINGS_OLLAMA_HEADER, SETTINGS_OLLAMA_DISABLED_BY_LINK, SETTINGS_OLLAMA_DESC, SETTINGS_OLLAMA_DESC_NOTE,
         SETTINGS_OLLAMA_SSL_LOCKED, SETTINGS_OLLAMA_SSL_LOCKED_BY_KEY, SETTINGS_OLLAMA_SSL,
         SETTINGS_OLLAMA_HTTP_WARNING,
         SETTINGS_OLLAMA_BASE_URL, SETTINGS_OLLAMA_HOST, SETTINGS_OLLAMA_PORT, SETTINGS_OLLAMA_OPENAI_HINT,
@@ -709,9 +710,6 @@ object StringKeys {
         // ── Onboarding (UI) ──
         ONBOARDING_NAV_CONTINUE, ONBOARDING_NAV_SKIP_SETTINGS,
         ONBOARDING_LANGUAGE_TITLE, ONBOARDING_LANGUAGE_BODY,
-        ONBOARDING_DISCLOSURE_TITLE, ONBOARDING_DISCLOSURE_BODY,
-        ONBOARDING_DISCLOSURE_LEAVES_HEADER, ONBOARDING_DISCLOSURE_LEAVES_BODY,
-        ONBOARDING_DISCLOSURE_ACKNOWLEDGE,
         // ── Onboarding — model download ──
         DOWNLOAD_TITLE, DOWNLOAD_INTRO, DOWNLOAD_MODELS_HEADER, DOWNLOAD_TOTAL,
         DOWNLOAD_SPEC_INCOMPLETE, DOWNLOAD_STATE_IDLE, DOWNLOAD_STATE_QUEUED,

@@ -17,9 +17,6 @@ class SharedPreferencesOnboardingPreferences(context: Context) : OnboardingPrefe
     private val languageState = MutableStateFlow(
         prefs.getBoolean(KEY_LANGUAGE_DECIDED, false),
     )
-    private val disclosureState = MutableStateFlow(
-        prefs.getBoolean(KEY_DISCLOSURE_ACKED, false),
-    )
 
     override fun languageDecided(): Boolean = languageState.value
     override fun languageDecidedFlow(): Flow<Boolean> = languageState.asStateFlow()
@@ -29,17 +26,8 @@ class SharedPreferencesOnboardingPreferences(context: Context) : OnboardingPrefe
         prefs.edit().putBoolean(KEY_LANGUAGE_DECIDED, true).apply()
     }
 
-    override fun disclosureAcknowledged(): Boolean = disclosureState.value
-    override fun disclosureAcknowledgedFlow(): Flow<Boolean> = disclosureState.asStateFlow()
-    override fun markDisclosureAcknowledged() {
-        if (disclosureState.value) return
-        disclosureState.value = true
-        prefs.edit().putBoolean(KEY_DISCLOSURE_ACKED, true).apply()
-    }
-
     private companion object {
         private const val PREFS_NAME = "onboarding"
         private const val KEY_LANGUAGE_DECIDED = "language_decided"
-        private const val KEY_DISCLOSURE_ACKED = "disclosure_acknowledged"
     }
 }

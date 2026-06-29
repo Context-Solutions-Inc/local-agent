@@ -10,7 +10,6 @@ import com.contextsolutions.localagent.app.service.ModelInventory
 import com.contextsolutions.localagent.onboarding.OnboardingPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -38,25 +37,20 @@ class MainViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, inventory.allRequiredPresent())
 
     /**
-     * True once the user has completed every onboarding step (language +
-     * disclosure). M6 Phase E added this gate before the [modelPresent] check,
-     * so a brand-new install lands on `OnboardingHost` rather than directly on
-     * the download screen. PR #22 removed the Brave-key, HF-token, and
-     * telemetry-consent steps; PR #23 removed the country/location step (country
-     * defaults to USA, changeable in Settings), so the gate mirrors the trimmed
-     * flow (matches `OnboardingViewModel.currentStep` == Complete).
+     * True once the user has completed onboarding. M6 Phase E added this gate
+     * before the [modelPresent] check, so a brand-new install lands on
+     * `OnboardingHost` rather than directly on the download screen. PR #22
+     * removed the Brave-key, HF-token, and telemetry-consent steps; PR #23
+     * removed the country/location step; PR #31 removed the privacy-disclosure
+     * step — language is now the only gate (matches
+     * `OnboardingViewModel.currentStep` == Complete).
      */
-    val onboardingComplete: StateFlow<Boolean> = combine(
-        onboardingPreferences.languageDecidedFlow(),
-        onboardingPreferences.disclosureAcknowledgedFlow(),
-    ) { language, disclosure ->
-        language && disclosure
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.Eagerly,
-        initialValue = onboardingPreferences.languageDecided() &&
-            onboardingPreferences.disclosureAcknowledged(),
-    )
+    val onboardingComplete: StateFlow<Boolean> =
+        onboardingPreferences.languageDecidedFlow().stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            initialValue = onboardingPreferences.languageDecided(),
+        )
 
     /**
      * Eager warm-up of the aux (classifier + embedder) engines when the user
