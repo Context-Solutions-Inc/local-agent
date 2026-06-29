@@ -30,6 +30,20 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
 - **`job_runs` is desktop-local history (NOT synced); only the `jobs` row syncs**
   (LWW + tombstone), carrying the denormalised last-run so mobile renders "last
   result" and the conversation link with no second synced record type.
+- **Pairing a NEW desktop wipes the phone's stale jobs (PR #36, fixed in this PR).**
+  Jobs are desktop-specific, so when the phone pairs a *different* desktop the prior
+  desktop's jobs must be hard-wiped (`JobRepository.wipeLocal` → `deleteAllJobs` /
+  `deleteAllJobRuns`, no tombstone) and the sync watermark reset to 0 so the new
+  desktop's full state re-pulls fresh. **The detection runs in
+  `AndroidRelayBytePipeFactory.create()` on a fresh `pair()`, comparing the STABLE
+  desktop X25519 pubkey** (`client.desktopPublicKeyB64()`, persisted in
+  `SavedPairing.desktopPublicKey`) against the previously-saved pairing. The original
+  PR #36 check lived in `SettingsViewModel.applyScannedLink` and compared the QR's
+  `desktop_device_id` (`pairedDeviceId`), which is **gateway-echoed and routinely
+  blank on the relay path** (see `SettingsScreen.kt` ConnectedMobileRow comment) — so
+  `isNotBlank()` short-circuited and the wipe **never fired**. First-ever pair (no
+  prior) and re-pairing the SAME desktop (same pubkey, new single-use token #92) leave
+  jobs untouched. Wired via the `onPairedDifferentDesktop` seam in `AndroidKoinModule`.
 - **Trust boundary = an injected `JobSyncPolicy`** (commonMain), not an inline flag
   in `applyFromPeer`. `DesktopJobSyncPolicy` fails **closed** — drops remote inserts
   + remote tombstones, applies only a `paused` toggle to an existing row;

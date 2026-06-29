@@ -339,7 +339,20 @@ val androidModule: Module = module {
         // internal/debug builds; release runs silent. The SDK logger is additionally
         // redacted at the wiring site.
         val relayLog: (String) -> Unit = if (VERBOSE_DIAGNOSTICS) { s -> Log.i("Relay", s) } else { _ -> }
-        AndroidRelayBytePipeFactory(androidContext(), get<SecureStorage>(), logger = relayLog)
+        // Jobs are desktop-specific: when the phone pairs a DIFFERENT desktop, wipe stale local
+        // jobs + reset the sync watermark so the new desktop's state re-pulls fresh (CLAUDE.md
+        // #56 follow-up). Resolved eagerly so the lambda doesn't capture the Koin scope.
+        val jobRepository = get<JobRepository>()
+        val syncWatermarkStore = get<SyncWatermarkStore>()
+        AndroidRelayBytePipeFactory(
+            androidContext(),
+            get<SecureStorage>(),
+            logger = relayLog,
+            onPairedDifferentDesktop = {
+                jobRepository.wipeLocal()
+                syncWatermarkStore.set(0)
+            },
+        )
     }
     single<LinkTransportProvider> {
         DefaultLinkTransportProvider(
