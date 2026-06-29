@@ -181,20 +181,34 @@ class RelaySubscriptionService(
         java.util.UUID.randomUUID().toString().take(4) // ≥ 22 chars, only hex
 
     companion object {
-        /** Gateway base URL from the environment (draft: build-time/env, not a Settings field). */
-        fun gatewayUrlFromEnv(): String = System.getenv("LOCALAGENT_GATEWAY_URL").orEmpty()
+        /** Production gateway base URL baked into every build; overridable via `LOCALAGENT_GATEWAY_URL`. */
+        const val DEFAULT_GATEWAY_URL = "https://auth.contextsolutions.com"
+
+        /** Production relay WebSocket URL baked into every build; overridable via `LOCALAGENT_RELAY_WS_URL`. */
+        const val DEFAULT_RELAY_WS_URL = "wss://relay.contextsolutions.com/v1/connect"
+
+        /**
+         * Gateway base URL. The `LOCALAGENT_GATEWAY_URL` env var wins (e.g. local testing);
+         * otherwise the production default ships in every debug/release build.
+         */
+        fun gatewayUrlFromEnv(): String =
+            System.getenv("LOCALAGENT_GATEWAY_URL")?.takeIf { it.isNotBlank() } ?: DEFAULT_GATEWAY_URL
 
         /** Stripe Customer Portal / account URL for "Subscription Settings". */
         fun portalUrlFromEnv(): String = System.getenv("LOCALAGENT_SUBSCRIPTION_PORTAL_URL").orEmpty()
 
         /**
-         * Relay WebSocket URL for the E2EE transport. Explicit env wins; otherwise
-         * derived from the gateway base URL (`http→ws`, `https→wss`, `/v1/connect`).
+         * Relay WebSocket URL for the E2EE transport. Precedence:
+         *  1. `LOCALAGENT_RELAY_WS_URL` env var (explicit override), else
+         *  2. when `LOCALAGENT_GATEWAY_URL` is set, derive from it (`http→ws`, `https→wss`,
+         *     `/v1/connect`) so a custom gateway keeps relay on the same host, else
+         *  3. the production default baked into every build.
          */
         fun relayWsUrlFromEnv(): String {
             System.getenv("LOCALAGENT_RELAY_WS_URL")?.takeIf { it.isNotBlank() }?.let { return it }
-            val base = gatewayUrlFromEnv().trimEnd('/')
-            if (base.isEmpty()) return ""
+            val gatewayOverride = System.getenv("LOCALAGENT_GATEWAY_URL")?.takeIf { it.isNotBlank() }
+                ?: return DEFAULT_RELAY_WS_URL
+            val base = gatewayOverride.trimEnd('/')
             val ws = when {
                 base.startsWith("https://") -> "wss://" + base.removePrefix("https://")
                 base.startsWith("http://") -> "ws://" + base.removePrefix("http://")
