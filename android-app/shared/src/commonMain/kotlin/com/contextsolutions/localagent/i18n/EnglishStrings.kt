@@ -356,8 +356,8 @@ object EnglishStrings {
         // ── Chat ──
         StringKeys.CHAT_EMPTY_TITLE to Simple("Hello."),
         StringKeys.CHAT_EMPTY_BODY to Simple(
-            "The Local Agent runs on your phone or computer - your conversations " +
-                "stay confidential and private.",
+            "The Local Agent runs on your phone or computer and does not need " +
+                "Internet access - your conversations stay confidential and private.",
         ),
         StringKeys.CHAT_INPUT_HINT to Simple("Ask anything…"),
         StringKeys.CHAT_SEND to Simple("Send"),
@@ -450,7 +450,7 @@ object EnglishStrings {
         // ── Onboarding — model download ──
         StringKeys.DOWNLOAD_TITLE to Simple("Set up the on-device models"),
         StringKeys.DOWNLOAD_INTRO to Simple(
-            "One-time download of the AI models for multi-modal question " +
+            "One-time download of AI models for text and image question " +
                 "answering, summarization, reasoning, search filters and " +
                 "saving memories.",
         ),
