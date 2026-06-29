@@ -428,6 +428,19 @@ fun main() {
     val serverAssetBytes = LlamaServerRelease.assetForHost(wantGpu)?.sizeBytes ?: 0L
     val serverStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)
 
+    // PR #38 — the desktop first-run download gate (DesktopDownloadScreen) blocks the app
+    // until ALL models are present, not just the banner trio. The aux ONNX (classifier +
+    // embedder) and Vosk speech model were fire-and-forget with no status flow, so give each
+    // one (driven below, exactly like serverStatus). These stay OFF the chat banner /
+    // "Models ready" notification (unrelated to the LLM load) — they only feed the gate.
+    val auxModels = koin.get<com.contextsolutions.localagent.inference.DesktopAuxModelStore>()
+    val voskStore = koin.get<VoskModelStore>()
+    val classifierSpec = com.contextsolutions.localagent.inference.DesktopAuxModels.classifierSpec()
+    val embedderSpec = com.contextsolutions.localagent.inference.DesktopAuxModels.embedderSpec()
+    val classifierStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)
+    val embedderStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)
+    val voskStatus = MutableStateFlow<ModelDownloadStatus>(ModelDownloadStatus.Idle)
+
     // Surface ALL first-run downloads on the chat banner ("Downloading model… N%", aggregate
     // across the GGUF + vision projector + server binary) instead of "next prompt cold-loads".
     koin.get<DesktopChatSessionController>().bindDownloads(
@@ -470,50 +483,131 @@ fun main() {
     koin.get<com.contextsolutions.localagent.job.JobCompletionNotifier>().start(appScope)
     modelDownload.ensurePresent()
     mmprojDownload.ensurePresent()
+    // PR #38 — seed each non-controller status flow synchronously so the first-run gate's
+    // initial value is correct for a returning user (its files are already present) without
+    // waiting on the async download launches below — otherwise the combined `ready` flow's
+    // first emission would read Idle and flash the download screen. NotConfigured (aux
+    // endpoint unset, e.g. no -PauxModelBaseUrl) is treated as "can't fetch ⇒ don't block".
+    fun auxInitial(spec: com.contextsolutions.localagent.inference.DesktopModelSpec): ModelDownloadStatus = when {
+        com.contextsolutions.localagent.inference.DesktopModelInventory(spec, DesktopAppDirs.dataDir()).isPresent() -> ModelDownloadStatus.Present
+        !spec.isConfigured -> ModelDownloadStatus.NotConfigured
+        else -> ModelDownloadStatus.Idle
+    }
+    serverStatus.value = if (serverBinaryStore.isPresent(wantGpu)) ModelDownloadStatus.Present else ModelDownloadStatus.Idle
+    voskStatus.value = if (voskStore.resolveExistingOrNull() != null) ModelDownloadStatus.Present else ModelDownloadStatus.Idle
+    classifierStatus.value = auxInitial(classifierSpec)
+    embedderStatus.value = auxInitial(embedderSpec)
+
     // Server binary in the background, driving serverStatus (loadModel also ensures it lazily).
-    appScope.launch {
-        if (serverBinaryStore.isPresent(wantGpu)) {
-            serverStatus.value = ModelDownloadStatus.Present
-            return@launch
+    val startServerDownload: () -> Unit = {
+        if (serverStatus.value !is ModelDownloadStatus.Present && serverStatus.value !is ModelDownloadStatus.Downloading) {
+            appScope.launch {
+                serverStatus.value = ModelDownloadStatus.Downloading(0f, 0L, serverAssetBytes)
+                runCatching {
+                    serverBinaryStore.ensure(wantGpu) { done, total ->
+                        serverStatus.value = ModelDownloadStatus.Downloading(
+                            if (total > 0L) done.toFloat() / total else 0f, done, total,
+                        )
+                    }
+                }.onSuccess { serverStatus.value = ModelDownloadStatus.Present }
+                    .onFailure { serverStatus.value = ModelDownloadStatus.Failed(it.message ?: "server download failed", retryable = true) }
+            }
         }
-        serverStatus.value = ModelDownloadStatus.Downloading(0f, 0L, serverAssetBytes)
-        runCatching {
-            serverBinaryStore.ensure(wantGpu) { done, total ->
-                serverStatus.value = ModelDownloadStatus.Downloading(
-                    if (total > 0L) done.toFloat() / total else 0f, done, total,
+    }
+
+    // Prefetch the Vosk speech-to-text model (~40 MB) so the first mic toggle starts
+    // dictating immediately. Not surfaced on the chat banner (unrelated to the LLM load) —
+    // but PR #38 routes it through voskStatus so it counts toward the first-run gate.
+    val startVoskDownload: () -> Unit = {
+        if (voskStatus.value !is ModelDownloadStatus.Present && voskStatus.value !is ModelDownloadStatus.Downloading) {
+            appScope.launch {
+                voskStatus.value = ModelDownloadStatus.Downloading(0f, 0L, voskStore.downloadSizeBytes)
+                val result = runCatching {
+                    voskStore.ensure { done, total ->
+                        voskStatus.value = ModelDownloadStatus.Downloading(
+                            if (total > 0L) done.toFloat() / total else 0f, done, total,
+                        )
+                    }
+                }
+                voskStatus.value = result.fold(
+                    onSuccess = { path -> if (path != null) ModelDownloadStatus.Present else ModelDownloadStatus.Failed("speech-model download failed", retryable = true) },
+                    onFailure = { ModelDownloadStatus.Failed(it.message ?: "speech-model download failed", retryable = true) },
                 )
             }
-        }.onSuccess { serverStatus.value = ModelDownloadStatus.Present }
-            .onFailure { serverStatus.value = ModelDownloadStatus.Failed(it.message ?: "server download failed", retryable = true) }
+        }
     }
 
-    // Prefetch the Vosk speech-to-text model (~40 MB) in the background so the
-    // first mic toggle starts dictating immediately instead of blocking on the
-    // download. ensure() no-ops when the model is already cached / env-overridden
-    // and returns null (no throw) when offline — dictation just stays disabled
-    // until a later launch succeeds. Not surfaced on the chat banner: it's
-    // unrelated to the LLM and shouldn't read as "chat is loading".
-    appScope.launch { runCatching { koin.get<VoskModelStore>().ensure() } }
-
-    // Eagerly warm the ONNX aux engines (preflight classifier + memory embedder).
-    // Both are inert until warmUp() runs — classify()/embed() return null while
-    // their OrtSession is unset, silently degrading the agent to Gemma-only +
-    // no-op memory. Android drives this from the Chat-screen RESUME hook
-    // (LifecycleResumeEffect, invariant #22); desktop has no such lifecycle, so we
-    // warm once on the long-lived app scope. warmUp() never throws and is
-    // idempotent; the warm sessions stay resident for the JVM's lifetime.
-    appScope.launch {
-        // First run: fetch the ONNX aux models (classifier + embedder) if absent, like
-        // the GGUF/Vosk, THEN warm. ensure*() no-ops when the file is already present or
-        // env-overridden, and silently skips when the hosting endpoint isn't configured
-        // (-PauxModelBaseUrl); warmUp() then degrades to Gemma-only / no-op memory.
-        // Not surfaced on the chat banner (like Vosk): unrelated to the LLM load.
-        val auxModels = koin.get<com.contextsolutions.localagent.inference.DesktopAuxModelStore>()
-        runCatching { auxModels.ensureClassifier() }
-        runCatching { auxModels.ensureEmbedder() }
-        koin.get<ClassifierEngine>().warmUp()
-        koin.get<EmbedderEngine>().warmUp()
+    // Fetch + warm the ONNX aux engines (preflight classifier + memory embedder). Both are
+    // inert until warmUp() runs — classify()/embed() return null while their OrtSession is
+    // unset, silently degrading the agent to Gemma-only + no-op memory. Android drives this
+    // from the Chat-screen RESUME hook (invariant #22); desktop warms once on the app scope.
+    // ensure*() no-ops when the file is present/env-overridden and skips when the endpoint
+    // isn't configured (-PauxModelBaseUrl). PR #38 routes both through their status flows for
+    // the first-run gate; a null return with a configured spec is a real failure (gate stays
+    // closed, retryable), with an unconfigured spec it's NotConfigured (don't block).
+    suspend fun driveAux(spec: com.contextsolutions.localagent.inference.DesktopModelSpec, status: MutableStateFlow<ModelDownloadStatus>, ensure: suspend ((Long, Long) -> Unit) -> Any?) {
+        // Skip if already done or in-flight (a retry mustn't start a second concurrent fetch
+        // onto the same .partial file). Only Idle/Failed re-attempt.
+        when (status.value) {
+            is ModelDownloadStatus.Present, is ModelDownloadStatus.NotConfigured, is ModelDownloadStatus.Downloading -> return
+            else -> {}
+        }
+        if (spec.isConfigured) status.value = ModelDownloadStatus.Downloading(0f, 0L, spec.sizeBytes)
+        val file = runCatching {
+            ensure { done, total ->
+                status.value = ModelDownloadStatus.Downloading(if (total > 0L) done.toFloat() / total else 0f, done, total)
+            }
+        }.getOrNull()
+        status.value = when {
+            file != null -> ModelDownloadStatus.Present
+            !spec.isConfigured -> ModelDownloadStatus.NotConfigured
+            else -> ModelDownloadStatus.Failed("download failed for ${spec.filename}", retryable = true)
+        }
     }
+    val startAuxDownload: () -> Unit = {
+        appScope.launch {
+            driveAux(classifierSpec, classifierStatus) { auxModels.ensureClassifier(it) }
+            driveAux(embedderSpec, embedderStatus) { auxModels.ensureEmbedder(it) }
+            koin.get<ClassifierEngine>().warmUp()
+            koin.get<EmbedderEngine>().warmUp()
+        }
+    }
+
+    startServerDownload()
+    startVoskDownload()
+    startAuxDownload()
+
+    // PR #38 — retry hook for the desktop download gate: re-kick every source that isn't
+    // already present (the per-source guards make this a no-op for completed ones).
+    val retryDownloads: () -> Unit = {
+        modelDownload.retry()
+        mmprojDownload.retry()
+        startServerDownload()
+        startVoskDownload()
+        startAuxDownload()
+    }
+
+    // PR #38 — the first-run gate. The desktop window stays on DesktopDownloadScreen until
+    // every required model (GGUF + vision projector + llama-server + classifier + embedder +
+    // Vosk) is present (or NotConfigured ⇒ can't be fetched, so it doesn't block). The
+    // initial value is computed synchronously from the seeded statuses above so a returning
+    // user (all present) never flashes the download screen. Headless never reaches the window
+    // block, so the gate is GUI-only (background downloads run as before).
+    val gateStatuses = listOf(
+        modelDownload.status, mmprojDownload.status, serverStatus,
+        classifierStatus, embedderStatus, voskStatus,
+    )
+    fun ModelDownloadStatus.satisfiesGate() = this is ModelDownloadStatus.Present || this is ModelDownloadStatus.NotConfigured
+    val readyFlow = combine(gateStatuses) { arr -> arr.all { it.satisfiesGate() } }
+    val initialReady = gateStatuses.all { it.value.satisfiesGate() }
+    val downloadItems = listOf(
+        DesktopDownloadItem("Gemma 4 E2B (GGUF)", modelInventory.spec.sizeBytes, modelDownload.status),
+        DesktopDownloadItem("Vision projector (mmproj)", mmprojInventory.spec.sizeBytes, mmprojDownload.status),
+        DesktopDownloadItem("llama-server", serverAssetBytes, serverStatus),
+        DesktopDownloadItem("Pre-flight classifier (ONNX)", classifierSpec.sizeBytes, classifierStatus),
+        DesktopDownloadItem("Memory embedder (ONNX)", embedderSpec.sizeBytes, embedderStatus),
+        DesktopDownloadItem("Speech model (Vosk)", voskStore.downloadSizeBytes, voskStatus),
+    )
 
     // Eagerly load the GGUF to the GPU so the first chat turn doesn't pay the multi-second
     // cold-load, and the banner shows the real accelerator (Downloading → Loading →
@@ -724,18 +818,18 @@ fun main() {
             },
         ) {
             // The real shared UI (Phase 9 inc 8d). Onboarding is operator-driven on
-            // desktop (keys via env/SecureStorage, Phase 6) and the GGUF is fetched
-            // in the background via the tray, so both gates pass through to Chat; the
-            // model loads lazily on the first turn (WarmModel). Queue/download status
-            // remains visible via tray notifications.
+            // desktop (keys via env/SecureStorage, Phase 6) so that gate passes through;
+            // PR #38 adds the model-download gate — the window shows DesktopDownloadScreen
+            // until every required model is present (mirrors mobile's DownloadScreen gate).
             // Theme prefs (themeMode/fontScale/fontFamily/uiZoom) are collected above in
             // the application scope so the tray popup shares them (PR #71).
+            val modelsReady by readyFlow.collectAsState(initial = initialReady)
             CompositionLocalProvider(LocalStrings provides strings) {
                 LocalAgentDesktopTheme(themeMode = themeMode, fontScale = fontScale, fontFamily = fontFamily, densityScale = uiZoom) {
                     AppNavHost(
                         onboardingComplete = true,
-                        modelPresent = true,
-                        downloadContent = {},
+                        modelPresent = modelsReady,
+                        downloadContent = { DesktopDownloadScreen(items = downloadItems, onRetry = retryDownloads) },
                     )
                 }
             }

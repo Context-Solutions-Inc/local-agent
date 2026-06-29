@@ -472,6 +472,7 @@ object EnglishStrings {
         StringKeys.DOWNLOAD_ACTION_PAUSE to Simple("Pause"),
         StringKeys.DOWNLOAD_ACTION_RETRY_WIFI to Simple("Retry (WiFi)"),
         StringKeys.DOWNLOAD_ACTION_RETRY_CELLULAR to Simple("Retry (allow cellular)"),
+        StringKeys.DOWNLOAD_ACTION_RETRY to Simple("Retry"),
         StringKeys.DOWNLOAD_ERROR_NETWORK to Simple("Network error — check your connection."),
         StringKeys.DOWNLOAD_ERROR_HTTP_CLIENT to Simple("Server rejected the request. Please try again later."),
         StringKeys.DOWNLOAD_ERROR_HTTP_SERVER to Simple("Server problem — please try again later."),
