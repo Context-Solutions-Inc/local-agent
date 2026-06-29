@@ -1,9 +1,9 @@
 package com.contextsolutions.localagent.search
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class LlmContextPostProcessorTest {
 
@@ -74,11 +74,11 @@ class LlmContextPostProcessorTest {
                 *(1..6).map { entry(url = "https://s$it", title = "S$it", snippets = listOf(huge)) }.toTypedArray(),
             ),
         )
-        assertTrue("payload should be bounded", out.json.encodeToByteArray().size <= 6 * 1024)
-        assertTrue("at least one source survives", out.sources.isNotEmpty())
+        assertTrue(out.json.encodeToByteArray().size <= 6 * 1024, "payload should be bounded")
+        assertTrue(out.sources.isNotEmpty(), "at least one source survives")
         assertTrue(
-            "surviving snippets are trimmed below the raw size",
             out.sources.all { it.snippet.length < huge.length },
+            "surviving snippets are trimmed below the raw size",
         )
     }
 
@@ -138,7 +138,7 @@ class LlmContextPostProcessorTest {
             snippet,
         )
         // No raw JSON braces/keys reach the model.
-        assertTrue("no json braces survive", snippet.none { it == '{' || it == '}' || it == '"' })
+        assertTrue(snippet.none { it == '{' || it == '}' || it == '"' }, "no json braces survive")
     }
 
     @Test
@@ -190,6 +190,66 @@ class LlmContextPostProcessorTest {
             ),
         )
         assertEquals("x — y", out.sources.single().snippet)
+    }
+
+    @Test
+    fun `rescues a schema-org article-object snippet as headline — description prose`() {
+        // Brave's NEWS llm/context returns each article as a JSON-stringified
+        // schema.org object. Previously every such snippet was dropped (not the
+        // table shape) → a news search returning only these failed with
+        // "no usable results".
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://apnews.com/article/uk-burnham",
+                    title = "Burnham to set out a 10-year plan",
+                    snippets = listOf(
+                        """
+                        {"dateModified":"2026-06-29T09:00:19Z","description":"Andy Burnham will outline a 10-year vision for good growth.","name":"Burnham to set out a 10-year plan | AP News","keywords":["Andy Burnham","United Kingdom"],"headline":"Burnham to set out a 10-year plan to transform Britain's economy"}
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+        val snippet = out.sources.single().snippet
+        assertEquals(
+            "Burnham to set out a 10-year plan to transform Britain's economy — " +
+                "Andy Burnham will outline a 10-year vision for good growth.",
+            snippet,
+        )
+        // No raw JSON braces reach the model.
+        assertTrue(snippet.none { it == '{' || it == '}' }, "no json braces survive")
+    }
+
+    @Test
+    fun `article-object snippets keep a news source that would otherwise be dropped`() {
+        // Reproduces the live failure: an entry whose ONLY snippet is article JSON
+        // must survive so the search returns usable results instead of Error.
+        val out = LlmContextPostProcessor.format(
+            response(
+                entry(
+                    url = "https://reuters.com/world/iran",
+                    title = "Iran latest",
+                    snippets = listOf("""{"description":"Both sides paused strikes on Monday.","headline":"Iran talks"}"""),
+                ),
+            ),
+        )
+        assertEquals(listOf("https://reuters.com/world/iran"), out.sources.map { it.url })
+        assertEquals("Iran talks — Both sides paused strikes on Monday.", out.sources.single().snippet)
+    }
+
+    @Test
+    fun `article-object falls back to description then name when fields are missing`() {
+        // description-only
+        val descOnly = LlmContextPostProcessor.format(
+            response(entry(url = "https://a", title = "A", snippets = listOf("""{"description":"Just a summary."}"""))),
+        )
+        assertEquals("Just a summary.", descOnly.sources.single().snippet)
+        // name fallback when there's no headline/description
+        val nameOnly = LlmContextPostProcessor.format(
+            response(entry(url = "https://b", title = "B", snippets = listOf("""{"name":"Just a name"}"""))),
+        )
+        assertEquals("Just a name", nameOnly.sources.single().snippet)
     }
 
     @Test

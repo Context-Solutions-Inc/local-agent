@@ -96,13 +96,18 @@ object LlmContextPostProcessor {
 
     /**
      * Prose form of a snippet, or null to drop it. Plain text is cleaned and
-     * kept; a JSON chunk is rescued only when it is the table shape
-     * (`{ "title"|"caption": …, "table": [ {col: val}, … ] }`) — every row is
-     * flattened to one prose line so the model never sees JSON braces. Any other
-     * JSON (top-level array, table of arrays, VideoObject, scalar) returns null.
+     * kept; a JSON chunk is rescued when it is either (a) the table shape
+     * (`{ "title"|"caption": …, "table": [ {col: val}, … ] }`) — flattened to one
+     * prose line per row — or (b) a schema.org Article-style object
+     * (`{ "headline"/"name": …, "description": … }`, which is how Brave's NEWS
+     * llm/context returns each article) — reduced to `headline — description`. In
+     * both cases only string fields are read, so the model never sees JSON braces.
+     * Any other JSON (top-level array, table of arrays, VideoObject, scalar)
+     * returns null.
      */
     private fun String.toProseOrNull(): String? =
-        if (isLikelyJson()) flattenTableJson() else cleanForPayload().ifBlank { null }
+        if (isLikelyJson()) flattenTableJson() ?: flattenArticleJson()
+        else cleanForPayload().ifBlank { null }
 
     private fun String.flattenTableJson(): String? {
         val root = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject ?: return null
@@ -117,6 +122,30 @@ object LlmContextPostProcessor {
             if (caption.isNotEmpty()) "$caption — $joined" else joined
         }
         return lines.takeIf { it.isNotEmpty() }?.joinToString(separator = "\n")
+    }
+
+    /**
+     * Rescues a schema.org Article-style object snippet. Brave's NEWS llm/context
+     * returns each article as a JSON-stringified object — `{"headline":…,
+     * "name":…,"description":…,"author":[…],"keywords":[…],…}` — which is NOT the
+     * table shape, so without this it would be dropped and a news search that
+     * returns only such snippets fails with "no usable results". Extracts the
+     * human text — `headline` (else `name`/`title`) joined with `description`
+     * (else `snippet`/`articleBody`) — as `headline — description`. Returns null
+     * when no usable text field exists (e.g. a VideoObject), so those still drop.
+     * Only string fields are read, so no JSON braces reach the model.
+     */
+    private fun String.flattenArticleJson(): String? {
+        val obj = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject ?: return null
+        val headline = (obj["headline"] ?: obj["name"] ?: obj["title"])
+            ?.asContentOrNull()?.cleanForPayload()?.ifBlank { null }
+        val description = (obj["description"] ?: obj["snippet"] ?: obj["articleBody"])
+            ?.asContentOrNull()?.cleanForPayload()?.ifBlank { null }
+        return when {
+            headline != null && description != null && !description.startsWith(headline) ->
+                "$headline — $description"
+            else -> description ?: headline
+        }
     }
 
     /** Content of a JSON primitive (string/number/bool), or null for objects, arrays and JSON null. */
