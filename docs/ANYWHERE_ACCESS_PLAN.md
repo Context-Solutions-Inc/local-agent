@@ -46,11 +46,14 @@ claim-token endpoints). See CLAUDE.md invariant **#54**.
 `RelayLinkTransport` is the documented stub hook (mints the relay QR via the SDK;
 data path is `TODO`); it is **not** wired into routing, so the LAN path is untouched.
 
-## Config (desktop, env — draft; not a Settings field yet)
+## Config (desktop, env — runtime override; not a Settings field)
+
+Since PR #37 the gateway + relay URLs default to the **production hosts baked into every debug/release build** (`RelaySubscriptionService.DEFAULT_GATEWAY_URL` / `DEFAULT_RELAY_WS_URL`); the env vars below override them at launch (e.g. local gateway testing).
 
 | Env var | Purpose |
 |---|---|
-| `LOCALAGENT_GATEWAY_URL` | Secure Gateway auth-service base URL (e.g. `http://127.0.0.1:8080`). Empty ⇒ the upgrade link is hidden. |
+| `LOCALAGENT_GATEWAY_URL` | Secure Gateway auth-service base URL. Default `https://auth.contextsolutions.com`; set to override (e.g. `http://127.0.0.1:8080` for local testing). |
+| `LOCALAGENT_RELAY_WS_URL` | Relay WebSocket URL. Default `wss://relay.contextsolutions.com/v1/connect`; if unset but `LOCALAGENT_GATEWAY_URL` is overridden, derived from it (`https→wss`, `/v1/connect`) to keep relay on the same host. |
 | `LOCALAGENT_SUBSCRIPTION_PORTAL_URL` | **Optional fallback** for "Subscription Settings". Normally the desktop mints a fresh Stripe Customer Portal URL via the gateway (`POST /v1/billing-portal`); this static URL is only used if that call fails. |
 
 Gateway side needs `AUTH_STRIPE_PRICE_ID`, `AUTH_STRIPE_SECRET_KEY`,
@@ -154,7 +157,7 @@ go test ./test/integration/ -run TestDesktopCheckoutClaimFlow -v
 
 ### Troubleshooting
 
-- **Upgrade link missing** → `LOCALAGENT_GATEWAY_URL` unset, or you're on mobile.
+- **Upgrade link missing** → you're on mobile (desktop now always has a gateway URL — the production default ships baked in since PR #37, so an unset env var no longer hides the link).
 - **`503 checkout_unavailable`** → gateway missing `AUTH_STRIPE_PRICE_ID` /
   `AUTH_STRIPE_SECRET_KEY` / `AUTH_PUBLIC_URL`.
 - **Callback never fires** → the fallback poll still claims via the held nonce;
