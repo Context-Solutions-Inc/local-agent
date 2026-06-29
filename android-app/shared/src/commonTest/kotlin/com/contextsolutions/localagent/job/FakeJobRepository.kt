@@ -50,6 +50,7 @@ class FakeJobRepository(initial: List<Job> = emptyList()) : JobRepository {
     ) = Unit
     override suspend fun runsForJob(jobId: String): List<JobRun> = emptyList()
     override suspend fun deleteRunsForJob(jobId: String) = Unit
+    override suspend fun wipeLocal() { state.value = emptyList() }
 }
 
 /** In-memory [JobNotificationPrefs] for tests; [seedNotified] simulates a prior process run. */

@@ -79,4 +79,13 @@ interface JobRepository {
 
     /** Prune run history for a tombstoned job (soft delete doesn't fire the FK CASCADE). */
     suspend fun deleteRunsForJob(jobId: String)
+
+    /**
+     * Mobile-only hard wipe of ALL local jobs + run history (no tombstones, no
+     * sync echo). Used when the phone pairs with a DIFFERENT desktop: the prior
+     * desktop's jobs are stale, so they're dropped and the new desktop's jobs
+     * re-pull on the next reconcile (paired with a sync-watermark reset). Fires the
+     * reactive `flow()` so the Jobs UI repaints.
+     */
+    suspend fun wipeLocal()
 }

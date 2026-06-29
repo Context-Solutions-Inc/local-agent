@@ -24,7 +24,9 @@ import com.contextsolutions.localagent.platform.SecureStorageKeys
 import com.contextsolutions.localagent.preferences.OllamaConfig
 import com.contextsolutions.localagent.preferences.RemoteServerType
 import com.contextsolutions.localagent.preferences.OllamaPreferences
+import com.contextsolutions.localagent.job.JobRepository
 import com.contextsolutions.localagent.search.SearchCacheDao
+import com.contextsolutions.localagent.sync.SyncWatermarkStore
 import com.contextsolutions.localagent.subscription.SubscriptionState
 import com.contextsolutions.localagent.subscription.RelayDisconnector
 import com.contextsolutions.localagent.subscription.RelayPairingInitiator
@@ -68,6 +70,8 @@ class SettingsViewModel(
     private val subscription: SubscriptionUiController,
     private val relayDisconnector: RelayDisconnector,
     private val relayPairingInitiator: RelayPairingInitiator,
+    private val jobRepository: JobRepository,
+    private val syncWatermarkStore: SyncWatermarkStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState())
@@ -156,16 +160,27 @@ class SettingsViewModel(
         if (diag) println("[Relay/scan] applyScannedLink: ${rawQr.length} chars")
         RelayQrPayload.parseOrNull(rawQr)?.let { relay ->
             if (diag) println("[Relay/scan] -> matched RELAY v=${relay.v}")
-            // Security L2: the phone NO LONGER stores the account secret from the QR. New desktops
-            // don't put it in the QR; the phone authenticates with the per-pair credential the
-            // gateway mints at pairing (persisted in RELAY_PAIRING_STATE by AndroidRelayBytePipeFactory).
-            desktopLinkPreferences.setConfig(
-                desktopLinkPreferences.config().copy(
-                    enabled = true,
-                    relayQrJson = rawQr,
-                    pairedDeviceId = relay.desktopDeviceId,
-                ),
-            )
+            // PR #36: pairing a DIFFERENT desktop than before? Jobs are desktop-specific,
+            // so the prior desktop's jobs are now stale — wipe them and reset the sync
+            // watermark so the new desktop's full state re-pulls (jobs fresh; conversations/
+            // memories/My List re-union LWW). A first-ever pair (blank) or a reconnect to the
+            // SAME desktop leaves jobs untouched.
+            val previousDeviceId = desktopLinkPreferences.config().pairedDeviceId
+            val isNewDesktop = previousDeviceId.isNotBlank() &&
+                previousDeviceId != relay.desktopDeviceId
+            if (isNewDesktop) {
+                // Order matters: wipe + watermark-reset must finish BEFORE setConfig flips
+                // the link configured (which triggers SyncController's first reconcile, and
+                // that reconcile reads the watermark). Sequence them in one coroutine, then
+                // apply the config last.
+                viewModelScope.launch {
+                    jobRepository.wipeLocal()
+                    syncWatermarkStore.set(0)
+                    applyRelayLinkConfig(rawQr, relay.desktopDeviceId)
+                }
+            } else {
+                applyRelayLinkConfig(rawQr, relay.desktopDeviceId)
+            }
             return true
         }
         if (diag) {
@@ -173,6 +188,19 @@ class SettingsViewModel(
                 "(needs v>=1 + pairing_token + endpoints.relay). Persisted nothing.")
         }
         return false
+    }
+
+    // Security L2: the phone NO LONGER stores the account secret from the QR. New desktops
+    // don't put it in the QR; the phone authenticates with the per-pair credential the gateway
+    // mints at pairing (persisted in RELAY_PAIRING_STATE by AndroidRelayBytePipeFactory).
+    private fun applyRelayLinkConfig(rawQr: String, desktopDeviceId: String) {
+        desktopLinkPreferences.setConfig(
+            desktopLinkPreferences.config().copy(
+                enabled = true,
+                relayQrJson = rawQr,
+                pairedDeviceId = desktopDeviceId,
+            ),
+        )
     }
 
     /** Forget the paired desktop (and disable the link). Mobile side. */

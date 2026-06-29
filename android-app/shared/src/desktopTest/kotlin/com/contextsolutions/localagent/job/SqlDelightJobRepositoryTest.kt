@@ -109,4 +109,34 @@ class SqlDelightJobRepositoryTest {
         repo.deleteRunsForJob("job-1")
         assertTrue(repo.runsForJob("job-1").isEmpty())
     }
+
+    @Test
+    fun wipeLocalHardDeletesJobsAndRuns() = runBlocking {
+        val repo = newRepo()
+        repo.create(job("job-1"))
+        repo.create(job("job-2"))
+        repo.insertRun(
+            JobRun(
+                id = "run-1",
+                jobId = "job-1",
+                conversationId = "conv-1",
+                status = JobRunStatus.RUNNING,
+                startedAtEpochMs = 10,
+                finishedAtEpochMs = null,
+                exitCode = null,
+                response = null,
+                error = null,
+            ),
+        )
+        // A tombstoned job must also be gone — snapshot() hides it but get() would still
+        // resolve it; wipeLocal is a genuine DELETE, not another tombstone.
+        repo.softDelete("job-2", nowEpochMs = 300)
+
+        repo.wipeLocal()
+
+        assertNull(repo.get("job-1"))
+        assertNull(repo.get("job-2"))
+        assertTrue(repo.snapshot().isEmpty())
+        assertTrue(repo.runsForJob("job-1").isEmpty())
+    }
 }

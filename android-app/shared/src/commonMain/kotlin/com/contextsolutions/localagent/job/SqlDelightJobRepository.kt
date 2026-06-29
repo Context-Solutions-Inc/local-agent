@@ -160,6 +160,18 @@ class SqlDelightJobRepository(
         withContext(ioDispatcher) { queries.deleteRunsForJob(jobId) }
     }
 
+    override suspend fun wipeLocal() {
+        // Hard delete, in one transaction: runs first (no FK orphan window), then
+        // jobs. No tombstone + no bus echo — this is a local reset, not a synced
+        // delete. The reactive flow() repaints the (now empty) list on its own.
+        withContext(ioDispatcher) {
+            queries.transaction {
+                queries.deleteAllJobRuns()
+                queries.deleteAllJobs()
+            }
+        }
+    }
+
     // [flow] is reactive, so a genuine-local write needs only to notify the sync
     // bus (the reactive query repaints the UI on its own).
     private fun republish() {
