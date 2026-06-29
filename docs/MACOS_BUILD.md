@@ -129,3 +129,10 @@ on every PR via [`.github/workflows/desktop-test.yml`](../.github/workflows/desk
   and a GUI run can't run simultaneously.
 - **Signing/notarization** is gated on `MAC_SIGN_IDENTITY` (+ `NOTARIZATION_*`)
   env vars in `desktopApp/build.gradle.kts`; off by default.
+- **Vosk STT (`vosk_recognizer_set_grm` symbol)** — the `com.alphacephei:vosk:0.3.45`
+  jar ships a stale macOS `libvosk.dylib` missing the `vosk_recognizer_set_grm`
+  symbol, which JNA's eager `Native.register` crashes on at load (dictation dies
+  with `Error looking up function 'vosk_recognizer_set_grm'`). Worked around by a
+  shadow `org.vosk.LibVosk` (`shared/src/desktopMain/java/org/vosk/LibVosk.java`)
+  that omits that one unused binding. Guarded by `LibVoskShadowTest`. See
+  [`VOICE_IO.md`](VOICE_IO.md).
