@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -17,19 +16,19 @@ import kotlinx.coroutines.flow.stateIn
 /**
  * Drives the first-run onboarding flow (M6 Phase E, PRD §6.1).
  *
- * Step state is derived from two persisted booleans (the language gate is
- * first so the rest of onboarding renders in the chosen language):
+ * Step state is derived from a single persisted boolean:
  *  - [OnboardingPreferences.languageDecided]
- *  - [OnboardingPreferences.disclosureAcknowledged]
  *
- * The first one that isn't true determines the active step. When both are
- * true, the host emits [OnboardingStep.Complete] and `MainScreen` routes
- * away from `OnboardingHost`.
+ * When it is true, the host emits [OnboardingStep.Complete] and `MainScreen`
+ * routes away from `OnboardingHost`.
  *
  * PR #22 dropped the Brave-key, HuggingFace-token, and telemetry-consent
- * steps; PR #23 dropped the country/location step. The search-defaults
- * **country defaults to USA** (the repositories fall back to `US` when no
- * location is saved) and is changeable in Settings → Search sources.
+ * steps; PR #23 dropped the country/location step; PR #31 dropped the
+ * on-device privacy-disclosure step (its message moved into shorter,
+ * in-context copy in Settings + the chat empty state), leaving language as
+ * the only gate. The search-defaults **country defaults to USA** (the
+ * repositories fall back to `US` when no location is saved) and is
+ * changeable in Settings → Search sources.
  */
 class OnboardingViewModel(
     private val onboardingPreferences: OnboardingPreferences,
@@ -49,12 +48,9 @@ class OnboardingViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, languagePreferences.preferredLanguage())
 
     init {
-        // Re-derive the step whenever any underlying flag changes.
-        combine(
-            onboardingPreferences.languageDecidedFlow(),
-            onboardingPreferences.disclosureAcknowledgedFlow(),
-        ) { _, _ -> currentStep() }
-            .onEach { _step.value = it }
+        // Re-derive the step whenever the language gate changes.
+        onboardingPreferences.languageDecidedFlow()
+            .onEach { _step.value = currentStep() }
             .launchIn(viewModelScope)
     }
 
@@ -72,20 +68,13 @@ class OnboardingViewModel(
         onboardingPreferences.markLanguageDecided()
     }
 
-    fun acknowledgeDisclosure() {
-        onboardingPreferences.markDisclosureAcknowledged()
-    }
-
-    private fun currentStep(): OnboardingStep = when {
-        !onboardingPreferences.languageDecided() -> OnboardingStep.Language
-        !onboardingPreferences.disclosureAcknowledged() -> OnboardingStep.Disclosure
-        else -> OnboardingStep.Complete
-    }
+    private fun currentStep(): OnboardingStep =
+        if (!onboardingPreferences.languageDecided()) OnboardingStep.Language
+        else OnboardingStep.Complete
 }
 
 /** Current step in the onboarding flow. [Complete] is the terminal state. */
 sealed interface OnboardingStep {
     data object Language : OnboardingStep
-    data object Disclosure : OnboardingStep
     data object Complete : OnboardingStep
 }
