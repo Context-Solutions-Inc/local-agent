@@ -30,6 +30,34 @@ Tracking: see `PHASE1_PLAN.md` / CLAUDE.md for where this slots in. Numbered
 - **`job_runs` is desktop-local history (NOT synced); only the `jobs` row syncs**
   (LWW + tombstone), carrying the denormalised last-run so mobile renders "last
   result" and the conversation link with no second synced record type.
+- **Pairing a NEW desktop wipes the phone's stale jobs (PR #36, fixed in this PR).**
+  Jobs are desktop-specific, so when the phone pairs a *different* desktop the prior
+  desktop's jobs must be hard-wiped (`JobRepository.wipeLocal` → `deleteAllJobs` /
+  `deleteAllJobRuns`, no tombstone) and the sync watermark reset to 0 so the new
+  desktop's full state re-pulls fresh. **The detection runs in
+  `AndroidRelayBytePipeFactory.create()` on a fresh `pair()`, comparing the STABLE
+  desktop X25519 pubkey** (`client.desktopPublicKeyB64()`, persisted in
+  `SavedPairing.desktopPublicKey`) against the previously-saved pairing. The original
+  PR #36 check lived in `SettingsViewModel.applyScannedLink` and compared the QR's
+  `desktop_device_id` (`pairedDeviceId`), which is **gateway-echoed and routinely
+  blank on the relay path** (see `SettingsScreen.kt` ConnectedMobileRow comment) — so
+  `isNotBlank()` short-circuited and the wipe **never fired**. First-ever pair (no
+  prior) and re-pairing the SAME desktop (same pubkey, new single-use token #92) leave
+  jobs untouched. Wired via the `onPairedDifferentDesktop` seam in `AndroidKoinModule`.
+- **Manual "re-sync jobs" escape hatch (#39 follow-up).** The pubkey check above misses
+  a *fresh re-install on the SAME desktop*: the desktop's X25519 identity is restored
+  unchanged (`secrets.p12` / Keystore), so `desktopPublicKey` doesn't change → the
+  auto-wipe never fires, while the reinstalled desktop's job DB is empty — and ordinary
+  incremental sync can't repair it (an empty desktop has nothing with `updated_at >
+  watermark` to send), so the phone shows **ghost jobs forever**. Fix: a top-right **sync
+  icon** on the mobile Jobs screen (`JobsScreen` `TopAppBar` actions) runs the same
+  `wipeLocal()` + watermark-reset, **plus** a new `SyncController.requestSync()` so the
+  desktop's current state re-pulls immediately. Composed by the `jobResync(...)` helper
+  (`shared/.../job/JobResync.kt`) and bound mobile-only as `single<JobResync>` in
+  `AndroidKoinModule` (desktop leaves it unbound → `JobsViewModel.canResync` false → the
+  button is hidden, since the desktop is authoritative). Gated behind a confirm dialog and
+  enabled only when the link is UP (same as run-now/cancel). `JobResyncTest` locks the
+  wipe→reset→sync order.
 - **Trust boundary = an injected `JobSyncPolicy`** (commonMain), not an inline flag
   in `applyFromPeer`. `DesktopJobSyncPolicy` fails **closed** — drops remote inserts
   + remote tombstones, applies only a `paused` toggle to an existing row;

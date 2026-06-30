@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class FakeJobRepository(initial: List<Job> = emptyList()) : JobRepository {
     private val state = MutableStateFlow(initial)
 
+    /** Number of times [wipeLocal] was invoked (asserted by the re-sync test). */
+    var wipeCount: Int = 0
+        private set
+
     fun emit(jobs: List<Job>) { state.value = jobs }
 
     override fun flow(): Flow<List<Job>> = state
@@ -50,7 +54,7 @@ class FakeJobRepository(initial: List<Job> = emptyList()) : JobRepository {
     ) = Unit
     override suspend fun runsForJob(jobId: String): List<JobRun> = emptyList()
     override suspend fun deleteRunsForJob(jobId: String) = Unit
-    override suspend fun wipeLocal() { state.value = emptyList() }
+    override suspend fun wipeLocal() { wipeCount++; state.value = emptyList() }
 }
 
 /** In-memory [JobNotificationPrefs] for tests; [seedNotified] simulates a prior process run. */

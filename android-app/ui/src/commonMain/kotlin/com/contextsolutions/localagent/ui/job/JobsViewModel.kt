@@ -14,6 +14,7 @@ import com.contextsolutions.localagent.job.JobInitResult
 import com.contextsolutions.localagent.job.JobInitStepInfo
 import com.contextsolutions.localagent.job.JobInitializer
 import com.contextsolutions.localagent.job.JobRepository
+import com.contextsolutions.localagent.job.JobResync
 import com.contextsolutions.localagent.job.JobScheduleType
 import com.contextsolutions.localagent.job.RemoteJobRunner
 import com.contextsolutions.localagent.platform.AppBuildConfig
@@ -55,6 +56,9 @@ class JobsViewModel(
     // initializer. Null on mobile → the Choose Job button is hidden.
     private val catalog: JobCatalog? = null,
     private val initializer: JobInitializer? = null,
+    // Mobile-only (#39 follow-up): manual "re-sync jobs" — wipes the local job list and
+    // force-pulls the desktop's current state. Null on desktop → the button is hidden.
+    private val resync: JobResync? = null,
     // PR #70 diagnostics are gated behind this so a production packaged build stays
     // quiet (the form/save logs echo job names + commands). Matches DesktopDiag's
     // signal via the cross-platform AppBuildConfig seam. Read by JobsScreen too.
@@ -89,6 +93,9 @@ class JobsViewModel(
 
     /** Desktop-only: the Choose Job catalog is available iff [catalog] + [initializer] are bound. */
     val canChooseJob: Boolean get() = catalog != null && initializer != null
+
+    /** Mobile-only: the manual "re-sync jobs" button shows iff the [resync] seam is bound. */
+    val canResync: Boolean get() = resync != null
 
     /** Load the bundled job catalog (PR #100). Empty when no catalog is bound. */
     suspend fun catalogEntries(): List<JobCatalogEntry> = catalog?.list().orEmpty()
@@ -185,6 +192,17 @@ class JobsViewModel(
         val r = remoteRunner ?: return
         if (linkStatus.value != DesktopLinkStatus.UP) return
         viewModelScope.launch(Dispatchers.IO) { r.runNow(id) }
+    }
+
+    /**
+     * Manual "re-sync jobs" (#39 follow-up): wipe the local job list, reset the sync
+     * watermark, and force an immediate reconcile so the desktop's current job set
+     * re-pulls. Online-only (gated like [runNow]/[cancel]); no-op on desktop ([resync] null).
+     */
+    fun resyncJobs() {
+        val r = resync ?: return
+        if (linkStatus.value != DesktopLinkStatus.UP) return
+        viewModelScope.launch(Dispatchers.IO) { r.resyncFromDesktop() }
     }
 
     fun cancel(id: String) {

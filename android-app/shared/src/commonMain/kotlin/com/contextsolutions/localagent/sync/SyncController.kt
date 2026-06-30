@@ -73,6 +73,16 @@ class SyncController(
         }
     }
 
+    /**
+     * Force an immediate reconcile (manual "re-sync jobs" — #39 follow-up). Used after a
+     * local job wipe + watermark reset so the desktop's full state re-pulls right away
+     * instead of waiting up to [SAFETY_INTERVAL_MS]. Serialized by [reconcileMutex] like
+     * every other trigger; a no-op when the link isn't configured.
+     */
+    fun requestSync() {
+        scope.launch { reconcile() }
+    }
+
     private suspend fun reconcile() = reconcileMutex.withLock {
         val cfg = preferences.config()
         if (!cfg.isLinkConfigured) return@withLock

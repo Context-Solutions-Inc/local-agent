@@ -33,6 +33,11 @@ class AndroidRelayBytePipeFactory(
     private val secureStorage: SecureStorage,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val logger: (String) -> Unit = {},
+    // Invoked when a fresh pair lands on a DIFFERENT desktop than the one we were last
+    // paired to (stable desktop X25519 pubkey changed). Jobs are desktop-specific, so the
+    // binding wipes local jobs + resets the sync watermark (→ the new desktop's full state
+    // re-pulls). Default no-op keeps tests / non-DI callers compiling.
+    private val onPairedDifferentDesktop: suspend () -> Unit = {},
 ) : RelayBytePipeFactory {
 
     @Serializable
@@ -56,8 +61,13 @@ class AndroidRelayBytePipeFactory(
             // with the per-pair credential the gateway mints at pairing (below).
             logger("create: relay QR auth=${qr.authEndpoint()} relay=${qr.relayEndpoint()}")
 
+            // Load the prior pairing UNCONDITIONALLY: the new-desktop check (below) compares the
+            // STABLE desktop pubkey, which the QR can't carry reliably (desktop_device_id /
+            // desktop_pubkey are gateway-echoed and routinely blank on the relay path — the old
+            // pairedDeviceId heuristic in SettingsViewModel never fired for that reason).
+            val priorPairing = loadPairing()
             // Reconnect with the saved pairing only when it matches THIS QR's (single-use) token.
-            val saved = loadPairing()?.takeIf { it.pairingToken == qr.pairingToken }
+            val saved = priorPairing?.takeIf { it.pairingToken == qr.pairingToken }
 
             val config = MobileConfig().apply {
                 authUrl = qr.authEndpoint() ?: error("relay QR missing auth endpoint")
@@ -84,11 +94,26 @@ class AndroidRelayBytePipeFactory(
             } else {
                 logger("create: pairing…")
                 client.pair(qr)
+                val desktopKey = client.desktopPublicKeyB64()
+                // Jobs are desktop-specific. If this fresh pair landed on a DIFFERENT desktop than
+                // the one we were last paired to (stable X25519 pubkey changed), the prior desktop's
+                // jobs are now stale — wipe them + reset the sync watermark BEFORE connect() (i.e.
+                // before SyncController's first changesSince), so the new desktop's full state
+                // re-pulls fresh. First-ever pair (no prior) and re-pairing the SAME desktop (same
+                // pubkey, new single-use token) leave jobs untouched.
+                if (priorPairing != null &&
+                    priorPairing.desktopPublicKey.isNotBlank() &&
+                    !desktopKey.isNullOrBlank() &&
+                    desktopKey != priorPairing.desktopPublicKey
+                ) {
+                    logger("create: paired a DIFFERENT desktop (pubkey changed) — wiping stale local jobs + resetting sync watermark")
+                    runCatching { onPairedDifferentDesktop() }
+                        .onFailure { logger("create: new-desktop wipe failed: ${it.message}") }
+                }
                 // Persist so the next toggle/relaunch reconnects instead of replaying the token.
                 runCatching {
                     val deviceId = client.deviceId()
                     val pairId = client.pairId()
-                    val desktopKey = client.desktopPublicKeyB64()
                     val pairCredential = client.pairCredential() // L2: persist so reconnect can authenticate
                     if (deviceId != null && pairId != null && desktopKey != null) {
                         secureStorage.put(
