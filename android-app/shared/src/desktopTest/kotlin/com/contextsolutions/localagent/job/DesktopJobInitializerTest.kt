@@ -92,7 +92,7 @@ class DesktopJobInitializerTest {
         try {
             val result = initializer(browserDetector = { null }).initialize(entryFor(dir)) {}
             assertTrue(result is JobInitResult.Failed, "missing browser ⇒ Failed")
-            assertEquals("Check for Google Chrome", (result as JobInitResult.Failed).stepTitle)
+            assertEquals("Check for Google Chrome", result.stepTitle)
             assertTrue(result.reason.contains("Chrome"), "actionable message")
             assertFalse(File(dir, DesktopJobInitializer.MARKER_NAME).isFile, "no marker on failure")
         } finally {
@@ -131,7 +131,7 @@ class DesktopJobInitializerTest {
         try {
             val result = initializer().initialize(entryFor(dir)) {}
             assertTrue(result is JobInitResult.Failed, "missing launch program ⇒ Failed (not DONE)")
-            assertEquals("Open browser", (result as JobInitResult.Failed).stepTitle)
+            assertEquals("Open browser", result.stepTitle)
         } finally {
             dir.deleteRecursively()
         }
@@ -163,7 +163,7 @@ class DesktopJobInitializerTest {
         try {
             val result = initializer().initialize(entryFor(dir)) {}
             assertTrue(result is JobInitResult.Failed, "non-zero step ⇒ Failed")
-            assertEquals("Boom", (result as JobInitResult.Failed).stepTitle)
+            assertEquals("Boom", result.stepTitle)
             assertFalse(File(dir, DesktopJobInitializer.MARKER_NAME).isFile, "no marker on failure")
         } finally {
             dir.deleteRecursively()
@@ -183,7 +183,7 @@ class DesktopJobInitializerTest {
         try {
             val result = initializer().initialize(entryFor(dir)) {}
             assertTrue(result is JobInitResult.Failed)
-            assertEquals("Verify setup", (result as JobInitResult.Failed).stepTitle)
+            assertEquals("Verify setup", result.stepTitle)
         } finally {
             dir.deleteRecursively()
         }

@@ -5,6 +5,7 @@ import com.contextsolutions.localagent.notification.AppNotification
 import com.contextsolutions.localagent.notification.NotificationKind
 import com.contextsolutions.localagent.notification.NotificationPresenter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -12,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class JobCompletionNotifierTest {
 
     private class RecordingPresenter : NotificationPresenter {

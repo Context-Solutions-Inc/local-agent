@@ -47,7 +47,7 @@ class JobSyncPolicyTest {
     fun desktopAcceptsPausedToggleOnExisting() {
         val action = DesktopJobSyncPolicy().apply(record(paused = true), exists = true)
         assertTrue(action is JobApplyAction.PausedOnly)
-        assertTrue((action as JobApplyAction.PausedOnly).record.paused)
+        assertTrue(action.record.paused)
     }
 
     // ---- Mobile (trusts the desktop) ---------------------------------------
@@ -57,13 +57,13 @@ class JobSyncPolicyTest {
         val rec = record()
         val action = MobileJobSyncPolicy().apply(rec, exists = false)
         assertTrue(action is JobApplyAction.UpsertFull)
-        assertEquals(rec, (action as JobApplyAction.UpsertFull).record)
+        assertEquals(rec, action.record)
     }
 
     @Test
     fun mobileAppliesDesktopTombstoneVerbatim() {
         val action = MobileJobSyncPolicy().apply(record(deletedAt = 99), exists = true)
         assertTrue(action is JobApplyAction.UpsertFull)
-        assertEquals(99L, (action as JobApplyAction.UpsertFull).record.deletedAtEpochMs)
+        assertEquals(99L, action.record.deletedAtEpochMs)
     }
 }

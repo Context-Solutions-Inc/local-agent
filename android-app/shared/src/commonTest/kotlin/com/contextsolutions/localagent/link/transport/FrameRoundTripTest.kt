@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.link.transport
 
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -25,6 +26,7 @@ import kotlin.test.assertTrue
  * fake [LinkRequestHandler]. Proves unary + streaming requests round-trip over the
  * single byte-pipe with id correlation — the contract both LAN and relay rely on.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class FrameRoundTripTest {
 
     /** Two cross-wired pipes: client.send → server.inbound, server.send → client.inbound. */

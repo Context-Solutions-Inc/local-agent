@@ -2,6 +2,7 @@ package com.contextsolutions.localagent.inference
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -12,6 +13,7 @@ import kotlinx.coroutines.test.runTest
  * a reload immediately on failure (fall back to local) and again once the
  * background probe sees the server return (reconnect).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class OllamaConnectionMonitorTest {
 
     @Test

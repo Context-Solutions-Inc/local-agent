@@ -68,14 +68,14 @@ class JobExecutorTest {
         assertTrue(convId != null, "last run conversation id is set")
 
         // The conversation holds user = job name, assistant = response (echoed prompt).
-        val messages = conversations.loadMessages(convId!!)
+        val messages = conversations.loadMessages(convId)
         assertEquals(2, messages.size)
         val user = messages[0]
         val assistant = messages[1]
         assertTrue(user is ChatMessage.User)
-        assertEquals("echo job", (user as ChatMessage.User).text)
+        assertEquals("echo job", user.text)
         assertTrue(assistant is ChatMessage.Assistant)
-        assertEquals("hello from job", (assistant as ChatMessage.Assistant).text)
+        assertEquals("hello from job", assistant.text)
         assertEquals(true, assistant.renderMarkdown)
 
         // A finished run row links the same conversation.

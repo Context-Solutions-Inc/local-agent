@@ -21,7 +21,7 @@ class DefaultSiteResolverEncodingTest {
         )
         // No raw query-string metacharacters from the user input survive.
         assertTrue(out != null && out.startsWith("https://example.com/search?q="))
-        val encoded = out!!.substringAfter("q=")
+        val encoded = out.substringAfter("q=")
         assertTrue("&" !in encoded, "raw & must be encoded: $encoded")
         assertTrue("?" !in encoded, "raw ? must be encoded: $encoded")
         assertTrue("#" !in encoded, "raw # must be encoded: $encoded")
@@ -47,6 +47,6 @@ class DefaultSiteResolverEncodingTest {
         )
         // The accented + spaced city must not appear raw.
         assertTrue(out != null && "Québec City" !in out)
-        assertTrue("Qu%C3%A9bec" in out!!, "expected UTF-8 percent-encoding: $out")
+        assertTrue("Qu%C3%A9bec" in out, "expected UTF-8 percent-encoding: $out")
     }
 }

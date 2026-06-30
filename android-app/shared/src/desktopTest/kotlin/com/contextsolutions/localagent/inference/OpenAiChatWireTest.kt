@@ -51,7 +51,7 @@ class OpenAiChatWireTest {
         val body = buildOllamaChatRequest(original, "desktop", temperature = 1.0f, keepAlive = "30m")
         val parsed = parseOpenAiChatRequest(body)
         assertTrue(parsed.sampling != null)
-        assertEquals(1, parsed.sampling!!.topK)
+        assertEquals(1, parsed.sampling.topK)
     }
 
     @Test
