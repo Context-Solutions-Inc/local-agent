@@ -474,6 +474,10 @@ object StringKeys {
     const val JOBS_CD_CANCEL_RUN = "jobs.cd.cancel_run"
     const val JOBS_CD_EDIT = "jobs.cd.edit"
     const val JOBS_CD_DELETE = "jobs.cd.delete"
+    const val JOBS_CD_RESYNC = "jobs.cd.resync"
+    const val JOBS_RESYNC_TITLE = "jobs.resync_title"
+    const val JOBS_RESYNC_BODY = "jobs.resync_body"
+    const val JOBS_RESYNC_CONFIRM = "jobs.resync_confirm"
     const val JOBS_SCHED_DAILY_AT = "jobs.sched.daily_at"
     const val JOBS_SCHED_AT = "jobs.sched.at"
     const val JOBS_SCHED_CRON_RAW = "jobs.sched.cron_raw"
@@ -768,6 +772,7 @@ object StringKeys {
         JOBS_EMPTY, JOBS_EMPTY_HINT_ADMIN, JOBS_EMPTY_HINT_REMOTE,
         JOBS_RUNNING, JOBS_STATUS_RUNNING, JOBS_STATUS_SUCCEEDED, JOBS_STATUS_FAILED, JOBS_STATUS_CANCELLED,
         JOBS_VIEW_CONVERSATION, JOBS_CD_RUN_NOW, JOBS_CD_CANCEL_RUN, JOBS_CD_EDIT, JOBS_CD_DELETE,
+        JOBS_CD_RESYNC, JOBS_RESYNC_TITLE, JOBS_RESYNC_BODY, JOBS_RESYNC_CONFIRM,
         JOBS_SCHED_DAILY_AT, JOBS_SCHED_AT, JOBS_SCHED_CRON_RAW, JOBS_REPEAT,
         JOBS_SCHED_ONCE_ON, JOBS_ONCE,
         JOBS_DAY_SHORT_SUN, JOBS_DAY_SHORT_MON, JOBS_DAY_SHORT_TUE, JOBS_DAY_SHORT_WED,

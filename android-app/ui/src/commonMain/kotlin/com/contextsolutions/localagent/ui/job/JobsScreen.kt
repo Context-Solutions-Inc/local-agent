@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -123,6 +124,7 @@ fun JobsScreen(
     var creating by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Job?>(null) }
     var deleting by remember { mutableStateOf<Job?>(null) }
+    var resyncing by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -134,6 +136,14 @@ fun JobsScreen(
                     }
                 },
                 actions = {
+                    // Mobile-only manual "re-sync jobs" (#39 follow-up): clears the local list
+                    // and re-pulls the desktop's current state. Enabled only when the link is UP
+                    // (same gating as run-now/cancel). Hidden on desktop (canResync false).
+                    if (viewModel.canResync) {
+                        IconButton(onClick = { resyncing = true }, enabled = canControl) {
+                            Icon(Icons.Filled.Sync, contentDescription = tr(StringKeys.JOBS_CD_RESYNC))
+                        }
+                    }
                     if (isAdmin) {
                         IconButton(onClick = { creating = true }) {
                             Icon(Icons.Filled.Add, contentDescription = tr(StringKeys.JOBS_CD_ADD))
@@ -210,6 +220,21 @@ fun JobsScreen(
                 }) { Text(tr(StringKeys.JOBS_DELETE)) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text(tr(StringKeys.JOBS_CANCEL)) } },
+        )
+    }
+
+    if (resyncing) {
+        AlertDialog(
+            onDismissRequest = { resyncing = false },
+            title = { Text(tr(StringKeys.JOBS_RESYNC_TITLE)) },
+            text = { Text(tr(StringKeys.JOBS_RESYNC_BODY)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.resyncJobs()
+                    resyncing = false
+                }) { Text(tr(StringKeys.JOBS_RESYNC_CONFIRM)) }
+            },
+            dismissButton = { TextButton(onClick = { resyncing = false }) { Text(tr(StringKeys.JOBS_CANCEL)) } },
         )
     }
 }

@@ -133,6 +133,7 @@ import com.contextsolutions.localagent.job.JobBadge
 import com.contextsolutions.localagent.job.JobCompletionNotifier
 import com.contextsolutions.localagent.job.JobNotificationPrefs
 import com.contextsolutions.localagent.job.JobRepository
+import com.contextsolutions.localagent.job.JobResync
 import com.contextsolutions.localagent.job.RelayInlineJobRunner
 import com.contextsolutions.localagent.job.RelayRemoteJobRunner
 import com.contextsolutions.localagent.job.RemoteJobRunner
@@ -434,6 +435,19 @@ val androidModule: Module = module {
             lastSync = get(),
             lastSyncStatus = get(),
             logger = diagLog("Sync"),
+        )
+    }
+    // Mobile-only manual "re-sync jobs" escape hatch (#39 follow-up): a fresh desktop
+    // re-install keeps the same X25519 pubkey, so the auto new-desktop wipe never fires
+    // and the phone shows ghost jobs. This composes the same wipe + watermark-reset the
+    // pairing path uses, plus an immediate reconcile so the desktop's state re-pulls now.
+    single<JobResync> {
+        val watermarks = get<SyncWatermarkStore>()
+        val sync = get<SyncController>()
+        JobResync(
+            jobRepository = get<JobRepository>(),
+            resetWatermark = { watermarks.set(0) },
+            forceSync = { sync.requestSync() },
         )
     }
 

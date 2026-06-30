@@ -85,6 +85,8 @@ val uiModule: Module = module {
             // Null on mobile → the Choose Job button is hidden.
             catalog = getOrNull(),
             initializer = getOrNull(),
+            // Mobile-only (#39 follow-up): manual "re-sync jobs". Null on desktop → button hidden.
+            resync = getOrNull(),
             buildConfig = get(),
         )
     }
