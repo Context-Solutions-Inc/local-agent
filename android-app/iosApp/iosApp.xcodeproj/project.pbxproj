@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */ = {isa = PBXBuildFile; productRef = 215E4B242FF3F32C005E4D52 /* LiteRTLM */; };
 		A1000011000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001 /* iOSApp.swift */; };
 		A1000012000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000001 /* ContentView.swift */; };
 		A1000013000000000000001 /* LiteRtBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003000000000000001 /* LiteRtBridge.swift */; };
@@ -27,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,6 +108,9 @@
 				Base,
 			);
 			mainGroup = A1000030000000000000001;
+			packageReferences = (
+				215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */,
+			);
 			productRefGroup = A1000032000000000000001 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -188,7 +193,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_PREVIEWS = YES;
+				DEVELOPMENT_TEAM = WR48CULTB3;
+				ENABLE_PREVIEWS = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
@@ -205,6 +211,7 @@
 					"$(inherited)",
 					"-framework",
 					ComposeApp,
+					"-lsqlite3",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.contextsolutions.localagent.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -219,7 +226,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_PREVIEWS = YES;
+				DEVELOPMENT_TEAM = WR48CULTB3;
+				ENABLE_PREVIEWS = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
@@ -236,6 +244,7 @@
 					"$(inherited)",
 					"-framework",
 					ComposeApp,
+					"-lsqlite3",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.contextsolutions.localagent.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -247,15 +256,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1000071000000000000001 /* Build configuration list for PBXProject "iosApp" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1000080000000000000001 /* Debug */,
-				A1000081000000000000001 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1000051000000000000001 /* Build configuration list for PBXNativeTarget "iosApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -265,7 +265,35 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A1000071000000000000001 /* Build configuration list for PBXProject "iosApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000080000000000000001 /* Debug */,
+				A1000081000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google-ai-edge/LiteRT-LM";
+			requirement = {
+				kind = revision;
+				revision = a0afb5a56acd106b23a2b2385b8469834dc268c0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		215E4B242FF3F32C005E4D52 /* LiteRTLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */;
+			productName = LiteRTLM;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A1000070000000000000001 /* Project object */;
 }

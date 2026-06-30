@@ -22,6 +22,11 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- Required by Compose Multiplatform (androidx.compose.ui.uikit.PlistSanityCheck):
+	     enables full refresh rate on ProMotion iPhones. Missing/false → the app throws
+	     IllegalStateException on launch. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -33,6 +38,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Phone-focused single-window UI; opts out of iPad multitasking so the limited
+	     orientation set above is valid (silences the "All interface orientations must
+	     be supported unless the app requires full screen" warning). -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<!-- Read by IosAppBuildConfig.gitDescribe (About dialog). Optional; set at build time. -->
 	<key>LocalAgentGitDescribe</key>
 	<string>ios-dev</string>

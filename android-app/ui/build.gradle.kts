@@ -37,10 +37,18 @@ kotlin {
         }
     }
 
-    // iOS (PR #41) — the shared Compose UI compiles to a static `ComposeApp`
-    // framework that the Xcode app (iosApp/) links. It re-exports :shared so
-    // Swift sees the exported Kotlin types (e.g. NativeLlmBridge, initKoin).
-    // Additive: Android/desktop are untouched.
+    // iOS (PR #41) — the shared Compose UI compiles to a `ComposeApp` framework
+    // that the Xcode app (iosApp/) links + embeds (embedAndSignAppleFrameworkForXcode).
+    // It re-exports :shared so Swift sees the exported Kotlin types (e.g.
+    // NativeLlmBridge, initKoin). Additive: Android/desktop are untouched.
+    //
+    // DYNAMIC (isStatic = false) is load-bearing: the LiteRT-LM SwiftPM package forces
+    // `-Xlinker -all_load` (its unsafeFlags) onto the whole app link, and Skiko bundles
+    // its C libs (libjpeg/libicu/libpng/libwebp/libdng_sdk) twice in the framework
+    // archive. With a STATIC framework, -all_load force-loads both copies of every
+    // Skiko object → ~15.9k "duplicate symbol" link errors. A dynamic framework
+    // resolves Skiko internally at framework-link time, so -all_load never reaches its
+    // internals. See docs/IOS_BUILD.md.
     listOf(
         iosX64(),
         iosArm64(),
@@ -48,8 +56,14 @@ kotlin {
     ).forEach { target ->
         target.binaries.framework {
             baseName = "ComposeApp"
-            isStatic = true
+            isStatic = false
             export(project(":shared"))
+            // The dynamic framework resolves all symbols at framework-link time, so it
+            // must link the system SQLite that SQLDelight's NativeSqliteDriver (via
+            // co.touchlab:sqliter) references — sqliter's cinterop linkerOpt doesn't
+            // propagate to a consumer framework. Without this the link fails with
+            // `Undefined symbols: _sqlite3_*`.
+            linkerOpts("-lsqlite3")
         }
     }
 

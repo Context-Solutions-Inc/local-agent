@@ -4,7 +4,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ColorScheme
@@ -25,8 +28,11 @@ import com.contextsolutions.localagent.di.agentCoreModule
 import com.contextsolutions.localagent.di.iosModule
 import com.contextsolutions.localagent.inference.IosDownloadState
 import com.contextsolutions.localagent.inference.IosModelDownloadController
+import com.contextsolutions.localagent.inference.IosModelSpec
 import com.contextsolutions.localagent.inference.NativeLlmBridge
 import com.contextsolutions.localagent.i18n.StringCatalog
+import com.contextsolutions.localagent.i18n.StringKeys
+import com.contextsolutions.localagent.ui.i18n.tr
 import com.contextsolutions.localagent.onboarding.OnboardingPreferences
 import com.contextsolutions.localagent.ui.di.uiModule
 import com.contextsolutions.localagent.ui.i18n.LocalStrings
@@ -96,15 +102,39 @@ private fun IosDownloadScreen(controller: IosModelDownloadController) {
 
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Setting up the on-device AI model", style = MaterialTheme.typography.titleMedium)
+        Text(tr(StringKeys.DOWNLOAD_TITLE), style = MaterialTheme.typography.titleMedium)
+        Text(
+            tr(StringKeys.DOWNLOAD_INTRO),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+        )
+
+        // List the actual model(s) being downloaded, like Android's DownloadScreen.
+        // iOS downloads only Gemma (classifier/embedder are no-op this milestone).
+        Text(tr(StringKeys.DOWNLOAD_MODELS_HEADER), style = MaterialTheme.typography.bodySmall)
+        Text(
+            "• ${IosModelSpec.FILENAME} — ${formatBytes(IosModelSpec.SIZE_BYTES)}",
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+        )
+
         when (val s = state) {
             is IosDownloadState.Idle -> CircularProgressIndicator()
             is IosDownloadState.Downloading -> {
-                LinearProgressIndicator(progress = { s.fraction })
-                Text("${(s.fraction * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(progress = { s.fraction }, modifier = Modifier.fillMaxWidth())
+                val downloaded = (s.fraction.toDouble() * IosModelSpec.SIZE_BYTES).toLong()
+                Text(
+                    tr(
+                        StringKeys.DOWNLOAD_PROGRESS,
+                        (s.fraction * 100).toInt(),
+                        formatBytes(downloaded),
+                        formatBytes(IosModelSpec.SIZE_BYTES),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             is IosDownloadState.Done -> CircularProgressIndicator()
             is IosDownloadState.Failed -> {
@@ -113,4 +143,17 @@ private fun IosDownloadScreen(controller: IosModelDownloadController) {
             }
         }
     }
+}
+
+/** Decimal (SI, 1000-based) byte formatter — matches Android's `formatShortFileSize`. */
+private fun formatBytes(bytes: Long): String {
+    if (bytes >= 1_000_000_000L) {
+        val hundredths = (bytes * 100 / 1_000_000_000L)
+        return "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')} GB"
+    }
+    if (bytes >= 1_000_000L) {
+        val tenths = (bytes * 10 / 1_000_000L)
+        return "${tenths / 10}.${tenths % 10} MB"
+    }
+    return "${bytes / 1000L} KB"
 }

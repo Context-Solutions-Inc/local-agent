@@ -247,7 +247,10 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
     // -- The inference seam: on-device LiteRT-LM (Swift bridge) + remote Ollama. --
     single<InferenceEngine> {
         RoutingInferenceEngine(
-            local = LiteRtIosInferenceEngine(bridge = get()),
+            // Vision OFF on iOS: the LiteRT-LM vision encoder graph (STABLEHLO_COMPOSITE)
+            // fails to prepare on the iOS Metal backend (v0.13.1) → "Failed to create
+            // conversation" on every turn. Image input is a no-op this milestone anyway.
+            local = LiteRtIosInferenceEngine(bridge = get(), enableVision = false),
             ollama = get<OllamaInferenceEngine>(),
             preferences = get(),
             logger = diag("Inference"),
@@ -265,7 +268,7 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
         IosChatSessionController(
             engine = get(),
             modelPath = { get<IosModelDownloadController>().modelPath() },
-            config = InferenceConfig(enableVision = true),
+            config = InferenceConfig(enableVision = false), // text-only on iOS (see engine binding above)
         )
     }
 
@@ -381,7 +384,12 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
 
     // -- Clock (view-only on iOS; the scheduler is a no-op). --
     single<ClockRepository> { IosClockRepository(IosJsonStore("clock_prefs.json")) }
-    single<AlarmScheduler> { IosAlarmScheduler() }
+    // clockServiceProvider is lazy to break the ClockService↔scheduler DI cycle
+    // (mirrors DesktopAlarmScheduler): the scheduler is built first; ClockService is
+    // resolved on the first arm, by which point the graph is complete.
+    single<AlarmScheduler> {
+        IosAlarmScheduler(clockServiceProvider = { get<ClockService>() }, logger = diag("Clock"))
+    }
     single { ClockService(repository = get(), scheduler = get()) }
     single { ClockToolHandler(get()) }
 

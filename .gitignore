@@ -110,3 +110,11 @@ eval/runs/smoke_*/
 
 # Claude Code local session state
 .claude/
+
+# ============================================================================
+# Xcode per-user state (iOS app, PR #41). The shared project + workspace + the
+# SwiftPM Package.resolved ARE committed; per-user UI/breakpoint state is not.
+# ============================================================================
+**/xcuserdata/
+*.xcuserstate
+android-app/iosApp/**/DerivedData/
