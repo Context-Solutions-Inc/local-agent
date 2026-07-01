@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */ = {isa = PBXBuildFile; productRef = 215E4B242FF3F32C005E4D52 /* LiteRTLM */; };
+		21FF2A5E2FF52AA4009D9F2A /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 21FF2A5D2FF52AA4009D9F2A /* onnxruntime */; };
+		21FF2A602FF52AA4009D9F2A /* onnxruntime_extensions in Frameworks */ = {isa = PBXBuildFile; productRef = 21FF2A5F2FF52AA4009D9F2A /* onnxruntime_extensions */; };
+		21FF2A652FF52D7C009D9F2A /* OnnxRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FF2A622FF52D7C009D9F2A /* OnnxRuntimeBridge.swift */; };
+		21FF2A662FF52D7C009D9F2A /* locations.json in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A612FF52D7C009D9F2A /* locations.json */; };
+		21FF2A672FF52D7C009D9F2A /* search_defaults.json in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A632FF52D7C009D9F2A /* search_defaults.json */; };
+		21FF2A682FF52D7C009D9F2A /* vocab.txt in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A642FF52D7C009D9F2A /* vocab.txt */; };
 		A1000011000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001 /* iOSApp.swift */; };
 		A1000012000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000001 /* ContentView.swift */; };
 		A1000013000000000000001 /* LiteRtBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003000000000000001 /* LiteRtBridge.swift */; };
@@ -15,6 +21,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		21FF2A612FF52D7C009D9F2A /* locations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = locations.json; sourceTree = "<group>"; };
+		21FF2A622FF52D7C009D9F2A /* OnnxRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnnxRuntimeBridge.swift; sourceTree = "<group>"; };
+		21FF2A632FF52D7C009D9F2A /* search_defaults.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = search_defaults.json; sourceTree = "<group>"; };
+		21FF2A642FF52D7C009D9F2A /* vocab.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocab.txt; sourceTree = "<group>"; };
 		A1000001000000000000001 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		A1000002000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1000003000000000000001 /* LiteRtBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRtBridge.swift; sourceTree = "<group>"; };
@@ -28,7 +38,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21FF2A5E2FF52AA4009D9F2A /* onnxruntime in Frameworks */,
 				215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */,
+				21FF2A602FF52AA4009D9F2A /* onnxruntime_extensions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -46,6 +58,10 @@
 		A1000031000000000000001 /* iosApp */ = {
 			isa = PBXGroup;
 			children = (
+				21FF2A612FF52D7C009D9F2A /* locations.json */,
+				21FF2A622FF52D7C009D9F2A /* OnnxRuntimeBridge.swift */,
+				21FF2A632FF52D7C009D9F2A /* search_defaults.json */,
+				21FF2A642FF52D7C009D9F2A /* vocab.txt */,
 				A1000001000000000000001 /* iOSApp.swift */,
 				A1000002000000000000001 /* ContentView.swift */,
 				A1000003000000000000001 /* LiteRtBridge.swift */,
@@ -110,6 +126,7 @@
 			mainGroup = A1000030000000000000001;
 			packageReferences = (
 				215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */,
+				21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
 			productRefGroup = A1000032000000000000001 /* Products */;
 			projectDirPath = "";
@@ -126,6 +143,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000014000000000000001 /* Assets.xcassets in Resources */,
+				21FF2A662FF52D7C009D9F2A /* locations.json in Resources */,
+				21FF2A672FF52D7C009D9F2A /* search_defaults.json in Resources */,
+				21FF2A682FF52D7C009D9F2A /* vocab.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,6 +176,7 @@
 			files = (
 				A1000011000000000000001 /* iOSApp.swift in Sources */,
 				A1000012000000000000001 /* ContentView.swift in Sources */,
+				21FF2A652FF52D7C009D9F2A /* OnnxRuntimeBridge.swift in Sources */,
 				A1000013000000000000001 /* LiteRtBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -285,6 +306,14 @@
 				revision = a0afb5a56acd106b23a2b2385b8469834dc268c0;
 			};
 		};
+		21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.24.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -292,6 +321,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */;
 			productName = LiteRTLM;
+		};
+		21FF2A5D2FF52AA4009D9F2A /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+		21FF2A5F2FF52AA4009D9F2A /* onnxruntime_extensions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime_extensions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

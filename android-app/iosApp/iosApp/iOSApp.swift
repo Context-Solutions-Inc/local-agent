@@ -10,9 +10,15 @@ import ComposeApp
 @main
 struct iOSApp: App {
     init() {
-        // Start Koin with the Swift LiteRT-LM bridge as the on-device engine.
-        // `IosEntryPointKt` is generated from shared/.../ios entry point (Phase E).
-        IosEntryPointKt.doInitKoin(bridge: LiteRtBridge())
+        // Start Koin with the Swift on-device bridges: LiteRT-LM for the LLM, and a
+        // single ONNX Runtime bridge for BOTH aux models (classifier + embedder).
+        // `IosEntryPointKt` is generated from the shared/.../ios entry point.
+        let ort = OnnxRuntimeBridge()
+        IosEntryPointKt.doInitKoin(
+            llmBridge: LiteRtBridge(),
+            classifierBridge: ort,
+            embedderBridge: ort
+        )
     }
 
     var body: some Scene {

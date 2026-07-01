@@ -1,5 +1,5 @@
 {
-  "originHash" : "61c5f6e5b0bf1e145ccada78a69acf42a79ac9da727984a65e4517dc4667671f",
+  "originHash" : "2f7ef2e32be592c37d55726ce1756fcdda4939c128a0ee106ea0d75be6cab1e7",
   "pins" : [
     {
       "identity" : "litert-lm",
@@ -7,6 +7,15 @@
       "location" : "https://github.com/google-ai-edge/LiteRT-LM",
       "state" : {
         "revision" : "a0afb5a56acd106b23a2b2385b8469834dc268c0"
+      }
+    },
+    {
+      "identity" : "onnxruntime-swift-package-manager",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/microsoft/onnxruntime-swift-package-manager",
+      "state" : {
+        "revision" : "b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2",
+        "version" : "1.24.2"
       }
     }
   ],

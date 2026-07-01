@@ -14,8 +14,6 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -26,9 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeUIViewController
 import com.contextsolutions.localagent.di.agentCoreModule
 import com.contextsolutions.localagent.di.iosModule
+import com.contextsolutions.localagent.inference.IosAuxModelWarmer
 import com.contextsolutions.localagent.inference.IosDownloadState
 import com.contextsolutions.localagent.inference.IosModelDownloadController
 import com.contextsolutions.localagent.inference.IosModelSpec
+import com.contextsolutions.localagent.inference.NativeClassifierBridge
+import com.contextsolutions.localagent.inference.NativeEmbedderBridge
 import com.contextsolutions.localagent.inference.NativeLlmBridge
 import com.contextsolutions.localagent.i18n.StringCatalog
 import com.contextsolutions.localagent.i18n.StringKeys
@@ -38,6 +39,8 @@ import com.contextsolutions.localagent.ui.di.uiModule
 import com.contextsolutions.localagent.ui.i18n.LocalStrings
 import com.contextsolutions.localagent.ui.navigation.AppNavHost
 import com.contextsolutions.localagent.ui.theme.AppThemeScaffold
+import com.contextsolutions.localagent.ui.theme.DarkMonochromeColorScheme
+import com.contextsolutions.localagent.ui.theme.LightMonochromeColorScheme
 import com.contextsolutions.localagent.ui.theme.ThemeMode
 import com.contextsolutions.localagent.ui.theme.ThemeModeViewModel
 import androidx.compose.runtime.CompositionLocalProvider
@@ -53,9 +56,13 @@ import platform.UIKit.UIViewController
  * [bridge]; [MainViewController] hosts the shared Compose UI ([AppNavHost]) in a
  * `UIViewController` for the SwiftUI shell to embed.
  */
-fun doInitKoin(bridge: NativeLlmBridge) {
+fun doInitKoin(
+    llmBridge: NativeLlmBridge,
+    classifierBridge: NativeClassifierBridge,
+    embedderBridge: NativeEmbedderBridge,
+) {
     startKoin {
-        modules(agentCoreModule, iosModule(bridge), uiModule)
+        modules(agentCoreModule, iosModule(llmBridge, classifierBridge, embedderBridge), uiModule)
     }
 }
 
@@ -66,12 +73,16 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
     val fontScale by themeVm.fontScale.collectAsState()
     val fontFamily by themeVm.fontFamily.collectAsState()
 
+    // Monochrome (white/black/grey), shared with desktop — NOT the M3 purple baseline
+    // (invariant #46). Auto follows the iOS system appearance: on iOS
+    // `isSystemInDarkTheme()` is backed by UITraitCollection and updates live (unlike
+    // Linux), so ThemeMode.System tracks Settings → Display & Brightness.
     val dark = when (mode) {
         ThemeMode.Dark -> true
         ThemeMode.Light -> false
         ThemeMode.System -> isSystemInDarkTheme()
     }
-    val colors: ColorScheme = if (dark) darkColorScheme() else lightColorScheme()
+    val colors: ColorScheme = if (dark) DarkMonochromeColorScheme else LightMonochromeColorScheme
 
     CompositionLocalProvider(LocalStrings provides strings) {
         AppThemeScaffold(colorScheme = colors, fontScale = fontScale, fontFamily = fontFamily) {
@@ -80,6 +91,12 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 .collectAsState(initial = onboarding.languageDecided())
             val downloads = koinInject<IosModelDownloadController>()
             val modelPresent by downloads.modelPresent.collectAsState()
+            // Lazily fetch + warm the aux ONNX models once past the LLM download gate.
+            // Feature-gated inside the warmer: embedder when memory is on (default),
+            // classifier when web search is enabled. Toggling a feature on takes effect
+            // on the next entry here. (Idempotent.)
+            val auxWarmer = koinInject<IosAuxModelWarmer>()
+            LaunchedEffect(modelPresent) { if (modelPresent) auxWarmer.kickIfEnabled() }
             AppNavHost(
                 onboardingComplete = onboardingComplete,
                 modelPresent = modelPresent,

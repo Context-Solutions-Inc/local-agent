@@ -4,16 +4,20 @@ name: iOS test
 # toolchain, so this runs on macos-latest only (the desktop-test.yml matrix covers
 # Android-unit + desktop on macOS + Linux).
 #
-# Two cheap gates, no Xcode required:
+# Gates, no Xcode required:
 #   :shared:compileKotlinIosSimulatorArm64 + :ui:compileKotlinIosSimulatorArm64
 #       → the shared agent core + the shared Compose UI compile for iOS (Kotlin/Native).
 #   :ui:linkDebugFrameworkIosSimulatorArm64
 #       → the ComposeApp framework links (catches missing iOS actuals / interop).
+#   :shared:iosSimulatorArm64Test
+#       → the shared-core unit suite runs on the K/N simulator target. Catches iOS-only
+#         breaks the JVM (Android/desktop) test runs miss — e.g. a `fun` test name with a
+#         comma, which Kotlin/Native rejects but the JVM accepts.
 #
-# The full Xcode app build (xcodebuild -scheme iosApp) and on-device LLM are
-# validated locally on a physical iPhone — on-device LiteRT-LM does NOT run on the
-# iOS Simulator (CPU inference crashes, Metal is unavailable), so CI is build-only.
-# See docs/IOS_BUILD.md.
+# The full Xcode app build (xcodebuild -scheme iosApp), the ONNX Runtime / LiteRT-LM
+# Swift bridges, and on-device inference are validated locally on a physical iPhone —
+# on-device LiteRT-LM does NOT run on the iOS Simulator (CPU inference crashes, Metal is
+# unavailable), so CI is build + shared-unit-test only. See docs/IOS_BUILD.md.
 
 on:
   pull_request:
@@ -27,7 +31,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build (iOS simulator arm64)
+    name: Build + unit-test (iOS simulator arm64)
     runs-on: macos-latest
     defaults:
       run:
@@ -66,3 +70,11 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
         run: ./gradlew :ui:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
+
+      - name: Run shared-core iOS unit tests
+        # Compiles + links the test binary and runs it on the iosSimulatorArm64 target.
+        # Catches Kotlin/Native-only breaks the Android/desktop JVM test runs miss.
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.SECURE_GATEWAY_PAT }}
+        run: ./gradlew :shared:iosSimulatorArm64Test --no-daemon --stacktrace

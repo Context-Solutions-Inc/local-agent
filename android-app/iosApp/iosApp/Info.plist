@@ -46,5 +46,11 @@
 	<!-- Read by IosAppBuildConfig.gitDescribe (About dialog). Optional; set at build time. -->
 	<key>LocalAgentGitDescribe</key>
 	<string>ios-dev</string>
+	<!-- Voice I/O (Phase 2): mic dictation via SFSpeechRecognizer. iOS crashes the
+	     permission prompt without these usage descriptions. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Local Agent uses the microphone for voice dictation so you can talk to the assistant.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Local Agent transcribes your speech on device (when supported) to turn what you say into chat messages.</string>
 </dict>
 </plist>

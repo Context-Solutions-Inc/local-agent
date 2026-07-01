@@ -12,7 +12,8 @@ import com.contextsolutions.localagent.agent.TranslationIntentDetector
 import com.contextsolutions.localagent.agent.WeatherResponseFormatter
 import com.contextsolutions.localagent.agent.currentTimeContext
 import com.contextsolutions.localagent.classifier.ClassifierEngine
-import com.contextsolutions.localagent.classifier.NoOpClassifierEngine
+import com.contextsolutions.localagent.classifier.IosVocabLoader
+import com.contextsolutions.localagent.classifier.OnnxIosClassifierEngine
 import com.contextsolutions.localagent.classifier.PreflightConfig
 import com.contextsolutions.localagent.classifier.PreflightRouter
 import com.contextsolutions.localagent.classifier.Vocab
@@ -27,6 +28,8 @@ import com.contextsolutions.localagent.db.LocalAgentDatabase
 import com.contextsolutions.localagent.i18n.StringPackLoader
 import com.contextsolutions.localagent.inference.InferenceConfig
 import com.contextsolutions.localagent.inference.InferenceEngine
+import com.contextsolutions.localagent.inference.IosAuxModelStore
+import com.contextsolutions.localagent.inference.IosAuxModelWarmer
 import com.contextsolutions.localagent.inference.IosChatSessionController
 import com.contextsolutions.localagent.inference.IosMemoryHeadroomProvider
 import com.contextsolutions.localagent.inference.IosModelDownloadController
@@ -35,6 +38,8 @@ import com.contextsolutions.localagent.inference.IosSystemMemoryStatusProvider
 import com.contextsolutions.localagent.inference.IosThermalStatusProvider
 import com.contextsolutions.localagent.inference.LiteRtIosInferenceEngine
 import com.contextsolutions.localagent.inference.MemoryHeadroomProvider
+import com.contextsolutions.localagent.inference.NativeClassifierBridge
+import com.contextsolutions.localagent.inference.NativeEmbedderBridge
 import com.contextsolutions.localagent.inference.NativeLlmBridge
 import com.contextsolutions.localagent.inference.OllamaClient
 import com.contextsolutions.localagent.inference.OllamaConnectionMonitor
@@ -59,7 +64,7 @@ import com.contextsolutions.localagent.memory.MemoryExtractor
 import com.contextsolutions.localagent.memory.MemoryPreferences
 import com.contextsolutions.localagent.memory.MemoryRetriever
 import com.contextsolutions.localagent.memory.MemoryStore
-import com.contextsolutions.localagent.memory.NoOpEmbedderEngine
+import com.contextsolutions.localagent.memory.OnnxIosEmbedderEngine
 import com.contextsolutions.localagent.memory.QuestionDetector
 import com.contextsolutions.localagent.memory.RememberForgetDetector
 import com.contextsolutions.localagent.memory.SqlDelightMemoryStore
@@ -75,6 +80,7 @@ import com.contextsolutions.localagent.onboarding.OnboardingPreferences
 import com.contextsolutions.localagent.platform.AgentClock
 import com.contextsolutions.localagent.platform.AppBuildConfig
 import com.contextsolutions.localagent.platform.HttpEngineFactory
+import com.contextsolutions.localagent.platform.IosResources
 import com.contextsolutions.localagent.platform.IosAppBuildConfig
 import com.contextsolutions.localagent.platform.IosDatabaseFactory
 import com.contextsolutions.localagent.platform.IosHttpEngineFactory
@@ -131,9 +137,9 @@ import com.contextsolutions.localagent.ui.theme.IosThemePreferences
 import com.contextsolutions.localagent.ui.theme.ThemePreferences
 import com.contextsolutions.localagent.voice.ChatSpeaker
 import com.contextsolutions.localagent.voice.Dictation
+import com.contextsolutions.localagent.voice.IosChatSpeaker
+import com.contextsolutions.localagent.voice.IosSpeechDictation
 import com.contextsolutions.localagent.voice.IosTtsPreferences
-import com.contextsolutions.localagent.voice.NoOpChatSpeaker
-import com.contextsolutions.localagent.voice.NoOpDictation
 import com.contextsolutions.localagent.voice.TtsPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -159,9 +165,16 @@ private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
  * embedder are NoOp (search/memory degrade gracefully), and relay/subscription/
  * voice/jobs-admin are no-op stubs this milestone.
  */
-fun iosModule(bridge: NativeLlmBridge): Module = module {
-    // The Swift LiteRT-LM bridge, injected from the app shell.
-    single<NativeLlmBridge> { bridge }
+fun iosModule(
+    llmBridge: NativeLlmBridge,
+    classifierBridge: NativeClassifierBridge,
+    embedderBridge: NativeEmbedderBridge,
+): Module = module {
+    // The Swift bridges, injected from the app shell: LiteRT-LM (LLM) + ONNX Runtime
+    // (classifier/embedder). See NativeLlmBridge / NativeAuxBridges.
+    single<NativeLlmBridge> { llmBridge }
+    single<NativeClassifierBridge> { classifierBridge }
+    single<NativeEmbedderBridge> { embedderBridge }
 
     // -- Platform seams --
     single<HttpEngineFactory> { IosHttpEngineFactory() }
@@ -184,9 +197,11 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
     single { get<LocalAgentDatabase>().myListQueries }
     single { get<LocalAgentDatabase>().memoriesQueries }
 
-    // -- Vocab (placeholder; classifier/embedder are NoOp on iOS so the tokenizer
-    //    is never used for real inference, but WordPieceTokenizer needs a Vocab). --
-    single { Vocab.fromLines(sequenceOf("[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]")) }
+    // -- Vocab: the real 30,522-entry WordPiece vocab bundled in the app (invariant
+    //    #13), needed now that the classifier/embedder run for real. Falls back to a
+    //    5-token stub only if the bundle resource is missing (tokenizer never runs
+    //    while both aux engines are absent, so the stub keeps the graph resolvable). --
+    single { IosVocabLoader.loadOrNull() ?: Vocab.fromLines(sequenceOf("[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]")) }
 
     // -- Telemetry (opt-in, off by default; egress is a NoOp sink on iOS). --
     single<TelemetryCounters> { NoOpTelemetryCounters }
@@ -256,8 +271,36 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
             logger = diag("Inference"),
         )
     }
-    single<ClassifierEngine> { NoOpClassifierEngine() }
-    single<EmbedderEngine> { NoOpEmbedderEngine() }
+    // -- Aux models: real ONNX classifier + embedder via the Swift ORT bridges. The
+    //    model path is download-gated (IosAuxModelStore) so warmUp() no-ops until the
+    //    .onnx is present; IosAuxModelWarmer fetches + warms lazily per enabled feature. --
+    single { IosAuxModelStore() }
+    single<ClassifierEngine> {
+        OnnxIosClassifierEngine(
+            bridge = get(),
+            modelPath = { get<IosAuxModelStore>().classifierPathIfPresent() },
+            logger = diag("Classifier"),
+        )
+    }
+    single<EmbedderEngine> {
+        OnnxIosEmbedderEngine(
+            bridge = get(),
+            tokenizer = get(),
+            modelPath = { get<IosAuxModelStore>().embedderPathIfPresent() },
+            logger = diag("Embedder"),
+        )
+    }
+    single {
+        IosAuxModelWarmer(
+            store = get(),
+            classifier = get(),
+            embedder = get(),
+            secureStorage = get(),
+            memoryPreferences = get(),
+            scope = appScope(),
+            logger = diag("AuxWarmer"),
+        )
+    }
 
     // -- Model download gate (first-run Gemma .litertlm fetch). --
     single { IosModelStore() }
@@ -363,10 +406,17 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
         )
     }
 
-    // -- Vertical-search prefs + location data (empty defaults on iOS). --
-    single<DefaultSiteResolver> { DefaultSiteResolver(EMPTY_DEFAULTS_JSON) }
+    // -- Vertical-search prefs + location data: real bundled defaults (invariant #31/#32),
+    //    so the site-pinned SPORTS/NEWS/FINANCE verticals + the deterministic WEATHER
+    //    force-fire (which needs a resolvable city) work. Fall back to empty if a bundle
+    //    resource is missing. --
+    single<DefaultSiteResolver> {
+        DefaultSiteResolver(IosResources.readTextOrNull("search_defaults.json") ?: EMPTY_DEFAULTS_JSON)
+    }
     single<SearchPreferencesRepository> { IosSearchPreferencesRepository(IosJsonStore("search_prefs.json"), get()) }
-    single<LocationCatalog> { LocationCatalog("""{"countries":[]}""") }
+    single<LocationCatalog> {
+        LocationCatalog(IosResources.readTextOrNull("locations.json") ?: """{"countries":[]}""")
+    }
     single { WeatherLocationResolver(get()) }
     single<OnboardingPreferences> { IosOnboardingPreferences(IosJsonStore("onboarding_prefs.json")) }
 
@@ -402,8 +452,8 @@ fun iosModule(bridge: NativeLlmBridge): Module = module {
     single<ChatLogger> { ChatLogger(diag("ChatViewModel")) }
     single<ThemePreferences> { IosThemePreferences(IosJsonStore("theme_prefs.json")) }
     single<TtsPreferences> { IosTtsPreferences(IosJsonStore("tts_prefs.json")) }
-    single<ChatSpeaker> { NoOpChatSpeaker() }
-    single<Dictation> { NoOpDictation() }
+    single<ChatSpeaker> { IosChatSpeaker() }
+    single<Dictation> { IosSpeechDictation(logger = diag("Dictation")) }
 }
 
 /** Long-lived scope for background work owned by iOS singletons (download, monitors). */

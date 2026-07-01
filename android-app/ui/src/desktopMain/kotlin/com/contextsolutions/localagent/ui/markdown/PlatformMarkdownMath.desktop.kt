@@ -4,12 +4,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownTypography
 
 /**
  * Desktop [PlatformMarkdownMath] — a Compose-Multiplatform markdown renderer
@@ -28,6 +30,16 @@ import com.mikepenz.markdown.m3.Markdown
 actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
     val colorArgb = LocalContentColor.current.toArgb()
     val normalized = LatexNormalizer.normalize(text)
+    // Pin body text to bodyMedium so a rendered answer matches the plain-text answers
+    // and the user prompt bubbles (the library defaults body to the larger bodyLarge).
+    val body = MaterialTheme.typography.bodyMedium
+    val mdTypography = markdownTypography(
+        text = body,
+        paragraph = body,
+        ordered = body,
+        bullet = body,
+        list = body,
+    )
 
     // Render math to bitmaps once per (text, colour) — outside composition slots.
     val segments = remember(normalized, colorArgb) {
@@ -49,13 +61,14 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
             segments.forEachIndexed { index, (segment, bitmap) ->
                 key(index) {
                     when (segment) {
-                        is MdSegment.Markdown -> if (segment.text.isNotBlank()) Markdown(content = segment.text)
+                        is MdSegment.Markdown ->
+                            if (segment.text.isNotBlank()) Markdown(content = segment.text, typography = mdTypography)
                         is MdSegment.Math ->
                             if (bitmap != null) {
                                 Image(bitmap = bitmap, contentDescription = null)
                             } else {
                                 // Unparseable formula — show it verbatim as inline code.
-                                Markdown(content = "`${segment.latex}`")
+                                Markdown(content = "`${segment.latex}`", typography = mdTypography)
                             }
                     }
                 }

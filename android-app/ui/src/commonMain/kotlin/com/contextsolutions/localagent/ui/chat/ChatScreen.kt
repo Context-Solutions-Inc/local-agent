@@ -86,6 +86,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -197,7 +198,9 @@ fun ChatScreen(
     // partial — only display it (and drop it during TTS playback, echo #42).
     LaunchedEffect(dictation) {
         dictation.partials.collect { partial ->
-            if (!suppressDictationText) {
+            // Also drop partials while the assistant is generating — a late partial
+            // of the just-spoken prompt would otherwise repopulate the just-cleared box.
+            if (!suppressDictationText && !ui.isGenerating) {
                 input = if (committedInput.isBlank()) partial else "$committedInput $partial"
             }
         }
@@ -240,14 +243,14 @@ fun ChatScreen(
                 VoiceCommand.SPEAKER_OFF -> viewModel.setTtsEnabled(false)
                 VoiceCommand.SPEAKER_ON -> viewModel.setTtsEnabled(true)
                 VoiceCommand.NONE -> {
-                    // While the speaker is reading aloud (plus a grace tail for
-                    // late-delivered transcripts), stay in command-only mode:
-                    // keep listening so "speaker off" can interrupt, but DROP
-                    // regular text since the mic is mostly hearing the
-                    // assistant's own playback (echo). Outside playback, promote
-                    // the finalized utterance into the committed text (replacing
-                    // the live partial that was on screen).
-                    if (!suppressDictationText) {
+                    // Drop transcribed text while the assistant is generating OR
+                    // reading aloud (+grace): during playback the mic mostly hears
+                    // the assistant's own voice (echo), and right after a send the
+                    // recognizer delivers a late final transcript of the just-spoken
+                    // prompt that would repopulate the just-cleared box. Otherwise
+                    // promote the finalized utterance into the committed text
+                    // (replacing the live partial that was on screen).
+                    if (!suppressDictationText && !ui.isGenerating) {
                         committedInput = if (committedInput.isBlank()) spoken else "$committedInput $spoken"
                         input = committedInput
                     } else {
@@ -268,12 +271,19 @@ fun ChatScreen(
             viewModel.setMicEnabled(false)
         }
     }
-    // Listen for the whole time the mic is on — including while the speaker is
-    // talking, so spoken commands ("speaker off") can interrupt playback. The
-    // echo is handled in the collector above by dropping non-command text during
-    // playback rather than by pausing the recognizer.
-    LaunchedEffect(micEnabled) {
-        if (micEnabled) dictation.start() else dictation.stop()
+    // Auto-pause the mic while the assistant is generating or reading aloud
+    // (+2.5s grace). This physically prevents the recognizer from (a) transcribing
+    // the assistant's own TTS playback (echo) and (b) delivering a late final
+    // transcript of the just-spoken prompt that repopulates the box after send —
+    // the same behaviour the Android app used. Trade-off: a spoken "speaker off"
+    // can't interrupt playback mid-answer (the mic is paused); it takes effect once
+    // the mic resumes. Resume automatically once the assistant is idle.
+    LaunchedEffect(micEnabled, ui.isGenerating, ttsSpeaking, suppressDictationText) {
+        // assistantBusy pauses the mic while: generating, actively speaking
+        // (`ttsSpeaking`, immediate — closes the generation→speech handoff gap), or in
+        // the post-speech grace (`suppressDictationText`, catches late transcripts).
+        val assistantBusy = ui.isGenerating || ttsSpeaking || suppressDictationText
+        if (micEnabled && !assistantBusy) dictation.start() else dictation.stop()
     }
     val listState = rememberLazyListState()
     // Desktop scrolls a plain Column via this state (see the list branch below);
@@ -1065,12 +1075,20 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
             value = withContext(Dispatchers.Default) { decodeImageBitmap(bytes) }
         }.value
     }
+    // Dark mode: the monochrome `primaryContainer` (#2A2A2A) reads near-black against
+    // the #121212 chat background, so use a lighter mid-grey with white text for the
+    // user prompt bubble (distinct from the assistant's #2A2A2A). Light mode keeps the
+    // scheme's light-grey container (with the default dark text).
+    val scheme = MaterialTheme.colorScheme
+    val darkMode = scheme.surface.luminance() < 0.5f
+    val bubbleColor = if (darkMode) Color(0xFF505050) else scheme.primaryContainer
+    val bubbleTextColor = if (darkMode) Color.White else Color.Unspecified
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
                 .widthIn(max = maxWidth)
                 .background(
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = bubbleColor,
                     shape = RoundedCornerShape(12.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1094,7 +1112,7 @@ private fun UserBubble(text: String, imageBytes: ByteArray? = null, maxWidth: Dp
                 // all / Share) — no custom menu needed.
                 if (text.isNotEmpty()) {
                     SelectionContainer {
-                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                        Text(text, style = MaterialTheme.typography.bodyMedium, color = bubbleTextColor)
                     }
                 }
             }

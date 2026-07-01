@@ -83,7 +83,7 @@ class LlmContextPostProcessorTest {
     }
 
     @Test
-    fun `strips json-blob snippet chunks, keeping prose`() {
+    fun `strips json-blob snippet chunks - keeping prose`() {
         val out = LlmContextPostProcessor.format(
             response(
                 entry(

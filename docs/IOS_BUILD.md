@@ -18,9 +18,25 @@ there). The Xcode project is **`android-app/iosApp/iosApp.xcodeproj`**.
 - Clock **timers** (and alarms) fire OS notifications via `UNUserNotificationCenter`
   (`IosAlarmScheduler`) — delivered foreground, backgrounded, or locked.
 
-Deferred to follow-ups (no-op stubs this milestone): voice (STT/TTS), image
-input, web search, on-device memory/embeddings, relay/desktop-pairing, jobs.
-The local SQLite DB is **unkeyed** on iOS (SQLCipher-on-iOS is deferred).
+**Added in Phase 2** (see [`CLAUDE.md`](../CLAUDE.md) invariant #78 and the sections
+below for the one-time Xcode setup each needs):
+
+- **Voice I/O** — read-aloud via `AVSpeechSynthesizer` (`IosChatSpeaker`) + mic dictation
+  via `SFSpeechRecognizer`/`AVAudioEngine` (`IosSpeechDictation`, prefer-on-device). Pure
+  Kotlin/Native (no Swift bridge); needs the two Info.plist usage-description keys.
+- **On-device classifier + embedder** — the pre-flight/memory classifier + MiniLM embedder
+  run the FP32 `.onnx` models on **ONNX Runtime** via a Swift bridge (`OnnxRuntimeBridge`
+  → `NativeClassifierBridge`/`NativeEmbedderBridge` → `OnnxIosClassifierEngine`/
+  `OnnxIosEmbedderEngine`). Lazily downloaded per enabled feature (`IosAuxModelWarmer`).
+- **Web search** — the Brave verticals fire once the classifier is real; the user sets a
+  Brave key + toggles search on in Settings (BYOK). Real `search_defaults.json` +
+  `locations.json` are bundled.
+- **Memory** — works once the embedder `.onnx` is present (memory creation defaults ON).
+
+Deferred to follow-ups (no-op stubs this milestone): image input/vision,
+relay/desktop-pairing, jobs. The local SQLite DB is **unkeyed** on iOS
+(SQLCipher-on-iOS is deferred). Aux-model downloads are **size-verified only**
+(SHA-256 verification is a follow-up, matching the Gemma downloader).
 **Recurring alarms** are best-effort: iOS delivers the scheduled notification but
 the next occurrence re-arms only on the app's next launch (`ClockService.rearmAll`);
 one-shot timers are fully correct. iOS can't ring an alarm continuously like Android.
@@ -79,6 +95,53 @@ target. (The Kotlin side never references it — it's consumed only by
 > (`EngineConfig`/`Engine.initialize()`/`ConversationConfig`/`SamplerConfig`/
 > `Message`); a different commit may shift those signatures.
 
+### 5. The ONNX Runtime Swift package + aux bridge (one-time, in Xcode) — Phase 2
+
+The pre-flight classifier + MiniLM embedder run their FP32 `.onnx` models on ONNX
+Runtime via a Swift bridge. In Xcode:
+
+1. **File → Add Package Dependencies…** → `https://github.com/microsoft/onnxruntime-swift-package-manager`
+   → add the **`onnxruntime`** library product to the `iosApp` target. **Prefer this prebuilt
+   xcframework over a from-source pod** so ORT's vendored deps (protobuf/abseil/XNNPACK/nsync)
+   stay symbol-hidden and don't collide with LiteRT-LM under the `-all_load` link (see the
+   duplicate-symbol gotcha below).
+   > ⚠️ The library **product** is `onnxruntime`, but the importable Swift **module** is
+   > **`OnnxRuntimeBindings`** (the SwiftPM target re-exporting the binary's Objective-C API).
+   > `OnnxRuntimeBridge.swift` therefore does `import OnnxRuntimeBindings` — `import onnxruntime`
+   > fails with `No such module 'onnxruntime'`.
+2. **Add `iosApp/iosApp/OnnxRuntimeBridge.swift` to the target** (Add Files to "iosApp"…).
+   It conforms to both Kotlin protocols (`NativeClassifierBridge`/`NativeEmbedderBridge`)
+   with two `ORTSession`s sharing one `ORTEnv`, CoreML EP + CPU fallback.
+
+> The ORT Objective-C symbol names + the CoreML-EP call in `OnnxRuntimeBridge.swift`
+> are a **scaffold** (version-sensitive; can only be finalized on-device in Xcode — CI
+> is compile-only). The Kotlin bridge contract (pure-numeric, named IO
+> `input_ids`/`attention_mask` int64; classifier outputs `preflight_logits`[1,3] /
+> `presence_logits`[1,2] / `category_logits`[1,6]; embedder = single output [1,384]) is
+> stable and matches the desktop `OnnxClassifierEngine`/`OnnxEmbedderEngine`.
+
+The two `.onnx` models (~357 MB total: 266 MB classifier + 91 MB embedder) are **not
+bundled** — `IosAuxModelWarmer` downloads them from the models CDN lazily, per enabled
+feature (embedder when memory is on = default; classifier when web search is enabled),
+into `<AppSupport>/models`. Absent model → `warmUp()` no-ops and the feature degrades.
+
+### 6. Bundle resources: `vocab.txt` + search defaults (one-time, in Xcode) — Phase 2
+
+The WordPiece `vocab.txt` (classifier/embedder tokenizer) and the search
+`search_defaults.json` / `locations.json` ship **in the app bundle** (read via
+`NSBundle` — `IosVocabLoader` / `IosResources`). Add all three (already staged next to
+the Swift sources in `iosApp/iosApp/`) to the `iosApp` target's **Copy Bundle Resources**
+build phase (Add Files to "iosApp"… → ensure "Copy items"/target membership). They're
+byte-identical to the Android assets (`androidApp/src/main/assets/`). Missing → the
+tokenizer falls back to a 5-token stub (classifier/embedder inert) and search uses empty
+defaults, so this step is required for the Phase-2 features to work.
+
+### 7. Info.plist permission keys — Phase 2 (already committed)
+
+`Info.plist` carries `NSMicrophoneUsageDescription` + `NSSpeechRecognitionUsageDescription`
+for voice dictation — iOS crashes the permission prompt without them. No action needed
+unless you change the copy.
+
 ## Build & run
 
 1. Open `android-app/iosApp/iosApp.xcodeproj` in Xcode.
@@ -132,6 +195,19 @@ CI runs the compile + framework-link gates on `macos-latest` via
 3. Relaunch → conversation history persists.
 4. Cancel mid-generation stops promptly.
 5. Settings opens; configuring a remote Ollama routes there instead of local.
+6. **Voice (Phase 2):** grant mic + speech permission; toggle the mic → dictate (partials
+   stream into the box, final commits); say "send" / "cancel" / "speaker off"; read-aloud
+   fires at answer end and the Stop button truly silences it.
+7. **Web search (Phase 2):** Settings → enter a Brave key + enable search → the 266 MB
+   classifier `.onnx` downloads → ask a fresh-info question → it routes to search (vs. the
+   pre-Phase-2 fall-through). Requires a relaunch after enabling for the aux download to
+   kick (the warmer re-checks feature flags on the next entry to the main UI).
+8. **Memory (Phase 2):** with memory on (default), the 91 MB embedder `.onnx` downloads in
+   the background → state a fact, ask it back in a later turn → it's retrieved; the consent
+   card appears.
+9. **Resilience:** airplane-mode or kill mid aux-download → no crash, features degrade
+   (`warmUp` returns null); the resumable download recovers via `Range` on the next kick.
+   Confirm the `.onnx` files land in `<AppSupport>/models`, excluded from iCloud backup.
 
 ## Architecture
 
@@ -139,10 +215,12 @@ CI runs the compile + framework-link gates on `macos-latest` via
 |---|---|---|
 | Shared UI / navigation / chat / persistence | `:ui` commonMain (`ComposeApp` framework) | unchanged across platforms |
 | On-device LLM | Swift `LiteRtBridge` → Kotlin `NativeLlmBridge` → `LiteRtIosInferenceEngine` | the `local` engine inside `RoutingInferenceEngine` |
+| Classifier + embedder (Phase 2) | Swift `OnnxRuntimeBridge` → `NativeClassifierBridge`/`NativeEmbedderBridge` → `OnnxIos{Classifier,Embedder}Engine` | ONNX Runtime; models via `IosAuxModelStore`/`IosAuxModelWarmer` |
+| Voice (Phase 2) | `IosChatSpeaker` (`AVSpeechSynthesizer`) + `IosSpeechDictation` (`SFSpeechRecognizer`) | pure Kotlin/Native, no Swift bridge |
 | Networking | `IosHttpEngineFactory` (Ktor Darwin) | Ollama/search/link |
 | Secrets | `IosSecureStorage` (Keychain) | Ollama/Brave keys |
 | Database | `IosDatabaseFactory` (`NativeSqliteDriver`, unkeyed) | |
-| DI | `iosModule` + `IosEntryPointKt.doInitKoin(bridge)` | mirrors `androidModule` |
+| DI | `iosModule` + `IosEntryPointKt.doInitKoin(llmBridge, classifierBridge, embedderBridge)` | mirrors `androidModule` |
 
 ## iOS gotchas
 
@@ -183,6 +261,14 @@ CI runs the compile + framework-link gates on `macos-latest` via
   force-loads both copies → ~15.9k `duplicate symbol` link errors. A dynamic framework
   resolves Skiko internally at framework-link time, beyond `-all_load`'s reach. Set in
   `ui/build.gradle.kts`.
+- **ONNX Runtime coexists with LiteRT-LM under `-all_load` — use the prebuilt xcframework
+  (Phase 2).** The same LiteRT-LM `-all_load` that forces the dynamic framework also
+  applies to ORT (linked at the app target for `OnnxRuntimeBridge.swift`). Both runtimes
+  can vendor protobuf/abseil/XNNPACK/nsync, so a *from-source* ORT pod risks duplicate
+  symbols with LiteRT-LM. The **prebuilt `onnxruntime-objc`/`-c` xcframework** keeps ORT's
+  internal deps symbol-hidden inside the xcframework (not re-exported into the `-all_load`
+  set), which is why §5 pins that distribution. Confirm at link time on-device (CI is
+  compile-only and doesn't link the ORT app target).
 - **The framework must link `libsqlite3` (`linkerOpts("-lsqlite3")` in the Gradle
   framework block).** SQLDelight's `NativeSqliteDriver` (via `co.touchlab:sqliter`)
   references system SQLite symbols; sqliter's cinterop linker opt doesn't propagate to
