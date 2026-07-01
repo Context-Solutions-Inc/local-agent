@@ -33,7 +33,14 @@ below for the one-time Xcode setup each needs):
   `locations.json` are bundled.
 - **Memory** — works once the embedder `.onnx` is present (memory creation defaults ON).
 
-Deferred to follow-ups (no-op stubs this milestone): image input/vision,
+**Added in Phase 3 (PR #44):**
+
+- **Image input + vision** — attach a photo (`PHPickerViewController`, no permission
+  prompt) and Gemma 4 E2B describes it on-device. The **vision encoder runs on
+  CPU/XNNPack** (`visionBackend = .cpu()`); the text LLM stays on Metal. See
+  [`CLAUDE.md`](../CLAUDE.md) invariant #79 and the "Vision" gotcha below.
+
+Deferred to follow-ups (no-op stubs this milestone):
 relay/desktop-pairing, jobs. The local SQLite DB is **unkeyed** on iOS
 (SQLCipher-on-iOS is deferred). Aux-model downloads are **size-verified only**
 (SHA-256 verification is a follow-up, matching the Gemma downloader).
@@ -208,6 +215,11 @@ CI runs the compile + framework-link gates on `macos-latest` via
 9. **Resilience:** airplane-mode or kill mid aux-download → no crash, features degrade
    (`warmUp` returns null); the resumable download recovers via `Range` on the next kick.
    Confirm the `.onnx` files land in `<AppSupport>/models`, excluded from iCloud backup.
+10. **Image + vision (Phase 3):** tap attach → the photo picker opens with **no
+    permission prompt** → pick an image → the staged chip renders it → ask "what's in
+    this photo?" → the reply describes it (no `STABLEHLO_COMPOSITE` error; the log shows
+    the vision encoder using an `xnnpack_cache` path). Also try an image-only turn and a
+    text follow-up in the same thread; the sent bubble keeps the photo across relaunch.
 
 ## Architecture
 
@@ -278,13 +290,20 @@ CI runs the compile + framework-link gates on `macos-latest` via
 - **`Info.plist` needs `CADisableMinimumFrameDurationOnPhone = true`.** Compose
   Multiplatform's `PlistSanityCheck` throws `IllegalStateException` on launch without
   it (it enables full refresh rate on ProMotion iPhones).
-- **Vision is OFF on iOS (`enableVision = false` in `iosModule`).** Enabling the
-  LiteRT-LM vision encoder makes `createConversation` fail on the iOS Metal backend
-  (v0.13.1): `Node number … (STABLEHLO_COMPOSITE) failed to prepare` →
-  `Failed to create conversation` on *every* chat turn (surfaces in the UI as
-  "I had trouble processing that request"). The engine + chat-session config both
-  request text-only. Image input is a no-op this milestone anyway; re-enabling vision
-  needs a LiteRT-LM build whose vision graph prepares on Metal.
+- **Vision is ON (PR #44) but the vision encoder MUST use the CPU/XNNPack backend —
+  NOT Metal.** `LiteRtBridge.load()` sets `visionBackend = .cpu()` while the text LLM
+  stays on `.gpu` (Metal). Gemma 4 E2B's `.litertlm` pins the vision encoder/adapter to
+  `section_backend_constraint: cpu` and its 1477-op SigLIP encoder is fully
+  XNNPack-delegatable on iOS (LiteRT-LM #2370). Requesting the **Metal** vision backend
+  instead routes to the compiled-model executor whose `STABLEHLO_COMPOSITE` op is not
+  registered in the iOS dylib → `Node number … (STABLEHLO_COMPOSITE) failed to prepare`
+  → `Failed to create conversation` on *every* turn (this is why PR #41 shipped vision
+  OFF). **E4B vision stays broken on iOS** (its encoder isn't fully XNNPack-delegatable —
+  genuinely blocked upstream, #2370 open). LiteRT-LM stays pinned to the v0.13.1 commit
+  (no upstream fix: v0.14.0-alpha.0 doesn't register the op). **Benign:**
+  `libLiteRtTopKMetalSampler.dylib` isn't bundled, so the top-K sampler logs
+  `Metal sampler not available` and falls back to the CPU C API — correctness-neutral.
+  See invariant #79.
 - **Timers/alarms need notification authorization + a foreground delegate.**
   `IosAlarmScheduler` requests `UNUserNotificationCenter` authorization on first use
   and sets a `UNUserNotificationCenterDelegate` returning banner+sound — without the

@@ -141,6 +141,8 @@ import com.contextsolutions.localagent.voice.IosChatSpeaker
 import com.contextsolutions.localagent.voice.IosSpeechDictation
 import com.contextsolutions.localagent.voice.IosTtsPreferences
 import com.contextsolutions.localagent.voice.TtsPreferences
+import com.contextsolutions.localagent.vision.ImagePreprocessor
+import com.contextsolutions.localagent.vision.IosImagePreprocessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.datetime.Clock
@@ -262,15 +264,20 @@ fun iosModule(
     // -- The inference seam: on-device LiteRT-LM (Swift bridge) + remote Ollama. --
     single<InferenceEngine> {
         RoutingInferenceEngine(
-            // Vision OFF on iOS: the LiteRT-LM vision encoder graph (STABLEHLO_COMPOSITE)
-            // fails to prepare on the iOS Metal backend (v0.13.1) → "Failed to create
-            // conversation" on every turn. Image input is a no-op this milestone anyway.
-            local = LiteRtIosInferenceEngine(bridge = get(), enableVision = false),
+            // Vision ON via the CPU/XNNPack vision backend (LiteRtBridge sets
+            // visionBackend = .cpu()). Gemma 4 E2B's SigLIP encoder is fully
+            // XNNPack-delegatable on iOS (LiteRT-LM #2370); routing vision to Metal
+            // instead hits the compiled-model STABLEHLO_COMPOSITE op that is not
+            // registered in the iOS dylib → "Failed to create conversation". iOS vision
+            // is CPU-only ("known Metal constraint", #2385). The text LLM stays on Metal.
+            local = LiteRtIosInferenceEngine(bridge = get(), enableVision = true),
             ollama = get<OllamaInferenceEngine>(),
             preferences = get(),
             logger = diag("Inference"),
         )
     }
+    // -- Image input: decode + downscale a picked photo to the model-ready JPEG (#39). --
+    single<ImagePreprocessor> { IosImagePreprocessor() }
     // -- Aux models: real ONNX classifier + embedder via the Swift ORT bridges. The
     //    model path is download-gated (IosAuxModelStore) so warmUp() no-ops until the
     //    .onnx is present; IosAuxModelWarmer fetches + warms lazily per enabled feature. --
@@ -311,7 +318,7 @@ fun iosModule(
         IosChatSessionController(
             engine = get(),
             modelPath = { get<IosModelDownloadController>().modelPath() },
-            config = InferenceConfig(enableVision = false), // text-only on iOS (see engine binding above)
+            config = InferenceConfig(enableVision = true), // vision via CPU/XNNPack (see engine binding above)
         )
     }
 

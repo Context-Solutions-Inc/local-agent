@@ -33,13 +33,21 @@ final class LiteRtBridge: NativeLlmBridge {
     ) {
         Task.detached {
             do {
-                // Metal first; LiteRT-LM falls back to CPU internally when Metal init
-                // fails. visionBackend (not maxNumImages) turns on the vision tower.
+                // Metal first for the TEXT LLM; LiteRT-LM falls back to CPU internally
+                // when Metal init fails. visionBackend (not maxNumImages) turns on the
+                // vision tower.
                 let backend: Backend = useGpu ? .gpu : .cpu()
+                // Vision runs on CPU/XNNPack, NOT Metal. Gemma 4 E2B's SigLIP encoder is
+                // fully XNNPack-delegatable on iOS (LiteRT-LM #2370), whereas requesting
+                // the Metal vision backend routes to the compiled-model executor whose
+                // STABLEHLO_COMPOSITE op is not registered in the iOS dylib → "Node …
+                // (STABLEHLO_COMPOSITE) failed to prepare" → createConversation fails.
+                // iOS vision is a "known Metal constraint" (#2385) — keep it on .cpu().
+                let visionBackend: Backend? = enableVision ? .cpu() : nil
                 let config = try EngineConfig(
                     modelPath: modelPath,
                     backend: backend,
-                    visionBackend: enableVision ? backend : nil,
+                    visionBackend: visionBackend,
                     cacheDir: NSTemporaryDirectory()
                 )
                 let engine = Engine(engineConfig: config)
@@ -80,7 +88,21 @@ final class LiteRtBridge: NativeLlmBridge {
                 )
                 let conversation = try await engine.createConversation(with: config)
 
-                let userMessage = Message(turns.last?.text ?? "", role: .user)
+                // Attach the downscaled JPEG to the CURRENT (trailing) turn only —
+                // invariant #39, mirroring Android's
+                // Message.user(Contents.of(Content.ImageBytes, Content.Text)) (image
+                // first, then text). The image reaches the model solely here; prior
+                // turns are text-only. Requires visionBackend != nil (set in load()).
+                let lastText = turns.last?.text ?? ""
+                let userMessage: Message
+                if let imageBytes = imageBytes, imageBytes.size > 0 {
+                    // v0.13.1 multi-part initializer: `Message(of: Content..., role:)` —
+                    // variadic Content (.imageData(Data) / .text(String)), NOT an array.
+                    let imageData = imageBytes.toData()
+                    userMessage = Message(of: .imageData(imageData), .text(lastText), role: .user)
+                } else {
+                    userMessage = Message(lastText, role: .user)
+                }
                 for try await chunk in conversation.sendMessageStream(userMessage) {
                     if Task.isCancelled { onDone("cancelled"); return }
                     onToken(chunk.toString)
@@ -118,4 +140,20 @@ private final class TaskGenHandle: NativeGenHandle {
     private let task: Task<Void, Never>
     init(task: Task<Void, Never>) { self.task = task }
     func cancel() { task.cancel() }
+}
+
+private extension KotlinByteArray {
+    /// Copy the Kotlin `ByteArray` into a Swift `Data`. Kotlin/Native exports no bulk
+    /// accessor, so this copies per byte — fine for a single downscaled JPEG (~40–90 KB)
+    /// built once per image turn, off the main actor in `generate`'s detached task.
+    func toData() -> Data {
+        let count = Int(size)
+        guard count > 0 else { return Data() }
+        var data = Data(count: count)
+        data.withUnsafeMutableBytes { raw in
+            guard let dst = raw.bindMemory(to: Int8.self).baseAddress else { return }
+            for i in 0..<count { dst[i] = get(index: Int32(i)) }
+        }
+        return data
+    }
 }
