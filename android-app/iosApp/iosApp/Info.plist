@@ -52,5 +52,9 @@
 	<string>Local Agent uses the microphone for voice dictation so you can talk to the assistant.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Local Agent transcribes your speech on device (when supported) to turn what you say into chat messages.</string>
+	<!-- Image input (Phase 3, PR #44): in-app camera capture via UIImagePickerController.
+	     iOS crashes when the camera is accessed without this usage description. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Local Agent uses the camera so you can take a photo to ask the assistant about.</string>
 </dict>
 </plist>

@@ -11,27 +11,28 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import platform.Foundation.NSData
-import platform.Foundation.NSError
-import platform.PhotosUI.PHPickerConfiguration
-import platform.PhotosUI.PHPickerFilter
-import platform.PhotosUI.PHPickerResult
-import platform.PhotosUI.PHPickerViewController
-import platform.PhotosUI.PHPickerViewControllerDelegateProtocol
 import platform.UIKit.UIApplication
+import platform.UIKit.UIImage
+import platform.UIKit.UIImageJPEGRepresentation
+import platform.UIKit.UIImagePickerController
+import platform.UIKit.UIImagePickerControllerDelegateProtocol
+import platform.UIKit.UIImagePickerControllerOriginalImage
+import platform.UIKit.UIImagePickerControllerSourceType
+import platform.UIKit.UINavigationControllerDelegateProtocol
 import platform.UIKit.UIViewController
 import platform.darwin.NSObject
 import platform.posix.memcpy
 
 /**
- * iOS actual (PR #44): a `PHPickerViewController`-backed gallery picker. PHPicker
- * runs out-of-process, so it needs **no** photo-library permission (no Info.plist
- * usage-description key). The chosen image is loaded as image data, then decoded +
- * downscaled to the model-ready JPEG via [ImagePreprocessor] (invariant #39); the
- * bytes ride the current turn only. `onPicked(null)` on cancel or a decode failure.
+ * iOS actual (PR #44): in-app **camera capture** via `UIImagePickerController`
+ * (`sourceType = .camera`) — the user takes a new photo without leaving the app,
+ * mirroring the Android camera flow (invariant #39). The captured `UIImage` is
+ * re-encoded then decoded + downscaled to the model-ready JPEG via [ImagePreprocessor];
+ * the bytes ride the current turn only. `onPicked(null)` on cancel or if no camera is
+ * available (e.g. the Simulator).
  *
- * Mirrors the desktop actual (`ImagePicker.desktop.kt`) — pick then preprocess — with
- * the platform picker + a `PHPickerViewControllerDelegate` presented from the Compose
- * host's top-most view controller.
+ * Requires the `NSCameraUsageDescription` Info.plist key (iOS crashes accessing the
+ * camera without it); the OS shows the camera-permission prompt on first use.
  */
 @Composable
 actual fun rememberImagePicker(): ImagePicker {
@@ -47,7 +48,7 @@ private class IosImagePicker(
 ) : ImagePicker {
 
     // Strong ref keeps the delegate alive while the sheet is presented (the picker
-    // holds its delegate weakly). Cleared when picking finishes/cancels.
+    // holds its delegate weakly). Cleared when capture finishes/cancels.
     private var delegate: Delegate? = null
 
     override fun launch(onPicked: (ByteArray?) -> Unit) {
@@ -56,11 +57,14 @@ private class IosImagePicker(
             onPicked(null)
             return
         }
-        val config = PHPickerConfiguration().apply {
-            filter = PHPickerFilter.imagesFilter()
-            selectionLimit = 1L
+        val cameraType = UIImagePickerControllerSourceType.UIImagePickerControllerSourceTypeCamera
+        if (!UIImagePickerController.isSourceTypeAvailable(cameraType)) {
+            onPicked(null) // no camera (e.g. Simulator) — nothing to capture
+            return
         }
-        val picker = PHPickerViewController(configuration = config)
+        val picker = UIImagePickerController()
+        picker.sourceType = cameraType
+        picker.allowsEditing = false
         val d = Delegate(onPicked)
         delegate = d
         picker.delegate = d
@@ -69,28 +73,34 @@ private class IosImagePicker(
 
     private inner class Delegate(
         private val onPicked: (ByteArray?) -> Unit,
-    ) : NSObject(), PHPickerViewControllerDelegateProtocol {
+    ) : NSObject(), UIImagePickerControllerDelegateProtocol, UINavigationControllerDelegateProtocol {
 
-        override fun picker(picker: PHPickerViewController, didFinishPicking: List<*>) {
+        override fun imagePickerController(
+            picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo: Map<Any?, *>,
+        ) {
             picker.dismissViewControllerAnimated(true, completion = null)
             delegate = null
-            val provider = (didFinishPicking.firstOrNull() as? PHPickerResult)?.itemProvider
-            if (provider == null) {
+            val image = didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage
+            val jpeg = image?.let { UIImageJPEGRepresentation(it, CAPTURE_QUALITY)?.toByteArray() }
+            if (jpeg == null) {
                 onPicked(null)
                 return
             }
-            // Completion runs on a background queue; hop to the remembered (Main) scope.
-            provider.loadDataRepresentationForTypeIdentifier(PUBLIC_IMAGE) { data: NSData?, _: NSError? ->
-                val bytes = data?.toByteArray()
-                scope.launch {
-                    onPicked(bytes?.let { preprocessor.toModelJpeg(it) })
-                }
-            }
+            scope.launch { onPicked(preprocessor.toModelJpeg(jpeg)) }
+        }
+
+        override fun imagePickerControllerDidCancel(picker: UIImagePickerController) {
+            picker.dismissViewControllerAnimated(true, completion = null)
+            delegate = null
+            onPicked(null)
         }
     }
 
     private companion object {
-        private const val PUBLIC_IMAGE = "public.image"
+        // Encode the camera UIImage near-lossless; the preprocessor does the real
+        // downscale + JPEG@0.85 that reaches the model.
+        private const val CAPTURE_QUALITY = 0.95
     }
 }
 
