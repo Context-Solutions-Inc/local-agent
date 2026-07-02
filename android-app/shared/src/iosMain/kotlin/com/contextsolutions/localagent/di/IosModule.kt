@@ -26,6 +26,7 @@ import com.contextsolutions.localagent.conversation.ConversationRepository
 import com.contextsolutions.localagent.conversation.SqlDelightConversationRepository
 import com.contextsolutions.localagent.db.LocalAgentDatabase
 import com.contextsolutions.localagent.i18n.StringPackLoader
+import com.contextsolutions.localagent.inference.DesktopLinkInferenceEngine
 import com.contextsolutions.localagent.inference.InferenceConfig
 import com.contextsolutions.localagent.inference.InferenceEngine
 import com.contextsolutions.localagent.inference.IosAuxModelStore
@@ -55,6 +56,13 @@ import com.contextsolutions.localagent.link.DesktopLinkConnectionStatus
 import com.contextsolutions.localagent.link.DesktopLinkQrProvider
 import com.contextsolutions.localagent.link.NoDesktopLinkConnection
 import com.contextsolutions.localagent.link.NoDesktopLinkQr
+import com.contextsolutions.localagent.link.transport.DefaultLinkTransportProvider
+import com.contextsolutions.localagent.link.transport.IosRelayBytePipeFactory
+import com.contextsolutions.localagent.link.transport.LinkMethod
+import com.contextsolutions.localagent.link.transport.LinkRequest
+import com.contextsolutions.localagent.link.transport.LinkTransportProvider
+import com.contextsolutions.localagent.link.transport.NativeRelayBridge
+import com.contextsolutions.localagent.link.transport.RelayBytePipeFactory
 import com.contextsolutions.localagent.memory.EmbedderEngine
 import com.contextsolutions.localagent.memory.IosMemoryPreferences
 import com.contextsolutions.localagent.memory.MemoryBackupController
@@ -87,6 +95,7 @@ import com.contextsolutions.localagent.platform.IosHttpEngineFactory
 import com.contextsolutions.localagent.platform.IosJsonStore
 import com.contextsolutions.localagent.platform.IosSecureStorage
 import com.contextsolutions.localagent.platform.IosToaster
+import com.contextsolutions.localagent.platform.NativeQrScanner
 import com.contextsolutions.localagent.platform.IosUrlOpener
 import com.contextsolutions.localagent.platform.SecureStorage
 import com.contextsolutions.localagent.platform.SecureStorageKeys
@@ -110,17 +119,27 @@ import com.contextsolutions.localagent.search.SearchCacheDao
 import com.contextsolutions.localagent.search.SearchService
 import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcher
 import com.contextsolutions.localagent.search.vertical.VerticalSearchDispatcherFactory
-import com.contextsolutions.localagent.subscription.NoOpRelayDisconnector
 import com.contextsolutions.localagent.subscription.NoOpRelayPairingInitiator
 import com.contextsolutions.localagent.subscription.NoOpSubscriptionPreferences
 import com.contextsolutions.localagent.subscription.NoOpSubscriptionUiController
 import com.contextsolutions.localagent.subscription.RelayDisconnector
+import com.contextsolutions.localagent.subscription.RelayUnpairDisconnector
 import com.contextsolutions.localagent.subscription.RelayPairingInitiator
 import com.contextsolutions.localagent.subscription.SubscriptionPreferences
 import com.contextsolutions.localagent.subscription.SubscriptionUiController
+import com.contextsolutions.localagent.sync.IosLastSyncStore
+import com.contextsolutions.localagent.sync.IosSyncWatermarkStore
+import com.contextsolutions.localagent.sync.JobSyncPolicy
 import com.contextsolutions.localagent.sync.LastSyncStatus
+import com.contextsolutions.localagent.sync.LastSyncStore
+import com.contextsolutions.localagent.sync.LinkSyncClient
+import com.contextsolutions.localagent.sync.LinkSyncService
 import com.contextsolutions.localagent.sync.LocalChangeBus
+import com.contextsolutions.localagent.sync.MobileJobSyncPolicy
 import com.contextsolutions.localagent.sync.MutableLastSyncStatus
+import com.contextsolutions.localagent.sync.SqlDelightLinkSyncService
+import com.contextsolutions.localagent.sync.SyncController
+import com.contextsolutions.localagent.sync.SyncWatermarkStore
 import com.contextsolutions.localagent.telemetry.AnalyticsSink
 import com.contextsolutions.localagent.telemetry.IosTelemetryConsentManager
 import com.contextsolutions.localagent.telemetry.NoOpAnalyticsSink
@@ -131,7 +150,12 @@ import com.contextsolutions.localagent.telemetry.TelemetryCounters
 import com.contextsolutions.localagent.telemetry.TelemetryFlusher
 import com.contextsolutions.localagent.telemetry.TelemetryPayloadBuilder
 import com.contextsolutions.localagent.telemetry.TelemetryUploader
+import com.contextsolutions.localagent.job.InlineJobRunner
 import com.contextsolutions.localagent.job.JobRepository
+import com.contextsolutions.localagent.job.JobResync
+import com.contextsolutions.localagent.job.RelayInlineJobRunner
+import com.contextsolutions.localagent.job.RelayRemoteJobRunner
+import com.contextsolutions.localagent.job.RemoteJobRunner
 import com.contextsolutions.localagent.job.SqlDelightJobRepository
 import com.contextsolutions.localagent.ui.theme.IosThemePreferences
 import com.contextsolutions.localagent.ui.theme.ThemePreferences
@@ -163,20 +187,25 @@ private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
  * Chat runs on-device via [LiteRtIosInferenceEngine] (the Swift [NativeLlmBridge]
  * passed in from `IosEntryPoint.doInitKoin`) wrapped in [RoutingInferenceEngine]
  * (remote Ollama wins when configured + reachable). Persistence is the native
- * SQLite driver; secrets are the Keychain; networking is Ktor/Darwin. Classifier/
- * embedder are NoOp (search/memory degrade gracefully), and relay/subscription/
- * voice/jobs-admin are no-op stubs this milestone.
+ * SQLite driver; secrets are the Keychain; networking is Ktor/Darwin. The Secure Gateway
+ * relay ([NativeRelayBridge], the Swift SecureGatewaySDK) tunnels chat + sync to a paired
+ * desktop; subscription/jobs-admin stay no-op (the phone pairs, never buys).
  */
 fun iosModule(
     llmBridge: NativeLlmBridge,
     classifierBridge: NativeClassifierBridge,
     embedderBridge: NativeEmbedderBridge,
+    relayBridge: NativeRelayBridge,
+    qrScanner: NativeQrScanner,
 ): Module = module {
     // The Swift bridges, injected from the app shell: LiteRT-LM (LLM) + ONNX Runtime
-    // (classifier/embedder). See NativeLlmBridge / NativeAuxBridges.
+    // (classifier/embedder) + Secure Gateway relay + camera QR scanner. See NativeLlmBridge /
+    // NativeAuxBridges / NativeRelayBridge / NativeQrScanner.
     single<NativeLlmBridge> { llmBridge }
     single<NativeClassifierBridge> { classifierBridge }
     single<NativeEmbedderBridge> { embedderBridge }
+    single<NativeRelayBridge> { relayBridge }
+    single<NativeQrScanner> { qrScanner }
 
     // -- Platform seams --
     single<HttpEngineFactory> { IosHttpEngineFactory() }
@@ -221,10 +250,58 @@ fun iosModule(
         )
     }
 
-    // -- Sync plumbing the repos + Jobs UI need (relay sync itself deferred). --
+    // -- Sync engine (relay-tunneled, mirrors androidModule). LocalChangeBus is fired by the repos
+    //    on genuine local writes; SqlDelightLinkSyncService reads/applies change bundles;
+    //    SyncController drives mobile→desktop reconcile over the relay transport. Separate prefs
+    //    files per store (each IosJsonStore persists its whole map — sharing one file would clobber). --
     single { LocalChangeBus() }
-    single { MutableLastSyncStatus(null) }
+    single<SyncWatermarkStore> { IosSyncWatermarkStore(IosJsonStore("sync_watermark.json")) }
+    single<LastSyncStore> { IosLastSyncStore(IosJsonStore("last_sync.json")) }
+    single { MutableLastSyncStatus(get<LastSyncStore>().get()) }
     single<LastSyncStatus> { get<MutableLastSyncStatus>() }
+    // Mobile trusts the authoritative desktop and applies its job records verbatim; mobile only
+    // ever pushes a paused toggle (jobs-admin stays desktop-only, #78).
+    single<JobSyncPolicy> { MobileJobSyncPolicy() }
+    single<LinkSyncService> {
+        SqlDelightLinkSyncService(
+            conversations = get(),
+            memories = get(),
+            jobs = get(),
+            myList = get(),
+            jobPolicy = get(),
+            embedder = get(),
+            bus = get(),
+            logger = diag("Sync"),
+        )
+    }
+    single { LinkSyncClient(get<LinkTransportProvider>()) }
+    single {
+        SyncController(
+            preferences = get(),
+            local = get(),
+            http = get(),
+            watermarks = get(),
+            lastSync = get(),
+            lastSyncStatus = get(),
+            logger = diag("Sync"),
+        )
+    }
+    // Mobile run-now + cancel over the relay (PR #84/#69): imperative RUN_JOB/CANCEL_JOB.
+    single<RemoteJobRunner> { RelayRemoteJobRunner(get<LinkTransportProvider>()) }
+    // "run job …" inline chat command runs on the paired desktop over the relay (PR #88).
+    single<InlineJobRunner> { RelayInlineJobRunner(get<LinkTransportProvider>()) }
+    // Mobile-only "re-sync jobs" escape hatch (#51): a fresh desktop re-install keeps the same
+    // X25519 pubkey so the auto new-desktop wipe never fires — this button wipes local jobs +
+    // resets the watermark + forces an immediate reconcile so the desktop's state re-pulls.
+    single<JobResync> {
+        val watermarks = get<SyncWatermarkStore>()
+        val sync = get<SyncController>()
+        JobResync(
+            jobRepository = get<JobRepository>(),
+            resetWatermark = { watermarks.set(0) },
+            forceSync = { sync.requestSync() },
+        )
+    }
 
     // -- Jobs: read-only on iOS (no admin/scheduler/executor → JobsViewModel gets them via getOrNull). --
     single<JobRepository> { SqlDelightJobRepository(queries = get(), bus = get()) }
@@ -249,15 +326,66 @@ fun iosModule(
         )
     }
 
-    // -- Subscription / relay: no-op on iOS (no Secure Gateway iOS artifact). --
+    // -- Subscription: no-op on iOS — the phone pairs to a subscribed desktop, never buys (#54). --
     single<SubscriptionPreferences> { NoOpSubscriptionPreferences() }
     single<SubscriptionUiController> { NoOpSubscriptionUiController() }
-    single<RelayDisconnector> { NoOpRelayDisconnector }
+    // Mobile "Unpair" revokes the relay pairing at the gateway via the live MobileClient.
+    single<RelayDisconnector> { RelayUnpairDisconnector(get<LinkTransportProvider>()) }
+    // Mobile never mints a desktop pairing QR — it scans one. No-op initiator.
     single<RelayPairingInitiator> { NoOpRelayPairingInitiator }
 
-    // -- Desktop link: disabled on iOS (status DISABLED → header dot hidden). --
+    // -- Secure Gateway relay transport (mirrors androidModule; the Swift NativeRelayBridge wraps
+    //    the SecureGatewaySDK MobileClient). Chat routes to the paired desktop over the relay + sync
+    //    rides the same transport; falls back on-device when the link is down. --
     single<DesktopLinkPreferences> { IosDesktopLinkPreferences(IosJsonStore("desktop_link_prefs.json")) }
-    single<DesktopLinkStatusProvider> { PollingDesktopLinkStatusProvider(preferences = get(), relayState = null) }
+    single<RelayBytePipeFactory> {
+        // Jobs are desktop-specific: pairing a DIFFERENT desktop wipes stale local jobs + resets the
+        // sync watermark so the new desktop's state re-pulls. Resolve eagerly so the lambda doesn't
+        // capture the Koin scope.
+        val jobRepository = get<JobRepository>()
+        val watermarks = get<SyncWatermarkStore>()
+        IosRelayBytePipeFactory(
+            bridge = get(),
+            secureStorage = get(),
+            logger = diag("Relay"),
+            onPairedDifferentDesktop = {
+                jobRepository.wipeLocal()
+                watermarks.set(0)
+            },
+        )
+    }
+    single<LinkTransportProvider> {
+        DefaultLinkTransportProvider(
+            preferences = get(),
+            relayFactory = get(),
+            // The relay has no pollable health URL — push a reload when it comes up/down so the next
+            // turn re-decides (reuses the desktop-link monitor).
+            onRelayConnectivityChanged = { get<OllamaConnectionMonitor>(named("desktopLink")).requestReload() },
+            logger = diag("Relay"),
+        )
+    }
+    single(named("desktopLink")) {
+        OllamaConnectionMonitor(
+            // Probe the desktop over whatever transport is current (the relay): a HEALTH unary that
+            // succeeds iff the relay pipe is up and the desktop answers.
+            healthProbe = { _ ->
+                val t = get<LinkTransportProvider>().current()
+                t != null && t.unary(LinkRequest(LinkMethod.HEALTH)).isSuccess
+            },
+            logger = diag("DesktopLink"),
+        )
+    }
+    single {
+        DesktopLinkInferenceEngine(
+            transports = get(),
+            monitor = get(named("desktopLink")),
+            logger = diag("DesktopLink"),
+        )
+    }
+    single<DesktopLinkStatusProvider> {
+        PollingDesktopLinkStatusProvider(preferences = get(), relayState = get<LinkTransportProvider>().relayState)
+    }
+    // Mobile shows no QR (it scans one) — null providers keep the shared Settings UI valid.
     single<DesktopLinkQrProvider> { NoDesktopLinkQr() }
     single<DesktopLinkConnectionStatus> { NoDesktopLinkConnection() }
 
@@ -273,6 +401,8 @@ fun iosModule(
             local = LiteRtIosInferenceEngine(bridge = get(), enableVision = true),
             ollama = get<OllamaInferenceEngine>(),
             preferences = get(),
+            desktopLink = get<DesktopLinkInferenceEngine>(),
+            desktopLinkPreferences = get(),
             logger = diag("Inference"),
         )
     }
@@ -319,6 +449,14 @@ fun iosModule(
             engine = get(),
             modelPath = { get<IosModelDownloadController>().modelPath() },
             config = InferenceConfig(enableVision = true), // vision via CPU/XNNPack (see engine binding above)
+            // Drop the resident handle so the next turn re-decides the backend (#44): the relay
+            // going down (desktop-link monitor) or a remote/link config change → fall back to the
+            // on-device GPU instead of retrying the dead link.
+            ollamaMonitor = get(),
+            desktopLinkMonitor = get(named("desktopLink")),
+            ollamaPreferences = get(),
+            desktopLinkPreferences = get(),
+            scope = appScope(),
         )
     }
 

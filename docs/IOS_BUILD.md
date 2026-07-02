@@ -41,8 +41,26 @@ below for the one-time Xcode setup each needs):
   CPU/XNNPack** (`visionBackend = .cpu()`); the text LLM stays on Metal. See
   [`CLAUDE.md`](../CLAUDE.md) invariant #79 and the "Vision" gotcha below.
 
+**Added in Phase 4 (PR #45) — relay / desktop-pairing:**
+
+- **Pair with a subscribed desktop over the Secure Gateway E2EE relay** (scan the desktop's
+  QR) and tunnel **chat + sync** to it; falls back to the on-device model when the link is
+  down. Foreground-only (like Android). The phone pairs — it never subscribes.
+- **Mobile Jobs controls over the relay** — run-now ▶, cancel ⏹, the "run job …" chat
+  command, and the re-sync icon. (Create/edit/delete/scheduling stay desktop-only.)
+- Bridges the **native Swift `SecureGatewaySDK`** (no Kotlin/Native artifact exists) via a
+  callback-shaped `NativeRelayBridge`, mirroring `NativeLlmBridge`. QR scan is a Swift
+  AVFoundation `NativeQrScanner` (reuses `NSCameraUsageDescription`). See
+  [`CLAUDE.md`](../CLAUDE.md) invariant #80, §8 below, and
+  [`ANYWHERE_ACCESS_PLAN.md`](ANYWHERE_ACCESS_PLAN.md).
+- **Image-over-relay needs the relay `RELAY_MAX_MESSAGE_BYTES` raised 256 KiB → 1 MiB** — a
+  ~768px JPEG is ~264 KiB on the wire (double-base64), just over the old cap. Relay server
+  (Go) config only; no iOS/SDK change.
+
 Deferred to follow-ups (no-op stubs this milestone):
-relay/desktop-pairing, jobs. The local SQLite DB is **unkeyed** on iOS
+APNs push-to-wake (the gateway has no push infra; foreground-only like Android), jobs-admin
+(the phone is a remote controller, not an admin), iOS subscription purchase. The local
+SQLite DB is **unkeyed** on iOS
 (SQLCipher-on-iOS is deferred). Aux-model downloads are **size-verified only**
 (SHA-256 verification is a follow-up, matching the Gemma downloader).
 **Recurring alarms** are best-effort: iOS delivers the scheduled notification but
@@ -148,8 +166,27 @@ defaults, so this step is required for the Phase-2 features to work.
 
 `Info.plist` carries `NSMicrophoneUsageDescription` + `NSSpeechRecognitionUsageDescription`
 for voice dictation (Phase 2) and `NSCameraUsageDescription` for in-app camera capture
-(Phase 3) — iOS crashes the permission prompt / camera access without them. No action
-needed unless you change the copy.
+(Phase 3, reused by the Phase-4 QR scanner) — iOS crashes the permission prompt / camera
+access without them. No action needed unless you change the copy.
+
+### 8. The Secure Gateway relay SDK + script sandboxing (one-time, in Xcode) — Phase 4
+
+The relay client bridges the **native Swift `SecureGatewaySDK`** (there is no Kotlin/Native
+securegateway artifact; `:core` is JVM-only). In Xcode → **File → Add Package Dependencies…**
+→ **Add Local…** → select the sibling working tree `../secure-gateway/sdk/ios` → add the
+**`SecureGatewaySDK`** product to the `iosApp` target. SwiftPM transitively pulls
+`swift-sodium` + `swift-crypto`. (Use a local package during co-dev so both repos evolve in
+lockstep; pin to a tag/commit — like the LiteRT-LM package — for CI/release once stable.)
+The relay + QR bridges (`RelayBridge.swift`, `QRScannerBridge.swift`) are already committed
+and members of the `iosApp` target.
+
+**`ENABLE_USER_SCRIPT_SANDBOXING = NO` (required).** The "Build Kotlin framework" run-script
+phase (`:ui:embedAndSignAppleFrameworkForXcode`) needs filesystem access outside the sandbox
+and the Kotlin plugin refuses to run under it (*"Sandbox environment detected … not supported
+so far"*). It's set to `NO` in the committed pbxproj; if Xcode's **"Update to recommended
+settings"** flips it back to `YES`, set it to `NO` again (project → Build Settings → *User
+Script Sandboxing*). The iOS **deployment target is 15.1** (the prebuilt onnxruntime
+framework is built for 15.1).
 
 ## Build & run
 
@@ -224,6 +261,14 @@ CI runs the compile + framework-link gates on `macos-latest` via
     path). Also try an image-only turn and a text follow-up in the same thread; the sent
     bubble keeps the photo across relaunch. (Camera needs a physical device — the
     Simulator has none, so the button no-ops there.)
+11. **Relay / pairing (Phase 4):** on a Stripe-subscribed desktop, Settings → **Pair Now**
+    → scan the QR on the phone (Settings → Desktop Agent Connection → Scan) → the link dot
+    goes UP; send a turn → answered by the **desktop** engine (logs show `[DesktopLink]`, not
+    on-device); add a My List item on one side → it syncs to the other. **Disconnect** the
+    relay → the next turn falls back to the **on-device GPU** (no "trouble processing" error).
+    Background/foreground → reconnects without re-scanning. Jobs: run ▶ a job / cancel ⏹ / the
+    re-sync icon all drive the desktop. **Image-over-relay** needs the relay
+    `RELAY_MAX_MESSAGE_BYTES` at 1 MiB (else the ~264 KiB frame drops the socket).
 
 ## Architecture
 
@@ -233,10 +278,12 @@ CI runs the compile + framework-link gates on `macos-latest` via
 | On-device LLM | Swift `LiteRtBridge` → Kotlin `NativeLlmBridge` → `LiteRtIosInferenceEngine` | the `local` engine inside `RoutingInferenceEngine` |
 | Classifier + embedder (Phase 2) | Swift `OnnxRuntimeBridge` → `NativeClassifierBridge`/`NativeEmbedderBridge` → `OnnxIos{Classifier,Embedder}Engine` | ONNX Runtime; models via `IosAuxModelStore`/`IosAuxModelWarmer` |
 | Voice (Phase 2) | `IosChatSpeaker` (`AVSpeechSynthesizer`) + `IosSpeechDictation` (`SFSpeechRecognizer`) | pure Kotlin/Native, no Swift bridge |
-| Networking | `IosHttpEngineFactory` (Ktor Darwin) | Ollama/search/link |
-| Secrets | `IosSecureStorage` (Keychain) | Ollama/Brave keys |
+| Relay / pairing (Phase 4) | Swift `RelayBridge` → Kotlin `NativeRelayBridge` → `IosRelayBytePipe`/`IosRelayBytePipeFactory` → shared `RelayBytePipe`/`LinkTransportProvider` seam | native `SecureGatewaySDK`; chat routes via `DesktopLinkInferenceEngine`, sync via `SyncController` |
+| QR scan (Phase 4) | Swift `QRScannerBridge` (AVFoundation) → Kotlin `NativeQrScanner` | reuses `NSCameraUsageDescription` |
+| Networking | `IosHttpEngineFactory` (Ktor Darwin) | Ollama/search |
+| Secrets | `IosSecureStorage` (Keychain) | Ollama/Brave keys, relay pairing state + identity |
 | Database | `IosDatabaseFactory` (`NativeSqliteDriver`, unkeyed) | |
-| DI | `iosModule` + `IosEntryPointKt.doInitKoin(llmBridge, classifierBridge, embedderBridge)` | mirrors `androidModule` |
+| DI | `iosModule` + `IosEntryPointKt.doInitKoin(llmBridge, classifierBridge, embedderBridge, relayBridge, qrScanner)` | mirrors `androidModule` |
 
 ## iOS gotchas
 
@@ -294,6 +341,19 @@ CI runs the compile + framework-link gates on `macos-latest` via
 - **`Info.plist` needs `CADisableMinimumFrameDurationOnPhone = true`.** Compose
   Multiplatform's `PlistSanityCheck` throws `IllegalStateException` on launch without
   it (it enables full refresh rate on ProMotion iPhones).
+- **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO` (Phase 4).** The "Build Kotlin framework"
+  run-script phase (`:ui:embedAndSignAppleFrameworkForXcode`) can't run under the script
+  sandbox — it fails *"Sandbox environment detected (ENABLE_USER_SCRIPT_SANDBOXING = YES).
+  It's not supported so far."* Xcode's **"Update to recommended settings"** turns it back on;
+  set it to `NO` again. Standard for any Compose-Multiplatform iOS app.
+- **The relay caps each WebSocket message at `RELAY_MAX_MESSAGE_BYTES` (Phase 4).** The
+  default 256 KiB is too small for an **image** chat turn: the base64'd JPEG in the link
+  frame is sealed + base64'd again into the E2EE envelope (~1.8× the JPEG), so a ~768px photo
+  is ~264 KiB on the wire and the relay drops the connection (surfaces as `send failed …
+  CryptoError error 2` / "Socket is not connected" on the phone — the crypto is fine, the
+  socket closed). Raise the **relay server** env to `1048576`. No iOS/Swift-SDK change; text
+  chat + sync are unaffected. After raising it, verify the desktop's `java.net.http.WebSocket`
+  transport reassembles the multi-part receive (the `Transport` contract requires it).
 - **Vision is ON (PR #44) but the vision encoder MUST use the CPU/XNNPack backend —
   NOT Metal.** `LiteRtBridge.load()` sets `visionBackend = .cpu()` while the text LLM
   stays on `.gpu` (Metal). Gemma 4 E2B's `.litertlm` pins the vision encoder/adapter to

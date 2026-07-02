@@ -492,3 +492,37 @@ SDK (`[sdk] …`) log under `Relay`, the QR-parse `println`s under `System.out`.
 shows only in the tombstone/`DEBUG` logcat, not as a Java `FATAL EXCEPTION`. **Always verify pairing on a
 release build, not just debug** — R8 is blind to JNI/Jackson/JNA name lookups, so a green build can still
 fail at runtime.
+
+# iOS relay client (local-agent PR #45 / secure-gateway branch `ios-sdk-l2-relay`)
+
+The iPhone is now a relay client at parity with Android (CLAUDE.md invariant **#80**, full build/setup
+in `IOS_BUILD.md`). Because `securegateway` ships **no Kotlin/Native artifact** (`:core` is JVM-only —
+ServiceLoader + JNA lazysodium + `java.net`), iOS takes **Path B**: the native Swift **`SecureGatewaySDK`**
+(`secure-gateway/sdk/ios`, SPM: CryptoKit + swift-sodium + `URLSessionWebSocketTask` + `KeychainKeyStore`)
+is bridged into Kotlin via a callback-shaped **`NativeRelayBridge`** (mirrors `NativeLlmBridge`), and
+`IosRelayBytePipe`/`IosRelayBytePipeFactory` adapt it to the **shared** `link/transport` seam — so
+`RelayLinkTransport`/`FrameMultiplexer`/`DefaultLinkTransportProvider`/`RelayQrPayload` and the whole RPC
+protocol are reused unchanged. Pair-once/reconnect + `RELAY_PAIRING_STATE` stay in Kotlin (mirror
+`AndroidRelayBytePipeFactory`); the X25519 identity at rest is Swift-side (`KeychainKeyStore.swift`).
+QR scan is a Swift AVFoundation `NativeQrScanner`. Chat routes to the desktop via `DesktopLinkInferenceEngine`
+in the iOS `RoutingInferenceEngine`; sync + mobile job run-now/cancel/inline/re-sync are wired.
+
+**Swift SDK parity (branch `ios-sdk-l2-relay`).** `MobileClient`/`AuthClient` were an L1 scaffold (paired
+with the account-secret, which no longer rides the L2 QR) and the package had **never compiled standalone**.
+Brought to L2 parity with the JVM/Android `MobileClient` (per-pair credential, register-via-pairing-token,
+reconnect-from-seed, `unpair`, getters) + build-fixed: `Package.swift` was missing swift-crypto + Clibsodium;
+`Crypto.aeadSeal` used a nonexistent explicit-nonce swift-sodium overload (rewritten via the libsodium C API);
+`vectors.json` was a stale **v1** fixture (crypto is **v2**). `swift test` = 9/9 incl. `VectorsConformanceTests`
+(byte-for-byte vs Go/JVM). The gateway already implements L2 — **no gateway change**.
+
+**Image-over-relay:** raise the relay **`RELAY_MAX_MESSAGE_BYTES` 256 KiB → 1 MiB**. A ~768px JPEG is
+~264 KiB on the wire (the OpenAI-format base64 in the link frame is sealed + base64'd again by the E2EE
+envelope, ~1.8×), so the 256 KiB default drops the socket (`send failed … CryptoError error 2` on the
+phone = the socket closed, not a crypto fault). Relay-server config only — no iOS/SDK change; text chat +
+sync are unaffected. After raising it, confirm the desktop `java.net.http.WebSocket` transport reassembles
+the multi-part receive (the `Transport` contract requires it).
+
+**DEFERRED on iOS:** APNs push-to-wake (foreground-only, like Android — the gateway has **zero** push
+infrastructure: no token storage, no APNs/FCM sender, no offline trigger; `PushWaker` is a stub on every
+platform, so it's a greenfield gateway+SDK+app build needing Apple `.p8` credentials — its own milestone),
+jobs-admin (the phone is a remote controller), and iOS subscription purchase (the phone pairs, never buys).
