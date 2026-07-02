@@ -85,21 +85,26 @@ internal fun parseMathBlocks(text: String): List<IosMdBlock> {
         last = m.range.last + 1
     }
     if (last < text.length) addTextRun(blocks, text.substring(last))
-    if (blocks.isEmpty()) blocks.add(IosMdBlock.Markdown(text))
+    if (blocks.isEmpty()) blocks.add(IosMdBlock.Markdown(text.trim()))
     return blocks
 }
 
 private fun addTextRun(blocks: MutableList<IosMdBlock>, run: String) {
     if (run.isEmpty()) return
     if (!hasInlineMath(run)) {
-        if (run.isNotBlank()) blocks.add(IosMdBlock.Markdown(run))
+        // Trim the blank lines a display-math block leaves around the run so the
+        // mikepenz renderer doesn't emit an empty leading/trailing paragraph
+        // (extra vertical space around the image — matches the desktop split fix).
+        val md = run.trim()
+        if (md.isNotEmpty()) blocks.add(IosMdBlock.Markdown(md))
         return
     }
     // Split into paragraphs so a single math sentence doesn't drag a whole markdown run
     // onto the lightweight path.
     for (para in run.split(PARAGRAPH_BREAK)) {
-        if (para.isBlank()) continue
-        if (hasInlineMath(para)) blocks.add(IosMdBlock.InlineText(para)) else blocks.add(IosMdBlock.Markdown(para))
+        val p = para.trim()
+        if (p.isEmpty()) continue
+        if (hasInlineMath(p)) blocks.add(IosMdBlock.InlineText(p)) else blocks.add(IosMdBlock.Markdown(p))
     }
 }
 
