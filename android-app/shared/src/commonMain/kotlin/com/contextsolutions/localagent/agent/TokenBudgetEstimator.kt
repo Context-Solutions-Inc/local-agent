@@ -12,11 +12,13 @@ package com.contextsolutions.localagent.agent
  * Anthropic / OpenAI ballpark that overcounts slightly, which is the right
  * direction for a budget check).
  *
- * **Why 6,500 and not 6,698.** Algebraically the conversation history can
- * use `8192 − SYSTEM_PROMPT_WORST_CASE (470) − GENERATION_RESERVE (1024)
- * = 6,698`. We round down to 6,500 so the char heuristic's drift on
+ * **Why 5,500 and not 5,674.** Algebraically the conversation history can
+ * use `8192 − SYSTEM_PROMPT_WORST_CASE (470) − GENERATION_RESERVE (2048)
+ * = 5,674`. We round down to 5,500 so the char heuristic's drift on
  * non-English text or unusual punctuation doesn't push us over the
- * actual KV-cache ceiling. PR#13 design lock.
+ * actual KV-cache ceiling. (Was 6,500 with a 1,024 reserve; the reserve
+ * doubled to 2,048 to match the raised generation cap, so the history
+ * budget dropped in lockstep to keep the total inside 8K.)
  */
 object TokenBudgetEstimator {
     /** Hard ceiling from `InferenceConfig.kvCacheTokens` (PRD §4.2). */
@@ -25,15 +27,15 @@ object TokenBudgetEstimator {
     /** Worst-case system-prompt size in tokens (SYSTEM_PROMPT.md §10). */
     const val SYSTEM_PROMPT_WORST_CASE: Int = 470
 
-    /** Tokens reserved for the model's reply on this turn. */
-    const val GENERATION_RESERVE: Int = 1_024
+    /** Tokens reserved for the model's reply on this turn. Matches GenerationRequest.maxTokens. */
+    const val GENERATION_RESERVE: Int = 2_048
 
     /**
      * Safe budget for `history + current user message + tool results` before
      * the overflow guard should fire. Hand-picked to leave a ~200-token
      * margin below the algebraic ceiling for heuristic drift.
      */
-    const val SAFE_HISTORY_TOKENS: Int = 6_500
+    const val SAFE_HISTORY_TOKENS: Int = 5_500
 
     /** Average chars-per-token for English-ish text under Gemma's SP tokenizer. */
     const val CHARS_PER_TOKEN: Int = 4

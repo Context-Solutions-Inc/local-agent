@@ -150,6 +150,12 @@ class OllamaInferenceEngine(
             var chunkIndex = 0
             var finish = FinishReason.END_OF_TURN
             var sawDataLine = false
+            // Diagnostic (PR — remote-LLM mid-stream truncation): did the server tell
+            // us it was done, or did the socket just end? A `finish_reason`/`[DONE]`
+            // means the model stopped; a null-line EOF with `sawFinish=false` means the
+            // transport dropped the stream early (the OkHttp-only clip we're chasing).
+            var sawFinish = false
+            var streamExit = "eof(null-line)"
             val url = "${h.baseUrl}${h.config.serverType.chatCompletionsPath}"
             // L3 — never send the API key over cleartext HTTP; refuse and let the
             // router fall back to the on-device model. Nudges the user to enable SSL.
@@ -181,21 +187,51 @@ class OllamaInferenceEngine(
                     emit(GenerationEvent.Error("Remote LLM HTTP ${response.status.value}: ${err.take(300)}"))
                     return@execute
                 }
+                // Transport-level details that differ per HTTP engine (OkHttp vs CIO)
+                // and can silently truncate a long SSE stream: HTTP/2 vs 1.1, a gzip
+                // Content-Encoding on a stream, or a fixed Content-Length capping a
+                // chunked body. Logged once per turn to compare mobile-clip vs desktop-ok.
+                logger(
+                    "[response] proto=${response.version} " +
+                        "contentLength=${response.headers[HttpHeaders.ContentLength] ?: "(none)"} " +
+                        "transferEncoding=${response.headers[HttpHeaders.TransferEncoding] ?: "(none)"} " +
+                        "contentEncoding=${response.headers[HttpHeaders.ContentEncoding] ?: "(none)"} " +
+                        "contentType=${response.headers[HttpHeaders.ContentType] ?: "(none)"}",
+                )
                 val channel = response.bodyAsChannel()
+                var lineCount = 0
+                var charCount = 0
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val line = channel.readUTF8Line() ?: break
+                    val line = channel.readUTF8Line()
+                    if (line == null) {
+                        streamExit = "eof(null-line)"
+                        break
+                    }
+                    lineCount++
                     if (line.isBlank() || !line.startsWith("data:")) continue
                     sawDataLine = true
                     val data = line.substringAfter("data:").trim()
-                    if (data == "[DONE]") break
+                    if (data == "[DONE]") {
+                        streamExit = "done-marker"
+                        break
+                    }
                     val (delta, fr) = parseOllamaStreamChunk(data)
-                    if (fr != null) finish = fr
+                    if (fr != null) {
+                        finish = fr
+                        sawFinish = true
+                        streamExit = "finish=$fr"
+                    }
                     if (delta.isNotEmpty()) {
                         generated++
+                        charCount += delta.length
                         emit(GenerationEvent.TokenChunk(delta, chunkIndex++))
                     }
                 }
+                logger(
+                    "[stream-end] exit=$streamExit sawFinish=$sawFinish finish=$finish " +
+                        "lines=$lineCount chunks=$generated chars=$charCount",
+                )
             }
             if (generated == 0 && !sawDataLine) {
                 // 200 but not an SSE stream (e.g. an HTML page from a wrong Base
@@ -220,6 +256,7 @@ class OllamaInferenceEngine(
             // exception transparency, and such a failure must not mark the server
             // unreachable (it's the consumer that left). CancellationException is
             // likewise rethrown by `catch`, so the cancelled-collector path is unchanged.
+            logger("[catch] ${t::class.simpleName}: ${t.message}")
             monitor?.onRemoteUnreachable(baseUrl)
             emit(GenerationEvent.Error(t.message ?: "Ollama generation failed", t))
         }.flowOn(ioDispatcher)

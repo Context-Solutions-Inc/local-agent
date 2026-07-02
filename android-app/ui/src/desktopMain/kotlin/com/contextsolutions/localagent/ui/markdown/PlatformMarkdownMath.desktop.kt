@@ -15,24 +15,24 @@ import com.mikepenz.markdown.m3.markdownTypography
 
 /**
  * Desktop [PlatformMarkdownMath] — a Compose-Multiplatform markdown renderer
- * (no WebView) with LaTeX blocks rendered to images via JLaTeXMath
+ * (no WebView) with LaTeX rendered to images via JLaTeXMath
  * ([renderLatexToImageBitmap]), the desktop counterpart of Android's Markwon +
  * `ext-latex` (invariant #41).
  *
- * The text is normalized to `$$…$$` math blocks ([LatexNormalizer]) and split on
- * them: markdown runs render via `Markdown(...)`, math blocks render as a
- * JLaTeXMath image (falling back to inline-code if the formula won't parse). A
- * former-inline `$…$` becomes its own stacked block on desktop — not pixel-
- * perfect inline, but correct + readable; the polished inline layout is a later
- * refinement (operator visual check).
+ * Inline-aware ([parseMathBlocksDesktop], the JLaTeXMath mirror of iOS's
+ * [IosMathMarkdown]): inline `$…$` / `\(…\)` flows within its text line via
+ * [InlineMathParagraphDesktop] (so a phrase like "hypotenuse ($c$)" stays on one
+ * line instead of stacking each symbol as its own block), display `$$…$$` / `\[…\]`
+ * renders as a standalone image, and math-free runs go to the full mikepenz renderer.
+ * An unparseable formula falls back to inline-code.
  */
 @Composable
 actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
     val colorArgb = LocalContentColor.current.toArgb()
-    val normalized = LatexNormalizer.normalize(text)
     // Pin body text to bodyMedium so a rendered answer matches the plain-text answers
     // and the user prompt bubbles (the library defaults body to the larger bodyLarge).
     val body = MaterialTheme.typography.bodyMedium
+    val fontSizePt = body.fontSize.value
     val mdTypography = markdownTypography(
         text = body,
         paragraph = body,
@@ -41,15 +41,7 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
         list = body,
     )
 
-    // Render math to bitmaps once per (text, colour) — outside composition slots.
-    val segments = remember(normalized, colorArgb) {
-        splitMarkdownAndMath(normalized).map { seg ->
-            when (seg) {
-                is MdSegment.Math -> seg to renderLatexToImageBitmap(seg.latex, MATH_FONT_SIZE, colorArgb)
-                is MdSegment.Markdown -> seg to null
-            }
-        }
-    }
+    val blocks = remember(text) { parseMathBlocksDesktop(text) }
 
     // mikepenz's `Markdown(...)` renders plain Compose `Text` that isn't
     // selectable on its own; wrap the column so LLM answers can be selected +
@@ -58,18 +50,29 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
     // selection for free via its native TextView, so this is desktop-only.
     SelectionContainer {
         Column(modifier) {
-            segments.forEachIndexed { index, (segment, bitmap) ->
+            blocks.forEachIndexed { index, block ->
                 key(index) {
-                    when (segment) {
-                        is MdSegment.Markdown ->
-                            if (segment.text.isNotBlank()) Markdown(content = segment.text, typography = mdTypography)
-                        is MdSegment.Math ->
+                    when (block) {
+                        is DesktopMdBlock.Markdown ->
+                            Markdown(content = block.text, typography = mdTypography)
+                        is DesktopMdBlock.InlineText ->
+                            InlineMathParagraphDesktop(
+                                raw = block.raw,
+                                baseStyle = body,
+                                colorArgb = colorArgb,
+                                fontSizePt = fontSizePt,
+                            )
+                        is DesktopMdBlock.DisplayMath -> {
+                            val bitmap = remember(block.latex, colorArgb) {
+                                renderLatexToImageBitmap(block.latex, MATH_FONT_SIZE, colorArgb)
+                            }
                             if (bitmap != null) {
                                 Image(bitmap = bitmap, contentDescription = null)
                             } else {
                                 // Unparseable formula — show it verbatim as inline code.
-                                Markdown(content = "`${segment.latex}`", typography = mdTypography)
+                                Markdown(content = "`${block.latex}`", typography = mdTypography)
                             }
+                        }
                     }
                 }
             }
@@ -78,6 +81,3 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
 }
 
 private const val MATH_FONT_SIZE = 18f
-
-// MdSegment / BLOCK_MATH / splitMarkdownAndMath now live in commonMain
-// (MarkdownMathSplit.kt), shared with the iOS actual.

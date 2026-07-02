@@ -162,7 +162,10 @@ data class GenerationRequest(
     val systemInstruction: String? = null,
     val history: List<HistoryMessage> = emptyList(),
     val tools: List<ToolDefinition> = emptyList(),
-    val maxTokens: Int = 1024,
+    // 2048 balances long answers (a formal proof needs >1024) against gemma4's
+    // 8K context — raising it further risks filling the window too fast. No-op on
+    // LiteRT-LM (invariant #2); honored by Ollama/OpenAI remote + desktop llama-server.
+    val maxTokens: Int = 2048,
     val stopSequences: List<String> = emptyList(),
     /** When non-null, overrides the engine's load-time sampling. See [SamplingParams]. */
     val sampling: SamplingParams? = null,

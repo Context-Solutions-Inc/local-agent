@@ -8,6 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -19,28 +20,29 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.em
-import com.contextsolutions.localagent.platform.LatexImage
-import com.contextsolutions.localagent.platform.NativeLatexRenderer
-import com.contextsolutions.localagent.ui.util.decodeImageBitmap
 
 /**
- * iOS inline-aware markdown + LaTeX parsing (PR #46 follow-up). Unlike the block-only
- * desktop split (`splitMarkdownAndMath`), this keeps INLINE math (`$…$`, `\(…\)`) flowing
- * within its text line via Compose [InlineTextContent], so a sentence like "the value
- * $x^2$ here" reads on one line instead of stacking each symbol as its own image block.
- * DISPLAY math (`$$…$$`, `\[…\]`) stays a standalone image block. Math-free text is handed
- * to the mikepenz renderer verbatim so full markdown fidelity (lists, tables, code
- * fences, headings) is preserved wherever no inline math forces the lightweight path.
+ * Desktop inline-aware markdown + LaTeX parsing — the JLaTeXMath counterpart of iOS's
+ * [IosMathMarkdown] (invariant #41). Replaces the earlier block-only `splitMarkdownAndMath`,
+ * which normalized inline `$…$` to `$$…$$` FIRST and so stacked every inline symbol as its
+ * own block (a phrase like "hypotenuse ($c$)" broke onto three lines).
+ *
+ * The RAW answer (NOT [LatexNormalizer]-normalized — normalizing erases the inline/display
+ * distinction) is parsed into: pure-markdown runs (full mikepenz fidelity), inline-math
+ * paragraphs (rendered as ONE flowing [Text] via Compose [InlineTextContent]), and
+ * display-math blocks (`$$…$$` / `\[…\]`, a standalone JLaTeXMath image). Runs are trimmed of
+ * the blank lines a math block leaves around them. A logic mirror of the iOS parser; a later
+ * refactor could hoist the pure parsing to commonMain behind a shared math-renderer seam.
  */
-internal sealed interface IosMdBlock {
+internal sealed interface DesktopMdBlock {
     /** A run with no inline math — rendered by the full mikepenz markdown renderer. */
-    data class Markdown(val text: String) : IosMdBlock
+    data class Markdown(val text: String) : DesktopMdBlock
 
-    /** A paragraph containing inline math — rendered as one flowing [Text] (see below). */
-    data class InlineText(val raw: String) : IosMdBlock
+    /** A paragraph containing inline math — rendered as one flowing [Text]. */
+    data class InlineText(val raw: String) : DesktopMdBlock
 
     /** Display math (`$$…$$` / `\[…\]`) — rendered as a standalone image block. */
-    data class DisplayMath(val latex: String) : IosMdBlock
+    data class DisplayMath(val latex: String) : DesktopMdBlock
 }
 
 // Display math: `$$…$$` or `\[…\]` (non-greedy, may span newlines).
@@ -50,8 +52,7 @@ private val DISPLAY_MATH = Regex("""\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\]""")
 private val INLINE_MATH = Regex("""\\\(([\s\S]+?)\\\)|(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)""")
 
 // Inline markdown emphasis inside a text run: **bold** / __bold__ / *italic* / _italic_ /
-// `code` / [text](url). Kept intentionally small — the common inline styles LLM math
-// prose uses. Block structures on an inline-math line degrade to plain text (see class doc).
+// `code` / [text](url) — the common inline styles LLM math prose uses.
 private val INLINE_MD = Regex(
     """\*\*([^*]+?)\*\*|__([^_]+?)__|(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)|`([^`]+?)`|\[([^\]]+?)\]\(([^)\s]+?)\)""",
 )
@@ -62,41 +63,34 @@ private val PARAGRAPH_BREAK = Regex("""\n[ \t]*\n""")
 
 private data class InlineSeg(val text: String?, val math: String?)
 
-/** True if [text] contains at least one inline-math delimiter that looks like math. */
+/** True if [text] has at least one inline-math delimiter that looks like math (not currency). */
 private fun hasInlineMath(text: String): Boolean =
     INLINE_MATH.findAll(text).any { m ->
-        // group 1 = \(…\) (always math); group 2 = $…$ (only when it looks like math).
         m.groupValues[1].isNotEmpty() || LatexNormalizer.looksLikeMath(m.groupValues[2])
     }
 
-/**
- * Split an assistant answer into display-math blocks, inline-math paragraphs, and pure
- * markdown runs. Math-free runs stay whole (one mikepenz call — no paragraph splitting, so
- * fenced code / multi-line lists keep rendering); a run WITH inline math is split into
- * paragraphs so only the paragraphs that actually carry math take the lightweight path.
- */
-internal fun parseMathBlocks(text: String): List<IosMdBlock> {
-    val blocks = ArrayList<IosMdBlock>()
+/** Split an answer into display-math blocks, inline-math paragraphs, and pure markdown runs. */
+internal fun parseMathBlocksDesktop(text: String): List<DesktopMdBlock> {
+    val blocks = ArrayList<DesktopMdBlock>()
     var last = 0
     for (m in DISPLAY_MATH.findAll(text)) {
         if (m.range.first > last) addTextRun(blocks, text.substring(last, m.range.first))
         val latex = m.groupValues[1].ifEmpty { m.groupValues[2] }.trim()
-        blocks.add(IosMdBlock.DisplayMath(latex))
+        blocks.add(DesktopMdBlock.DisplayMath(latex))
         last = m.range.last + 1
     }
     if (last < text.length) addTextRun(blocks, text.substring(last))
-    if (blocks.isEmpty()) blocks.add(IosMdBlock.Markdown(text.trim()))
+    if (blocks.isEmpty()) blocks.add(DesktopMdBlock.Markdown(text.trim()))
     return blocks
 }
 
-private fun addTextRun(blocks: MutableList<IosMdBlock>, run: String) {
+private fun addTextRun(blocks: MutableList<DesktopMdBlock>, run: String) {
     if (run.isEmpty()) return
     if (!hasInlineMath(run)) {
-        // Trim the blank lines a display-math block leaves around the run so the
-        // mikepenz renderer doesn't emit an empty leading/trailing paragraph
-        // (extra vertical space around the image — matches the desktop split fix).
+        // Trim the blank lines a display-math block leaves around the run so mikepenz
+        // doesn't emit an empty leading/trailing paragraph (extra space around the image).
         val md = run.trim()
-        if (md.isNotEmpty()) blocks.add(IosMdBlock.Markdown(md))
+        if (md.isNotEmpty()) blocks.add(DesktopMdBlock.Markdown(md))
         return
     }
     // Split into paragraphs so a single math sentence doesn't drag a whole markdown run
@@ -104,7 +98,7 @@ private fun addTextRun(blocks: MutableList<IosMdBlock>, run: String) {
     for (para in run.split(PARAGRAPH_BREAK)) {
         val p = para.trim()
         if (p.isEmpty()) continue
-        if (hasInlineMath(p)) blocks.add(IosMdBlock.InlineText(p)) else blocks.add(IosMdBlock.Markdown(p))
+        if (hasInlineMath(p)) blocks.add(DesktopMdBlock.InlineText(p)) else blocks.add(DesktopMdBlock.Markdown(p))
     }
 }
 
@@ -131,23 +125,21 @@ private fun tidyBlockMarkers(text: String): String =
 /**
  * Render an inline-math paragraph as ONE flowing [Text]: text runs get lightweight inline
  * markdown (bold/italic/code/links), each inline math span becomes an [InlineTextContent]
- * image sized in `em` (so it tracks the surrounding font + font-scale) and vertically
- * centered on the text line. A missing bridge / unparseable formula / decode miss falls
- * back to the raw LaTeX shown as monospace code — never crashes.
+ * JLaTeXMath image sized in `em` (tracks the surrounding font) and vertically centered on the
+ * line. A missing/unparseable formula falls back to the raw LaTeX as monospace — never crashes.
  */
 @Composable
-internal fun InlineMathParagraph(
+internal fun InlineMathParagraphDesktop(
     raw: String,
-    renderer: NativeLatexRenderer?,
     baseStyle: TextStyle,
     colorArgb: Int,
     fontSizePt: Float,
 ) {
     val fontPt = if (fontSizePt > 0f) fontSizePt else 16f
     val segs = remember(raw) { tokenizeInline(raw) }
-    // Rasterize each math span once per (paragraph, colour, renderer).
-    val rendered: List<LatexImage?> = remember(segs, colorArgb, renderer) {
-        segs.map { seg -> seg.math?.let { renderer?.render(it, fontPt, colorArgb) } }
+    // Rasterize each math span once per (paragraph, colour, size).
+    val rendered = remember(segs, colorArgb, fontPt) {
+        segs.map { seg -> seg.math?.let { renderLatexToImageBitmap(it, fontPt, colorArgb) } }
     }
 
     val inlineContent = HashMap<String, InlineTextContent>()
@@ -158,14 +150,13 @@ internal fun InlineMathParagraph(
                 return@forEachIndexed
             }
             val latex = seg.math ?: return@forEachIndexed
-            val img = rendered[index]
-            val bitmap = img?.png?.let { decodeImageBitmap(it) }
-            if (img != null && bitmap != null) {
+            val bitmap = rendered[index]
+            if (bitmap != null) {
                 val id = "math_$index"
                 inlineContent[id] = InlineTextContent(
                     Placeholder(
-                        width = (img.widthPt / fontPt).em,
-                        height = (img.heightPt / fontPt).em,
+                        width = (bitmap.width / fontPt).em,
+                        height = (bitmap.height / fontPt).em,
                         placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                     ),
                 ) {
@@ -173,7 +164,6 @@ internal fun InlineMathParagraph(
                 }
                 appendInlineContent(id, latex)
             } else {
-                // Bridge absent / unparseable / decode miss — show the raw LaTeX inline.
                 withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(latex) }
             }
         }
@@ -182,7 +172,7 @@ internal fun InlineMathParagraph(
 }
 
 /** Append [text] with **bold** / *italic* / `code` / [link](url) styling; other markup literal. */
-private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String) {
+private fun AnnotatedString.Builder.appendInlineMarkdown(text: String) {
     var last = 0
     for (m in INLINE_MD.findAll(text)) {
         if (m.range.first > last) append(text.substring(last, m.range.first))
