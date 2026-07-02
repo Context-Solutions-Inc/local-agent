@@ -59,7 +59,10 @@ fun parseOpenAiChatRequest(jsonBody: String): GenerationRequest {
         }
     }
 
-    val maxTokens = root["max_tokens"]?.jsonPrimitive?.intOrNull ?: 1024
+    // Fallback matches GenerationRequest.maxTokens' default (kept in sync). The
+    // mobile normally sends an explicit max_tokens, so this only applies to a
+    // wire body that omits it.
+    val maxTokens = root["max_tokens"]?.jsonPrimitive?.intOrNull ?: 2048
     val temperature = root["temperature"]?.jsonPrimitive?.floatOrNull
     val topK = root["top_k"]?.jsonPrimitive?.intOrNull
     val topP = root["top_p"]?.jsonPrimitive?.floatOrNull
