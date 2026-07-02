@@ -150,7 +150,12 @@ import com.contextsolutions.localagent.telemetry.TelemetryCounters
 import com.contextsolutions.localagent.telemetry.TelemetryFlusher
 import com.contextsolutions.localagent.telemetry.TelemetryPayloadBuilder
 import com.contextsolutions.localagent.telemetry.TelemetryUploader
+import com.contextsolutions.localagent.job.InlineJobRunner
 import com.contextsolutions.localagent.job.JobRepository
+import com.contextsolutions.localagent.job.JobResync
+import com.contextsolutions.localagent.job.RelayInlineJobRunner
+import com.contextsolutions.localagent.job.RelayRemoteJobRunner
+import com.contextsolutions.localagent.job.RemoteJobRunner
 import com.contextsolutions.localagent.job.SqlDelightJobRepository
 import com.contextsolutions.localagent.ui.theme.IosThemePreferences
 import com.contextsolutions.localagent.ui.theme.ThemePreferences
@@ -279,6 +284,22 @@ fun iosModule(
             lastSync = get(),
             lastSyncStatus = get(),
             logger = diag("Sync"),
+        )
+    }
+    // Mobile run-now + cancel over the relay (PR #84/#69): imperative RUN_JOB/CANCEL_JOB.
+    single<RemoteJobRunner> { RelayRemoteJobRunner(get<LinkTransportProvider>()) }
+    // "run job …" inline chat command runs on the paired desktop over the relay (PR #88).
+    single<InlineJobRunner> { RelayInlineJobRunner(get<LinkTransportProvider>()) }
+    // Mobile-only "re-sync jobs" escape hatch (#51): a fresh desktop re-install keeps the same
+    // X25519 pubkey so the auto new-desktop wipe never fires — this button wipes local jobs +
+    // resets the watermark + forces an immediate reconcile so the desktop's state re-pulls.
+    single<JobResync> {
+        val watermarks = get<SyncWatermarkStore>()
+        val sync = get<SyncController>()
+        JobResync(
+            jobRepository = get<JobRepository>(),
+            resetWatermark = { watermarks.set(0) },
+            forceSync = { sync.requestSync() },
         )
     }
 
