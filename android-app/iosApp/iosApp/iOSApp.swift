@@ -17,7 +17,9 @@ struct iOSApp: App {
         IosEntryPointKt.doInitKoin(
             llmBridge: LiteRtBridge(),
             classifierBridge: ort,
-            embedderBridge: ort
+            embedderBridge: ort,
+            relayBridge: RelayBridge(),
+            qrScanner: QRScannerBridge()
         )
     }
 

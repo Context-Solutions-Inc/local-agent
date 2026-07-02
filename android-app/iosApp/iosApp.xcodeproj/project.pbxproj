@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -14,9 +14,12 @@
 		21FF2A662FF52D7C009D9F2A /* locations.json in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A612FF52D7C009D9F2A /* locations.json */; };
 		21FF2A672FF52D7C009D9F2A /* search_defaults.json in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A632FF52D7C009D9F2A /* search_defaults.json */; };
 		21FF2A682FF52D7C009D9F2A /* vocab.txt in Resources */ = {isa = PBXBuildFile; fileRef = 21FF2A642FF52D7C009D9F2A /* vocab.txt */; };
+		21FF2A6B2FF5F57D009D9F2A /* SecureGatewaySDK in Frameworks */ = {isa = PBXBuildFile; productRef = 21FF2A6A2FF5F57D009D9F2A /* SecureGatewaySDK */; };
 		A1000011000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000001 /* iOSApp.swift */; };
 		A1000012000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000001 /* ContentView.swift */; };
 		A1000013000000000000001 /* LiteRtBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003000000000000001 /* LiteRtBridge.swift */; };
+		FA11A9E1000000000000F002 /* RelayBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11A9E1000000000000F001 /* RelayBridge.swift */; };
+		FA11A9E1000000000000F004 /* QRScannerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11A9E1000000000000F003 /* QRScannerBridge.swift */; };
 		A1000014000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000004000000000000001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +31,8 @@
 		A1000001000000000000001 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		A1000002000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1000003000000000000001 /* LiteRtBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRtBridge.swift; sourceTree = "<group>"; };
+		FA11A9E1000000000000F001 /* RelayBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayBridge.swift; sourceTree = "<group>"; };
+		FA11A9E1000000000000F003 /* QRScannerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerBridge.swift; sourceTree = "<group>"; };
 		A1000004000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000005000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000006000000000000001 /* iosApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -41,6 +46,7 @@
 				21FF2A5E2FF52AA4009D9F2A /* onnxruntime in Frameworks */,
 				215E4B252FF3F32C005E4D52 /* LiteRTLM in Frameworks */,
 				21FF2A602FF52AA4009D9F2A /* onnxruntime_extensions in Frameworks */,
+				21FF2A6B2FF5F57D009D9F2A /* SecureGatewaySDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +71,8 @@
 				A1000001000000000000001 /* iOSApp.swift */,
 				A1000002000000000000001 /* ContentView.swift */,
 				A1000003000000000000001 /* LiteRtBridge.swift */,
+				FA11A9E1000000000000F001 /* RelayBridge.swift */,
+				FA11A9E1000000000000F003 /* QRScannerBridge.swift */,
 				A1000004000000000000001 /* Assets.xcassets */,
 				A1000005000000000000001 /* Info.plist */,
 			);
@@ -127,6 +135,7 @@
 			packageReferences = (
 				215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */,
 				21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
+				21FF2A692FF5F57D009D9F2A /* XCLocalSwiftPackageReference "../../../secure-gateway/sdk/ios" */,
 			);
 			productRefGroup = A1000032000000000000001 /* Products */;
 			projectDirPath = "";
@@ -178,6 +187,8 @@
 				A1000012000000000000001 /* ContentView.swift in Sources */,
 				21FF2A652FF52D7C009D9F2A /* OnnxRuntimeBridge.swift in Sources */,
 				A1000013000000000000001 /* LiteRtBridge.swift in Sources */,
+				FA11A9E1000000000000F002 /* RelayBridge.swift in Sources */,
+				FA11A9E1000000000000F004 /* QRScannerBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -190,7 +201,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -201,7 +212,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -222,7 +233,7 @@
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -255,7 +266,7 @@
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -297,6 +308,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		21FF2A692FF5F57D009D9F2A /* XCLocalSwiftPackageReference "../../../secure-gateway/sdk/ios" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../../secure-gateway/sdk/ios";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		215E4B232FF3F32C005E4D52 /* XCRemoteSwiftPackageReference "LiteRT-LM" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -331,6 +349,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 21FF2A5C2FF52AA4009D9F2A /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
 			productName = onnxruntime_extensions;
+		};
+		21FF2A6A2FF5F57D009D9F2A /* SecureGatewaySDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SecureGatewaySDK;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -31,6 +31,9 @@ import com.contextsolutions.localagent.inference.IosModelSpec
 import com.contextsolutions.localagent.inference.NativeClassifierBridge
 import com.contextsolutions.localagent.inference.NativeEmbedderBridge
 import com.contextsolutions.localagent.inference.NativeLlmBridge
+import com.contextsolutions.localagent.link.transport.NativeRelayBridge
+import com.contextsolutions.localagent.platform.NativeQrScanner
+import com.contextsolutions.localagent.sync.SyncController
 import com.contextsolutions.localagent.i18n.StringCatalog
 import com.contextsolutions.localagent.i18n.StringKeys
 import com.contextsolutions.localagent.ui.i18n.tr
@@ -60,10 +63,19 @@ fun doInitKoin(
     llmBridge: NativeLlmBridge,
     classifierBridge: NativeClassifierBridge,
     embedderBridge: NativeEmbedderBridge,
+    relayBridge: NativeRelayBridge,
+    qrScanner: NativeQrScanner,
 ) {
-    startKoin {
-        modules(agentCoreModule, iosModule(llmBridge, classifierBridge, embedderBridge), uiModule)
+    val app = startKoin {
+        modules(
+            agentCoreModule,
+            iosModule(llmBridge, classifierBridge, embedderBridge, relayBridge, qrScanner),
+            uiModule,
+        )
     }
+    // Start relay sync (foreground-only, like Android). SyncController.start() self-gates on the
+    // link being configured, so it idles until a desktop is paired + the relay is up.
+    app.koin.get<SyncController>().start()
 }
 
 fun MainViewController(): UIViewController = ComposeUIViewController {
