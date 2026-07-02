@@ -95,12 +95,12 @@ kotlin {
             implementation(libs.kotlinx.datetime)
         }
         androidMain.dependencies {
-            // Markdown + LaTeX on Android: Markwon + ext-latex (jlatexmath, native
-            // canvas, no WebView) — the same stack androidApp's MarkdownMathText
-            // uses (invariant #41). The actual `PlatformMarkdownMath` lives here.
-            implementation(libs.markwon.core)
-            implementation(libs.markwon.ext.latex)
-            implementation(libs.markwon.inline.parser)
+            // Markdown + LaTeX on Android: the shared mikepenz Compose-Multiplatform
+            // renderer (no WebView) + jlatexmath-android for the math images — the same
+            // pure-Compose stack desktop + iOS use (invariant #41). The actual
+            // `PlatformMarkdownMath` + `renderAndroidLatex` live in androidMain.
+            implementation(libs.markdown.renderer.m3)
+            implementation(libs.jlatexmath.android)
             // activity-compose `BackHandler` backs the Android `PlatformBackHandler`
             // actual (the system back gesture/button → route change).
             implementation(libs.androidx.activity.compose)

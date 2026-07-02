@@ -19,20 +19,16 @@ import com.mikepenz.markdown.m3.markdownTypography
 import org.koin.compose.getKoin
 
 /**
- * iOS [PlatformMarkdownMath] (PR #41; LaTeX added PR #46) — the mikepenz
- * Compose-Multiplatform markdown renderer (no WebView) plus native LaTeX via the
- * [NativeLatexRenderer] Swift bridge (SwiftMath), the iOS counterpart of desktop's JVM
- * JLaTeXMath (invariant #41).
+ * iOS [PlatformMarkdownMath] (PR #41; LaTeX added PR #46) — the shared mikepenz
+ * Compose-Multiplatform markdown renderer (no WebView) + the common
+ * [parseMathBlocks]/[InlineMathParagraph] path, with LaTeX via the [NativeLatexRenderer] Swift
+ * bridge (SwiftMath). The only iOS-specific piece is the rasterizer lambda; everything else is
+ * shared with desktop + Android (invariant #41).
  *
- * The answer is parsed ([parseMathBlocks]) into: pure-markdown runs (full mikepenz
- * fidelity), inline-math paragraphs (rendered as ONE flowing line so `$…$` symbols don't
- * each stack as their own block — [InlineMathParagraph]), and display-math blocks
- * (`$$…$$` / `\[…\]`, rendered as a standalone image). Never crashes: a missing bridge /
- * unparseable formula / decode miss falls back to the raw LaTeX as inline code.
- *
- * Wrapped in a [SelectionContainer] so answers can be selected + copied (matching desktop).
- * Body text is pinned to `bodyMedium` (the library defaults to the larger `bodyLarge`) so a
- * rendered answer matches the plain-text answers + the user bubbles.
+ * Never crashes: a missing bridge / unparseable formula / decode miss falls back to the raw LaTeX
+ * as inline code. Wrapped in a [SelectionContainer] so answers can be selected + copied (shared
+ * with desktop). Body text is pinned to `bodyMedium` (the library defaults to the larger
+ * `bodyLarge`) so a rendered answer matches the plain-text answers + the user bubbles.
  */
 @Composable
 actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
@@ -61,17 +57,26 @@ actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
             blocks.forEachIndexed { index, block ->
                 key(index) {
                     when (block) {
-                        is IosMdBlock.Markdown ->
+                        is MdBlock.Markdown ->
                             Markdown(content = block.text, typography = mdTypography)
-                        is IosMdBlock.InlineText ->
+                        is MdBlock.InlineText ->
                             InlineMathParagraph(
                                 raw = block.raw,
-                                renderer = renderer,
                                 baseStyle = body,
                                 colorArgb = colorArgb,
                                 fontSizePt = fontSizePt,
-                            )
-                        is IosMdBlock.DisplayMath -> {
+                            ) { latex, pt, argb ->
+                                renderer?.render(latex, pt, argb)?.let { img ->
+                                    decodeImageBitmap(img.png)?.let { bmp ->
+                                        InlineMathImage(
+                                            bitmap = bmp,
+                                            widthEm = (img.widthPt / pt).toFloat(),
+                                            heightEm = (img.heightPt / pt).toFloat(),
+                                        )
+                                    }
+                                }
+                            }
+                        is MdBlock.DisplayMath -> {
                             val img = remember(block.latex, colorArgb, renderer) {
                                 renderer?.render(block.latex, fontSizePt, colorArgb)
                             }

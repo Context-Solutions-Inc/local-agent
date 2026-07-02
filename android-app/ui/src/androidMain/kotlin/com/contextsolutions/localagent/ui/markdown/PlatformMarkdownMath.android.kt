@@ -1,122 +1,87 @@
 package com.contextsolutions.localagent.ui.markdown
 
-import android.text.Spannable
-import android.text.method.ArrowKeyMovementMethod
-import android.text.style.ClickableSpan
-import android.util.TypedValue
-import android.view.MotionEvent
-import android.widget.TextView
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.isSpecified
-import androidx.compose.ui.viewinterop.AndroidView
-import io.noties.markwon.Markwon
-import io.noties.markwon.SoftBreakAddsNewLinePlugin
-import io.noties.markwon.ext.latex.JLatexMathPlugin
-import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
-import kotlin.math.roundToInt
+import androidx.compose.ui.unit.sp
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownTypography
 
 /**
- * Android [PlatformMarkdownMath] — Markwon + `ext-latex` (jlatexmath, native
- * canvas, no WebView), mirroring `:androidApp`'s `MarkdownMathText` (invariant
- * #41). Hosted in an [AndroidView] TextView whose metrics mirror `bodyMedium`
- * (size, line-height, letter-spacing, `includeFontPadding=false`) so markdown
- * text lines up with the plain-text path; `setTextIsSelectable(true)` gives the
- * TextView its own copy/select toolbar.
+ * Android [PlatformMarkdownMath] — the shared mikepenz Compose-Multiplatform markdown renderer
+ * (no WebView) + the common [parseMathBlocks]/[InlineMathParagraph] path, with LaTeX rendered to
+ * images via `jlatexmath-android` ([renderAndroidLatex]). Identical structure to the desktop + iOS
+ * actuals; the only Android-specific piece is the rasterizer lambda (invariant #41).
  *
- * Links: a selectable TextView installs [ArrowKeyMovementMethod], which swallows
- * the touch events a `LinkMovementMethod` needs — so markdown links render styled
- * but never fire on tap. [LinkAwareMovementMethod] restores link taps (fired on
- * ACTION_UP) while keeping selection intact by extending the selection movement
- * method rather than replacing it. Applied AFTER [Markwon.setMarkdown] so it wins
- * over Markwon's own `MovementMethodPlugin`.
+ * The chat-render parity PR replaced the previous Markwon + `ext-latex` `AndroidView`/`TextView` renderer with
+ * this pure-Compose path so every platform shares one markdown renderer (no `AndroidView` interop).
+ * Selection now comes from the shared [SelectionContainer] (the native TextView gave it for free);
+ * markdown links are handled by mikepenz's own `LocalUriHandler` wiring.
  */
 @Composable
 actual fun PlatformMarkdownMath(text: String, modifier: Modifier) {
-    val context = LocalContext.current
-    val textColor = LocalContentColor.current.toArgb()
-
-    val style = MaterialTheme.typography.bodyMedium
+    val colorArgb = LocalContentColor.current.toArgb()
+    // Pin body text to bodyMedium so a rendered answer matches the plain-text answers and the user
+    // prompt bubbles (the library defaults body to the larger bodyLarge).
+    val body = MaterialTheme.typography.bodyMedium
+    val fontSizePt = body.fontSize.value
     val density = LocalDensity.current
-    val textSizePx = with(density) { style.fontSize.toPx() }
-    val lineHeightPx = with(density) {
-        if (style.lineHeight.isSpecified) style.lineHeight.toPx() else 0f
-    }
-    val letterSpacingEm = with(density) {
-        if (style.letterSpacing.isSpecified && style.fontSize.isSpecified) {
-            style.letterSpacing.toPx() / style.fontSize.toPx()
-        } else {
-            0f
-        }
-    }
-
-    val markwon = remember(textColor, textSizePx) {
-        Markwon.builder(context)
-            .usePlugin(MarkwonInlineParserPlugin.create())
-            .usePlugin(SoftBreakAddsNewLinePlugin.create())
-            .usePlugin(
-                JLatexMathPlugin.create(textSizePx) { builder ->
-                    builder.inlinesEnabled(true)
-                },
-            )
-            .build()
-    }
-
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            TextView(ctx).apply {
-                setTextIsSelectable(true)
-                includeFontPadding = false
-            }
-        },
-        update = { tv ->
-            tv.setTextColor(textColor)
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx)
-            tv.letterSpacing = letterSpacingEm
-            if (lineHeightPx > 0f) tv.setLineHeight(lineHeightPx.roundToInt())
-            // ext-latex only recognizes `$$…$$`; normalize the model's `$…$` /
-            // `\(…\)` / `\[…\]` first (shared LatexNormalizer).
-            markwon.setMarkdown(tv, LatexNormalizer.normalize(text))
-            // Re-assert after setMarkdown (Markwon installs LinkMovementMethod,
-            // which would break selection) so taps AND selection both work.
-            tv.movementMethod = LinkAwareMovementMethod
-        },
+    // jlatexmath-android sizes in PIXELS, so resolve the sp body size (and a slightly larger
+    // display-math size) against the current density. Tracks font-scale like the desktop path.
+    val inlinePx = with(density) { body.fontSize.toPx() }
+    val displayPx = with(density) { MATH_FONT_SIZE.sp.toPx() }
+    val mdTypography = markdownTypography(
+        text = body,
+        paragraph = body,
+        ordered = body,
+        bullet = body,
+        list = body,
     )
-}
 
-/**
- * Selection-friendly link movement. Extends [ArrowKeyMovementMethod] so a
- * selectable TextView keeps its touch-selection behavior, but intercepts a
- * tap that lands on a [ClickableSpan] and fires it on ACTION_UP. ACTION_DOWN
- * is not consumed, so long-press/drag still starts a selection.
- */
-private object LinkAwareMovementMethod : ArrowKeyMovementMethod() {
-    override fun onTouchEvent(widget: TextView, buffer: Spannable, event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_UP) {
-            val x = event.x.toInt() - widget.totalPaddingLeft + widget.scrollX
-            val y = event.y.toInt() - widget.totalPaddingTop + widget.scrollY
-            val layout = widget.layout
-            if (layout != null) {
-                val line = layout.getLineForVertical(y)
-                // Reject taps in the empty area past a line's text so a tap to the
-                // right of a link-terminated line doesn't spuriously fire it.
-                if (x.toFloat() in layout.getLineLeft(line)..layout.getLineRight(line)) {
-                    val off = layout.getOffsetForHorizontal(line, x.toFloat())
-                    val links = buffer.getSpans(off, off, ClickableSpan::class.java)
-                    if (links.isNotEmpty()) {
-                        links[0].onClick(widget)
-                        return true
+    val blocks = remember(text) { parseMathBlocks(text) }
+
+    SelectionContainer(modifier) {
+        Column {
+            blocks.forEachIndexed { index, block ->
+                key(index) {
+                    when (block) {
+                        is MdBlock.Markdown ->
+                            Markdown(content = block.text, typography = mdTypography)
+                        is MdBlock.InlineText ->
+                            InlineMathParagraph(
+                                raw = block.raw,
+                                baseStyle = body,
+                                colorArgb = colorArgb,
+                                fontSizePt = fontSizePt,
+                            ) { latex, _, argb ->
+                                renderAndroidLatex(latex, inlinePx, argb)?.let {
+                                    InlineMathImage(it, it.width / inlinePx, it.height / inlinePx)
+                                }
+                            }
+                        is MdBlock.DisplayMath -> {
+                            val bitmap = remember(block.latex, colorArgb, displayPx) {
+                                renderAndroidLatex(block.latex, displayPx, colorArgb)
+                            }
+                            if (bitmap != null) {
+                                Image(bitmap = bitmap, contentDescription = null)
+                            } else {
+                                // Unparseable formula — show it verbatim as inline code.
+                                Markdown(content = "`${block.latex}`", typography = mdTypography)
+                            }
+                        }
                     }
                 }
             }
         }
-        return super.onTouchEvent(widget, buffer, event)
     }
 }
+
+private const val MATH_FONT_SIZE = 18f

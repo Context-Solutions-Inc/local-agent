@@ -430,11 +430,6 @@ dependencies {
     implementation(libs.compose.navigation)
     debugImplementation(libs.compose.ui.tooling)
 
-    // Markdown + LaTeX rendering in the assistant bubble (PR #50)
-    implementation(libs.markwon.core)
-    implementation(libs.markwon.ext.latex)
-    implementation(libs.markwon.inline.parser)
-
 
     // Koin — the app's DI (Hilt fully removed in Phase 3, docs/DESKTOP_PORT_PLAN.md).
     // koin-android adds androidContext()/by inject()/by viewModel(); koin-core arrives

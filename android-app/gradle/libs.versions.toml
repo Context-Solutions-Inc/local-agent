@@ -36,10 +36,10 @@ compose-multiplatform = "1.10.3"
 compose-mp-material3 = "1.9.0"
 compose-mp-icons = "1.7.3"
 
-# Markdown + LaTeX rendering (PR #50). Markwon renders markdown into a TextView;
-# ext-latex pulls io.noties:jlatexmath-android (native canvas, offline — no WebView).
-# inline-parser is required for inline `$…$` math. All on Maven Central.
-markwon = "4.6.2"
+# Android LaTeX rasterizer: jlatexmath-android (an Android-Canvas fork of JLaTeXMath,
+# native canvas, offline — no WebView). Used directly by the shared pure-Compose markdown
+# path (mikepenz renderer, below); replaced Markwon's TextView renderer. On Maven Central.
+jlatexmathAndroid = "0.2.0"
 
 # DI
 # Koin — the app's DI across :shared/:androidApp/desktop (docs/DESKTOP_PORT_PLAN.md).
@@ -133,9 +133,9 @@ onnxruntime = "1.20.0"
 # it has a beforeSend hook, but the desktop reporter keeps the same redaction-at-
 # callsite discipline (RedactedThrowable, invariant #24) for parity + defense-in-depth.
 sentry = "8.43.0"
-# Desktop Markdown/LaTeX rendering (Phase 7): a Compose-Multiplatform markdown
-# renderer (no WebView) + JLaTeXMath (Java2D → ImageBitmap) for the math the
-# Android path renders via Markwon's ext-latex. Reuses the shared LatexNormalizer.
+# Shared Markdown/LaTeX rendering (Phase 7; Android joined this path in the chat-render parity PR):
+# the mikepenz Compose-Multiplatform markdown renderer (no WebView) on every platform +
+# JLaTeXMath (Java2D → ImageBitmap) for the math on desktop. Reuses the shared LatexNormalizer.
 # PINNED to 0.39.0: 0.40.0+ compile their JVM artifact to Java 21 (class 65), which
 # throws UnsupportedClassVersionError on our JDK-17 desktop runtime when an answer
 # renders markdown. 0.39.0 is the newest release still built for JVM 17 (class 61);
@@ -264,10 +264,8 @@ compose-mp-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose
 compose-mp-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-mp-material3" }
 compose-mp-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "compose-mp-icons" }
 
-# Markwon (markdown + LaTeX in the chat bubble; PR #50)
-markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
-markwon-ext-latex = { module = "io.noties.markwon:ext-latex", version.ref = "markwon" }
-markwon-inline-parser = { module = "io.noties.markwon:inline-parser", version.ref = "markwon" }
+# Android LaTeX rasterizer (shared pure-Compose markdown path; replaced Markwon)
+jlatexmath-android = { module = "ru.noties:jlatexmath-android", version.ref = "jlatexmathAndroid" }
 
 # Firebase — BoM pins compatible versions for all firebase-* artifacts.
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
