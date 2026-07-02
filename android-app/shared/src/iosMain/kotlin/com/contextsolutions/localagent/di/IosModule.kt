@@ -428,6 +428,14 @@ fun iosModule(
             engine = get(),
             modelPath = { get<IosModelDownloadController>().modelPath() },
             config = InferenceConfig(enableVision = true), // vision via CPU/XNNPack (see engine binding above)
+            // Drop the resident handle so the next turn re-decides the backend (#44): the relay
+            // going down (desktop-link monitor) or a remote/link config change → fall back to the
+            // on-device GPU instead of retrying the dead link.
+            ollamaMonitor = get(),
+            desktopLinkMonitor = get(named("desktopLink")),
+            ollamaPreferences = get(),
+            desktopLinkPreferences = get(),
+            scope = appScope(),
         )
     }
 
