@@ -3,7 +3,6 @@ package com.contextsolutions.localagent.ui.chat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -96,7 +96,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
@@ -289,10 +288,21 @@ fun ChatScreen(
         if (micEnabled && !assistantBusy) dictation.start() else dictation.stop()
     }
     val listState = rememberLazyListState()
-    // Desktop scrolls a plain Column via this state (see the list branch below);
-    // mobile uses `listState` with its LazyColumn. Unused on mobile.
+    // Desktop AND iOS scroll a plain Column via this state (see the list branch below);
+    // Android uses `listState` with its LazyColumn.
     val desktopScrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
+
+    // PR #46 — iOS uses the eager Column + verticalScroll path (like desktop), NOT the
+    // LazyColumn. On iOS, LazyColumn composes a tall markdown/LaTeX bubble SHORT when it
+    // scrolls into view, then grows it to full height a frame later — that per-item reflow
+    // during a scroll-up yanks the viewport past the response to the prior prompt (device
+    // logs showed a bubble jump ~144px → ~1506px in one frame, scrolling=true). A plain
+    // Column composes every bubble up front with a stable height, so verticalScroll moves by
+    // pixels through any height — smooth, no jump. This is the SAME reason desktop switched
+    // off LazyColumn (see the list branch comment). A conversation is bounded, so eager
+    // composition is fine. Android keeps its (working) LazyColumn.
+    val useEagerColumn = isDesktopPlatform || isIosPlatform
 
     // PR #9 — Sticky-to-bottom + jump-to-latest, identical on mobile + desktop.
     //  - `isAtBottom` is derived from layoutInfo. True when the last item is fully
@@ -310,22 +320,15 @@ fun ChatScreen(
     //    wrongly disengaged after the first exchange (breaking auto-scroll + the FAB).
     //  - Re-engages whenever `isAtBottom` is true again (manual scroll-back or FAB tap).
     //  - A SmallFloatingActionButton shows while sticky is off to jump back.
-    // PR #46 — a small "at-bottom" tolerance. On iOS the fractional device density (@2x/@3x)
-    // makes the exact `last.offset + last.size <= viewportEndOffset` comparison flip by a
-    // sub-pixel mid-stream, which both disengaged sticky and flickered the jump-to-latest FAB.
-    // ~4dp is below a text line yet above the rounding noise; imperceptible on Android/desktop
-    // (a bubble 4dp shy of the edge is effectively at bottom), so this is applied on all platforms.
-    val density = LocalDensity.current
-    val bottomEpsilonPx = with(density) { 4.dp.toPx() }
-    val isAtBottom by remember(bottomEpsilonPx) {
+    val isAtBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
             val visible = info.visibleItemsInfo
             if (visible.isEmpty() || info.totalItemsCount == 0) return@derivedStateOf true
             val last = visible.last()
-            // Fully visible bottom item + no items below it = at-bottom (within epsilon).
+            // Fully visible bottom item + no items below it = at-bottom.
             last.index >= info.totalItemsCount - 1 &&
-                last.offset + last.size <= info.viewportEndOffset + bottomEpsilonPx
+                last.offset + last.size <= info.viewportEndOffset
         }
     }
     var stickyToBottom by remember { mutableStateOf(true) }
@@ -344,7 +347,7 @@ fun ChatScreen(
         if (total <= 0) return@pin
         autoScrolling = true
         try {
-            listState.followBottom(lastIndex = total - 1, animate = animate, epsilonPx = bottomEpsilonPx)
+            listState.followBottom(lastIndex = total - 1, animate = animate)
         } finally {
             autoScrolling = false
         }
@@ -353,52 +356,26 @@ fun ChatScreen(
     // Disengage on a genuine user scroll away from the bottom; re-engage at the bottom.
     // Keyed on BOTH isScrollInProgress AND isAtBottom so it re-checks as a scroll crosses
     // off the bottom, not only at the scroll's start edge. isScrollInProgress is false for
-    // a relayout clamp, and our own scrolls set `autoScrolling`, so neither misfires.
-    //
-    // PR #46 — iOS ONLY additionally requires an active finger-drag. On iOS a momentum-fling
-    // keeps `isScrollInProgress` true after the finger lifts, so combined with mid-stream
-    // content growth it spuriously disengaged sticky (and flickered the FAB). `collectIsDragged`
-    // is true only while the finger is down (the original PR #9 signal), excluding momentum.
-    // Android/desktop keep the proven `isScrollInProgress` path — it deliberately catches the
-    // desktop relayout-anchor clamp (see the comment above `isAtBottom`), which drag-only misses.
-    val dragged by listState.interactionSource.collectIsDraggedAsState()
+    // a relayout clamp, and our own scrolls set `autoScrolling`, so neither misfires. This is
+    // the proven PR #9 path — shared by all platforms. (An earlier PR #46 iOS-only drag-gate
+    // was reverted: `isScrollInProgress` is what lets a momentum-FLING up disengage sticky so
+    // the user can read history; a drag-only gate left a fling engaged and the next token
+    // yanked/teleported the view back — the very jump issue #1 below.)
     LaunchedEffect(listState) {
-        snapshotFlow { Triple(listState.isScrollInProgress, isAtBottom, dragged) }
-            .collect { (scrolling, atBottom, isDragging) ->
-                val userScrolling = if (isIosPlatform) isDragging else scrolling
+        snapshotFlow { listState.isScrollInProgress to isAtBottom }
+            .collect { (scrolling, atBottom) ->
                 when {
-                    userScrolling && !autoScrolling && !atBottom -> stickyToBottom = false
+                    scrolling && !autoScrolling && !atBottom -> stickyToBottom = false
                     atBottom -> stickyToBottom = true
                 }
             }
     }
 
-    // PR #46 — TEMPORARY iOS scroll diagnostic. Confirms the CMP-iOS root cause on a physical
-    // iPhone (fractional density flipping `isAtBottom`; momentum-fling `isScrollInProgress`).
-    // Logs one line per token/layout tick under the `[ScrollDiag]` tag. REMOVE once the epsilon +
-    // drag fixes are verified on device (see docs/IOS_BUILD.md acceptance).
-    if (isIosPlatform) {
-        LaunchedEffect(listState) {
-            snapshotFlow {
-                val info = listState.layoutInfo
-                val last = info.visibleItemsInfo.lastOrNull()
-                // (viewportEnd, lastIndex, lastOffset, lastSize, scrolling, dragged, atBottom, sticky)
-                listOf(
-                    info.viewportEndOffset, last?.index ?: -1, last?.offset ?: 0, last?.size ?: 0,
-                    listState.isScrollInProgress, dragged, isAtBottom, stickyToBottom,
-                )
-            }.collect { println("[ScrollDiag] $it") }
-        }
-    }
-
-    // Auto-follow the tail — MOBILE ONLY (PR #64). Mobile's scroll behavior works and is
-    // left exactly as-is; desktop showed a scroll-up jump that we're isolating by removing
-    // ALL programmatic auto-scroll on desktop (only the explicit FAB jump remains there),
-    // then re-adding desktop behaviors one at a time. On mobile this pins to the bottom
-    // ONLY while a response is actively generating or on a fresh user submit — never on
-    // scroll position and never on other content changes (e.g. an inline memory-prompt
-    // card appearing after a turn).
-    if (!isDesktopPlatform) {
+    // Auto-follow the tail — ANDROID LazyColumn ONLY (PR #64; iOS moved to the eager-Column
+    // path in PR #46 and follows the desktop logic below). Pins to the bottom ONLY while a
+    // response is actively generating or on a fresh user submit — never on scroll position and
+    // never on other content changes (e.g. an inline memory-prompt card appearing after a turn).
+    if (!useEagerColumn) {
         var prevUserTurns by remember { mutableIntStateOf(ui.messages.count { it is UiMessage.User }) }
         LaunchedEffect(listState) {
             snapshotFlow {
@@ -422,11 +399,11 @@ fun ChatScreen(
         }
     }
 
-    // Desktop follow-while-generating (PR #64) — re-added on top of the smooth
+    // Desktop + iOS follow-while-generating (PR #64; iOS added PR #46) — on top of the smooth
     // verticalScroll, which scrolls by pixels (no LazyColumn tall-item skip). Keep the
     // newest output in view while a response streams, but ONLY while generating, and
     // yield the instant the user scrolls up so reading history is never disturbed.
-    if (isDesktopPlatform) {
+    if (useEagerColumn) {
         var follow by remember { mutableStateOf(true) }
         var autoScrollingDesktop by remember { mutableStateOf(false) }
         var prevUserTurns by remember { mutableIntStateOf(ui.messages.count { it is UiMessage.User }) }
@@ -649,15 +626,15 @@ fun ChatScreen(
                 } else {
                     (maxWidth * 0.72f).coerceAtLeast(480.dp)
                 }
-            if (isDesktopPlatform) {
-                // Desktop: a plain Column + verticalScroll instead of LazyColumn.
-                // Compose Desktop's mouse-wheel scrolling skips over LazyColumn items
-                // taller than the viewport — our long markdown response bubbles — so
-                // scrolling up jumps straight past a response to the prior prompt.
-                // verticalScroll moves by pixels through ANY height, giving smooth
-                // scrolling across every bubble. A single conversation is bounded, so
-                // eager (non-lazy) composition is fine. Mobile keeps the LazyColumn (in
-                // the else branch) exactly as-is.
+            if (useEagerColumn) {
+                // Desktop + iOS (PR #46): a plain Column + verticalScroll instead of LazyColumn.
+                // LazyColumn skips/jumps over items taller than the viewport — our long markdown
+                // response bubbles — so scrolling up jumps straight past a response to the prior
+                // prompt (Compose Desktop's mouse-wheel; on iOS the tall bubble composes short
+                // then grows a frame later, reflowing the scroll). verticalScroll moves by pixels
+                // through ANY height, giving smooth scrolling across every bubble. A single
+                // conversation is bounded, so eager (non-lazy) composition is fine. Android keeps
+                // the LazyColumn (in the else branch) exactly as-is.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -722,7 +699,7 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (ui.messages.isEmpty() && ui.partialText.isEmpty() && !ui.isGenerating && ui.error == null) {
-                    item {
+                    item(key = "empty-state", contentType = "empty-state") {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -741,7 +718,19 @@ fun ChatScreen(
                         }
                     }
                 }
-                items(ui.messages) { message ->
+                // PR #46 — STABLE keys + contentType. Without a key, LazyColumn identifies items
+                // by index and estimates the heights of off-screen items; with variable-height
+                // bubbles (markdown/LaTeX/images) those estimates are wrong, so scrolling up
+                // corrects them and yanks the anchor (on iOS, all the way to the first message —
+                // issue #2), and `animateScrollToItem` lands imprecisely (issue #1). A stable key
+                // (the persisted row id) lets LazyColumn cache each item's measured size and keep
+                // the scroll anchor put. Persisted rows have non-empty ids; a transient row (empty
+                // id, only ever at the tail) falls back to its index so keys stay unique.
+                itemsIndexed(
+                    items = ui.messages,
+                    key = { index, message -> messageListKey(message, index) },
+                    contentType = { _, message -> message::class },
+                ) { _, message ->
                     when (message) {
                         is UiMessage.User -> UserBubble(message.text, message.imageBytes, bubbleMaxWidth)
                         is UiMessage.Assistant -> AssistantBubble(
@@ -761,7 +750,7 @@ fun ChatScreen(
                     }
                 }
                 if (ui.partialText.isNotEmpty() || ui.isGenerating || ui.searchStatus !is SearchStatus.None) {
-                    item {
+                    item(key = "streaming-bubble", contentType = "streaming-bubble") {
                         StreamingAssistantBubble(
                             partial = ui.partialText,
                             searchStatus = ui.searchStatus,
@@ -771,7 +760,7 @@ fun ChatScreen(
                     }
                 }
                 if (ui.error != null) {
-                    item {
+                    item(key = "chat-error", contentType = "chat-error") {
                         Text(
                             text = tr(StringKeys.CHAT_ERROR_PREFIX, ui.error),
                             color = MaterialTheme.colorScheme.error,
@@ -785,7 +774,7 @@ fun ChatScreen(
             // "Jump to latest" — appears once the user has scrolled away from the
             // bottom; tapping it scrolls back to the newest content. Desktop drives the
             // verticalScroll state; mobile re-engages sticky-to-bottom + follows the tail.
-            val showJumpToLatest = if (isDesktopPlatform) {
+            val showJumpToLatest = if (useEagerColumn) {
                 desktopScrollState.maxValue > 0 && desktopScrollState.value < desktopScrollState.maxValue
             } else {
                 !stickyToBottom && totalListItems() > 0
@@ -794,7 +783,7 @@ fun ChatScreen(
                 SmallFloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            if (isDesktopPlatform) {
+                            if (useEagerColumn) {
                                 desktopScrollState.animateScrollTo(desktopScrollState.maxValue)
                             } else {
                                 stickyToBottom = true
@@ -1464,7 +1453,7 @@ private fun DesktopLinkStatusIndicator(
  * overlapping animations would queue up and lag). Set true for the
  * user-facing FAB tap so the scroll has visible feedback.
  */
-private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean, epsilonPx: Float = 0f) {
+private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean) {
     if (lastIndex < 0) return
     val needsJump = layoutInfo.visibleItemsInfo.none { it.index == lastIndex }
     if (needsJump) {
@@ -1473,9 +1462,20 @@ private suspend fun LazyListState.followBottom(lastIndex: Int, animate: Boolean,
     val info = layoutInfo
     val last = info.visibleItemsInfo.firstOrNull { it.index == lastIndex } ?: return
     val overflow = (last.offset + last.size) - info.viewportEndOffset
-    // PR #46 — ignore a sub-pixel overflow (default 0f = unchanged for other callers). On iOS
-    // the fractional density otherwise issues a tiny `scrollBy` each token that visibly churns.
-    if (overflow > epsilonPx) {
+    if (overflow > 0) {
         if (animate) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat())
     }
+}
+
+/**
+ * Stable LazyColumn key for a chat row (PR #46): the persisted DB row id, type-prefixed so a
+ * user + assistant row can never collide. A transient row (empty id — only ever at the tail
+ * before persistence) falls back to its index so keys stay unique. Stable keys let LazyColumn
+ * cache each item's measured height and keep the scroll anchor put across variable-height
+ * markdown/LaTeX bubbles.
+ */
+private fun messageListKey(message: UiMessage, index: Int): Any = when (message) {
+    is UiMessage.User -> if (message.id.isNotEmpty()) "u:${message.id}" else "idx:$index"
+    is UiMessage.Assistant -> if (message.id.isNotEmpty()) "a:${message.id}" else "idx:$index"
+    is UiMessage.MemoryPrompt -> if (message.candidateId.isNotEmpty()) "m:${message.candidateId}" else "idx:$index"
 }

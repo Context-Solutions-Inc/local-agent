@@ -57,6 +57,22 @@ below for the one-time Xcode setup each needs):
   ~768px JPEG is ~264 KiB on the wire (double-base64), just over the old cap. Relay server
   (Go) config only; no iOS/SDK change.
 
+**Added in PR #46 — markdown/LaTeX rendering + chat scrolling:**
+
+- **Markdown + LaTeX** — assistant answers render markdown (mikepenz) with real LaTeX math via
+  the native **SwiftMath** bridge (`NativeLatexRenderer` → `LatexBridge.swift`), the iOS
+  counterpart of desktop's JLaTeXMath. Inline math (`$…$`, `\(…\)`) flows within the text line
+  via Compose `InlineTextContent`; display math (`$$…$$`, `\[…\]`) renders as a block image.
+  Bridge absent / malformed formula / decode miss → the raw LaTeX shows as inline code (never
+  crashes). Needs the one-time SwiftMath SPM step (§9 below).
+- **Chat scrolling** — iOS uses the eager `Column` + `verticalScroll` list (like desktop), NOT
+  `LazyColumn`. A tall markdown/LaTeX bubble composes short then grows to full height when a
+  `LazyColumn` scrolls it into view, and that per-item reflow yanked the viewport up past the
+  response to the prior prompt. Eager composition gives every bubble a stable height up front,
+  so `verticalScroll` moves by pixels through any height — smooth, no jump. Gated by
+  `useEagerColumn = isDesktopPlatform || isIosPlatform` in `ChatScreen.kt`; Android keeps its
+  `LazyColumn`.
+
 Deferred to follow-ups (no-op stubs this milestone):
 APNs push-to-wake (the gateway has no push infra; foreground-only like Android), jobs-admin
 (the phone is a remote controller, not an admin), iOS subscription purchase. The local
@@ -290,6 +306,16 @@ CI runs the compile + framework-link gates on `macos-latest` via
     Background/foreground → reconnects without re-scanning. Jobs: run ▶ a job / cancel ⏹ / the
     re-sync icon all drive the desktop. **Image-over-relay** needs the relay
     `RELAY_MAX_MESSAGE_BYTES` at 1 MiB (else the ~264 KiB frame drops the socket).
+12. **Markdown + LaTeX (PR #46):** ask something with inline + display math (e.g. "show the
+    quadratic formula and explain each term") → inline `$x^2$` renders as crisp math *within*
+    the sentence (no line breaks around it), `$$…$$` renders as its own centered block; plain
+    markdown (lists/bold/links/code) still formats; currency prose ("it costs $5 and $10")
+    stays literal; a malformed formula shows as raw code, no crash; long-press selects/copies.
+    (Requires the SwiftMath SPM package + `LatexBridge.swift` on the target — §9.)
+13. **Chat scrolling (PR #46):** with a few long answers in a thread, scroll up slowly from the
+    bottom → the view moves smoothly through every bubble with **no jump to the first prompt**;
+    after a long answer completes you stay at the bottom; the down-arrow FAB reaches the end of
+    the last response.
 
 ## Architecture
 
@@ -301,6 +327,8 @@ CI runs the compile + framework-link gates on `macos-latest` via
 | Voice (Phase 2) | `IosChatSpeaker` (`AVSpeechSynthesizer`) + `IosSpeechDictation` (`SFSpeechRecognizer`) | pure Kotlin/Native, no Swift bridge |
 | Relay / pairing (Phase 4) | Swift `RelayBridge` → Kotlin `NativeRelayBridge` → `IosRelayBytePipe`/`IosRelayBytePipeFactory` → shared `RelayBytePipe`/`LinkTransportProvider` seam | native `SecureGatewaySDK`; chat routes via `DesktopLinkInferenceEngine`, sync via `SyncController` |
 | QR scan (Phase 4) | Swift `QRScannerBridge` (AVFoundation) → Kotlin `NativeQrScanner` | reuses `NSCameraUsageDescription` |
+| Markdown / LaTeX (PR #46) | mikepenz `Markdown` + Swift `LatexBridge` (SwiftMath) → Kotlin `NativeLatexRenderer` → `PlatformMarkdownMath.ios.kt` | inline math via `InlineTextContent`; display math as block image |
+| Chat list / scrolling (PR #46) | eager `Column` + `verticalScroll` (shared with desktop, `useEagerColumn`) | NOT `LazyColumn` — avoids the tall-bubble compose-then-grow scroll jump |
 | Networking | `IosHttpEngineFactory` (Ktor Darwin) | Ollama/search |
 | Secrets | `IosSecureStorage` (Keychain) | Ollama/Brave keys, relay pairing state + identity |
 | Database | `IosDatabaseFactory` (`NativeSqliteDriver`, unkeyed) | |
